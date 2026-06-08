@@ -68,9 +68,19 @@ function isErrorBody(text: string) {
 
 export async function testChannel(channel: typeof schema.channels.$inferSelect) {
   const ping = await pingChannel(channel);
+  return recordChannelObservation(channel, ping, { failureStatus: "err" });
+}
+
+export async function recordChannelObservation(
+  channel: typeof schema.channels.$inferSelect,
+  ping: { ok: boolean; latencyMs: number; error?: string },
+  opts: { failureStatus?: "warn" | "err" } = {},
+) {
   const p50 = Math.round(0.7 * channel.p50Ms + 0.3 * ping.latencyMs);
   const err = Math.round((0.7 * channel.errRate + 0.3 * (ping.ok ? 0 : 100)) * 10) / 10;
-  const status: "ok" | "warn" | "err" = ping.ok ? (err > 5 ? "warn" : "ok") : "err";
+  const status: "ok" | "warn" | "err" = ping.ok
+    ? (err > 5 ? "warn" : "ok")
+    : opts.failureStatus === "err" || err >= 50 ? "err" : "warn";
   const ts = Date.now();
 
   if (usePostgres()) {

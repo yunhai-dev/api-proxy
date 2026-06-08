@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtClockStamp, statusClass, statusLabel } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 
 type LogEntry = {
   id: number;
@@ -36,6 +38,7 @@ type LogEntry = {
 const STATUSES = ["all", "2xx", "4xx", "5xx", "err"] as const;
 type StatusFilter = (typeof STATUSES)[number];
 type UserOption = { id: string; username: string; displayName: string };
+const pageSize = 50;
 
 export function LogStream({ initial, mode = "user", users = [] }: { initial: LogEntry[]; mode?: "user" | "admin"; users?: UserOption[] }) {
   const [rows, setRows] = useState<LogEntry[]>(initial);
@@ -43,6 +46,10 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
+  const [modelFilter, setModelFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
   const [selectedError, setSelectedError] = useState<LogEntry | null>(null);
   const pausedRef = useRef(paused);
@@ -53,6 +60,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
     const qs = selectedUserId === "all" ? "" : `?userId=${encodeURIComponent(selectedUserId)}`;
     fetch(`/api/logs${qs}`).then(r => r.ok ? r.json() : []).then(setRows).catch(() => null);
   }, [mode, selectedUserId]);
+  useEffect(() => { setPage(1); }, [selectedUserId, status, search, providerFilter, channelFilter, modelFilter]);
 
   useEffect(() => {
     const qs = mode === "admin" && selectedUserId !== "all" ? `?userId=${encodeURIComponent(selectedUserId)}` : "";
@@ -100,11 +108,21 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
       out = out.filter(r =>
         r.requestId.toLowerCase().includes(s) ||
         r.keyPrefix.toLowerCase().includes(s) ||
-        r.keyName.toLowerCase().includes(s)
+        r.keyName.toLowerCase().includes(s) ||
+        r.model.toLowerCase().includes(s) ||
+        r.channelName.toLowerCase().includes(s)
       );
     }
+    if (providerFilter !== "all") out = out.filter(r => r.channelType === providerFilter);
+    if (channelFilter !== "all") out = out.filter(r => r.channelName === channelFilter);
+    if (modelFilter !== "all") out = out.filter(r => (r.inboundModel || r.model) === modelFilter || r.model === modelFilter);
     return out;
-  }, [rows, status, search]);
+  }, [rows, status, search, providerFilter, channelFilter, modelFilter]);
+  const channelOptions = [...new Set(rows.map(r => r.channelName).filter(Boolean))].sort();
+  const modelOptions = [...new Set(rows.flatMap(r => [r.inboundModel, r.model]).filter(Boolean))].sort();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function errorText(entry: LogEntry) {
     const detail = entry.errorMsg ?? entry.requestDetail;
@@ -135,7 +153,8 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
         </div>
         <div className="search log-search">
           <span className="icon mono">/</span>
-          <input
+          <Input
+            tone="search"
             type="text"
             placeholder="请求ID / API Key"
             value={search}
@@ -149,8 +168,11 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
             options={[{ value: "all", label: "全部用户" }, ...users.map(u => ({ value: u.id, label: `${u.displayName} (${u.username})` }))]}
           />
         )}
+        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, ...channelOptions.map(name => ({ value: name, label: name }))]} />
+        <Select value={modelFilter} onChange={setModelFilter} options={[{ value: "all", label: "全部模型" }, ...modelOptions.map(name => ({ value: name, label: name }))]} />
         <div className="spacer" />
-        <span className="dim mono" style={{ fontSize: 11.5 }}>实时追踪</span>
+        <span className="dim mono" style={{ fontSize: 11.5 }}>{filtered.length} logs</span>
       </div>
 
       <div className="log-wrap">
@@ -169,10 +191,10 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           <span style={{ textAlign: "right" }}>创建</span>
           <span style={{ textAlign: "right" }}>消费</span>
         </div>
-        {filtered.length === 0 && (
+        {pageRows.length === 0 && (
           <div className="empty">无日志 <span className="mono">// no rows</span></div>
         )}
-        {filtered.map((r, i) => {
+        {pageRows.map((r, i) => {
           const cls = statusClass(r.status);
           const slow = r.latencyMs > 3000;
           const isNew = newIds.has(r.id) || newIds.has(r.ts);
@@ -204,6 +226,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           );
         })}
       </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
 
       {selectedError && (
         <div className="modal-backdrop" onClick={() => setSelectedError(null)}>

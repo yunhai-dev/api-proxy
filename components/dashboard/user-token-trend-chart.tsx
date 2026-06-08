@@ -33,6 +33,11 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
   const showDate = last - first >= 24 * 60 * 60 * 1000;
   const names = new Map(users.map(user => [user.id, user.name]));
   const hasData = users.some(user => user.totalTokens > 0);
+  const chartData = data.map(point => {
+    const next = { ...point };
+    for (const user of users) next[user.id] = point[user.id] ?? 0;
+    return next;
+  });
 
   return (
     <section className="section user-token-trend-section">
@@ -42,7 +47,7 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
       </div>
       <div className="throughput-chart">
         <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={data} margin={{ top: 18, right: 18, bottom: 0, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 18, right: 18, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" vertical={false} />
             <XAxis dataKey="ts" tickFormatter={value => fmtTime(Number(value), showDate)} stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
             <YAxis stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
@@ -52,7 +57,7 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
               formatter={(value, name) => [fmtToken(Number(value)), names.get(String(name)) ?? String(name)]}
             />
             {users.map((user, index) => (
-              <Line key={user.id} type="monotone" dataKey={user.id} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} />
+              <Line key={user.id} type="monotone" dataKey={user.id} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} connectNulls />
             ))}
           </LineChart>
         </ResponsiveContainer>

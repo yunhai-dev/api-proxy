@@ -22,6 +22,16 @@ export type PublicModel = {
   outputPricePerMTok: number | null;
   cacheReadPricePerMTok: number | null;
   cacheCreationPricePerMTok: number | null;
+  channelPrices: PublicModelPrice[];
+};
+
+export type PublicModelPrice = {
+  channelId: string;
+  channelName: string;
+  inputPricePerMTok: number;
+  outputPricePerMTok: number;
+  cacheReadPricePerMTok: number;
+  cacheCreationPricePerMTok: number;
 };
 
 export function modelConfig(provider: Provider, model: string) {
@@ -102,14 +112,16 @@ export async function visibleModelsAsync(provider: Provider) {
 export async function publicModelsAsync(): Promise<PublicModel[]> {
   if (usePostgres()) {
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
-    const [rows, prices] = await Promise.all([
+    const [rows, prices, channels] = await Promise.all([
       pgDb
         .select()
         .from(pgSchema.modelCatalog)
         .where(and(eq(pgSchema.modelCatalog.visible, true), eq(pgSchema.modelCatalog.enabled, true))),
       pgDb.select().from(pgSchema.modelPrices),
+      pgDb.select({ id: pgSchema.channels.id, name: pgSchema.channels.name }).from(pgSchema.channels),
     ]);
     const priceMap = modelPriceMap(prices);
+    const channelNames = new Map(channels.map(channel => [channel.id, channel.name]));
     return rows
       .filter(row => row.provider === "claude" || row.provider === "openai")
       .map(row => withPrice({
@@ -118,10 +130,11 @@ export async function publicModelsAsync(): Promise<PublicModel[]> {
         model: row.model,
         displayName: row.displayName || row.model,
         upstreamModel: row.upstreamModel || row.model,
-      }, priceMap))
+      }, priceMap, channelNames))
       .sort((a, b) => a.provider.localeCompare(b.provider) || a.displayName.localeCompare(b.displayName));
   }
   const prices = modelPriceMap(db.select().from(schema.modelPrices).all());
+  const channelNames = new Map(db.select({ id: schema.channels.id, name: schema.channels.name }).from(schema.channels).all().map(channel => [channel.id, channel.name]));
   return db
     .select()
     .from(schema.modelCatalog)
@@ -133,22 +146,34 @@ export async function publicModelsAsync(): Promise<PublicModel[]> {
       model: row.model,
       displayName: row.displayName || row.model,
       upstreamModel: row.upstreamModel || row.model,
-    }, prices))
+    }, prices, channelNames))
     .sort((a, b) => a.provider.localeCompare(b.provider) || a.displayName.localeCompare(b.displayName));
 }
 
-function modelPriceMap(rows: { provider: string; model: string; inputPricePerMTok: number; outputPricePerMTok: number; cacheReadPricePerMTok: number; cacheCreationPricePerMTok: number }[]) {
-  return new Map(rows.map(row => [`${row.provider}:${row.model}`, row]));
+function modelPriceMap(rows: { provider: string; channelId?: string; model: string; inputPricePerMTok: number; outputPricePerMTok: number; cacheReadPricePerMTok: number; cacheCreationPricePerMTok: number }[]) {
+  return new Map(rows.map(row => [row.channelId ? `${row.channelId}:${row.model}` : `${row.provider}:${row.model}`, row]));
 }
 
-function withPrice(model: Omit<PublicModel, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok">, prices: ReturnType<typeof modelPriceMap>): PublicModel {
-  const price = prices.get(`${model.provider}:${model.model}`);
+function withPrice(model: Omit<PublicModel, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok" | "channelPrices">, prices: ReturnType<typeof modelPriceMap>, channelNames: Map<string, string>): PublicModel {
+  const channelPrices = [...prices.values()]
+    .filter(price => price.model === model.model && (price.channelId || price.provider === model.provider))
+    .map(price => ({
+      channelId: price.channelId ?? "",
+      channelName: price.channelId ? channelNames.get(price.channelId) ?? price.channelId : "默认价",
+      inputPricePerMTok: price.inputPricePerMTok,
+      outputPricePerMTok: price.outputPricePerMTok,
+      cacheReadPricePerMTok: price.cacheReadPricePerMTok,
+      cacheCreationPricePerMTok: price.cacheCreationPricePerMTok,
+    }))
+    .sort((a, b) => (a.channelId ? 1 : 0) - (b.channelId ? 1 : 0) || a.channelName.localeCompare(b.channelName));
+  const price = channelPrices[0] ?? null;
   return {
     ...model,
     inputPricePerMTok: price?.inputPricePerMTok ?? null,
     outputPricePerMTok: price?.outputPricePerMTok ?? null,
     cacheReadPricePerMTok: price?.cacheReadPricePerMTok ?? null,
     cacheCreationPricePerMTok: price?.cacheCreationPricePerMTok ?? null,
+    channelPrices,
   };
 }
 

@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 
 type ModelPrice = {
   id: string;
   provider: "claude" | "openai";
+  channelId: string;
   model: string;
   inputPricePerMTok: number;
   outputPricePerMTok: number;
@@ -14,9 +17,10 @@ type ModelPrice = {
   cacheCreationPricePerMTok: number;
 };
 
-type Channel = { type: "claude" | "openai"; enabled: boolean; models: string[] };
+type Channel = { id: string; name: string; type: "claude" | "openai"; enabled: boolean; models: string[] };
 type Mapping = { provider: "claude" | "openai"; inboundModel: string; upstreamModel: string };
 type CatalogModel = { provider: "claude" | "openai"; id: string; displayName: string };
+const pageSize = 20;
 
 export function PricingTable() {
   const toast = useToast();
@@ -25,13 +29,18 @@ export function PricingTable() {
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([]);
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
+  const [channelId, setChannelId] = useState("");
   const [model, setModel] = useState("");
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [cacheRead, setCacheRead] = useState("");
   const [cacheCreation, setCacheCreation] = useState("");
+  const [query, setQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   useEffect(() => { load(); loadSources(); }, []);
+  useEffect(() => { setPage(1); }, [query, providerFilter]);
 
   async function load() {
     const r = await fetch("/api/model-prices");
@@ -45,16 +54,31 @@ export function PricingTable() {
     if (modelsRes.ok) setCatalogModels(await modelsRes.json());
   }
 
+  const activeProvider = channelId ? channels.find(c => c.id === channelId)?.type ?? provider : provider;
   const modelOptions = [...new Set([
-    ...catalogModels.filter(m => m.provider === provider).map(m => m.id),
-    ...channels.filter(c => c.enabled && c.type === provider).flatMap(c => c.models).filter(m => m && m !== "*"),
-    ...mappings.filter(m => m.provider === provider).flatMap(m => [m.inboundModel, m.upstreamModel]).filter(Boolean),
+    ...catalogModels.filter(m => m.provider === activeProvider).map(m => m.id),
+    ...(channelId
+      ? channels.filter(c => c.id === channelId).flatMap(c => c.models)
+      : channels.filter(c => c.enabled && c.type === activeProvider).flatMap(c => c.models)
+    ).filter(m => m && m !== "*"),
+    ...mappings.filter(m => m.provider === activeProvider).flatMap(m => [m.inboundModel, m.upstreamModel]).filter(Boolean),
   ])].sort();
   const providerCounts = {
     claude: modelOptionsFor("claude").length,
     openai: modelOptionsFor("openai").length,
   };
-  const existing = prices.find(row => row.provider === provider && row.model === model.trim());
+  const channelNames = new Map(channels.map(c => [c.id, c.name]));
+  const existing = prices.find(row => (row.channelId ?? "") === channelId && row.model === model.trim());
+  const filteredPrices = prices.filter(row => {
+    const q = query.trim().toLowerCase();
+    const channelName = row.channelId ? channelNames.get(row.channelId) ?? row.channelId : "默认价";
+    const matchesQuery = !q || row.model.toLowerCase().includes(q) || channelName.toLowerCase().includes(q);
+    const matchesProvider = providerFilter === "all" || row.provider === providerFilter;
+    return matchesQuery && matchesProvider;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredPrices.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagePrices = filteredPrices.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function modelOptionsFor(nextProvider: "claude" | "openai") {
     return [...new Set([
@@ -71,7 +95,8 @@ export function PricingTable() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        provider,
+        provider: activeProvider,
+        channelId,
         model,
         inputPricePerMTok: Number(input) || 0,
         outputPricePerMTok: Number(output) || 0,
@@ -96,15 +121,21 @@ export function PricingTable() {
       <div className="pricing-editor">
         <div className="pricing-provider-switch" aria-label="选择服务商">
           <span className="pricing-provider-label">服务商</span>
-          <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => { setProvider("claude"); setModel(""); }} type="button">
+          <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => { setProvider("claude"); setChannelId(""); setModel(""); }} type="button">
             <span>Claude</span>
             <small className="mono">{providerCounts.claude} models</small>
           </button>
-          <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => { setProvider("openai"); setModel(""); }} type="button">
+          <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => { setProvider("openai"); setChannelId(""); setModel(""); }} type="button">
             <span>OpenAI</span>
             <small className="mono">{providerCounts.openai} models</small>
           </button>
         </div>
+        <Select
+          className="fill-select"
+          value={channelId || "__default"}
+          onChange={v => { setChannelId(v === "__default" ? "" : v); setModel(""); }}
+          options={[{ value: "__default", label: `${provider === "claude" ? "Claude" : "OpenAI"} 默认价` }, ...channels.filter(c => c.type === provider).map(c => ({ value: c.id, label: `${c.name} (${c.type})` }))]}
+        />
         <Select
           className="fill-select"
           editable
@@ -112,7 +143,7 @@ export function PricingTable() {
           onChange={setModel}
           placeholder="选择或输入模型 ID"
           options={modelOptions.map(m => {
-            const used = prices.some(row => row.provider === provider && row.model === m);
+            const used = prices.some(row => (row.channelId ?? "") === channelId && row.model === m);
             return { value: m, label: m, hint: used ? "已定价" : undefined, disabled: used };
           })}
         />
@@ -122,12 +153,20 @@ export function PricingTable() {
         <input className="mono" value={cacheCreation} onChange={e => setCacheCreation(e.target.value)} placeholder="创建缓存 $/M" />
         <button className="btn primary" onClick={save} disabled={!!existing}>保存定价</button>
       </div>
-      {existing && <div className="pricing-error">该模型已配置定价，请先删除旧定价后再新增。</div>}
+      {existing && <div className="pricing-error">该渠道下该模型已配置定价，请先删除旧定价后再新增。</div>}
+
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型定价" />
+        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredPrices.length} prices</span>
+      </div>
 
       <table className="table">
         <thead>
           <tr>
             <th>服务商</th>
+            <th>渠道</th>
             <th>模型</th>
             <th>输入单价</th>
             <th>输出单价</th>
@@ -137,10 +176,11 @@ export function PricingTable() {
           </tr>
         </thead>
         <tbody>
-          {prices.length === 0 && <tr><td colSpan={7} className="empty">暂无模型定价，未配置的模型成本按 0 计算。</td></tr>}
-          {prices.map(row => (
+          {pagePrices.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配定价，未配置的模型成本按 0 计算。</td></tr>}
+          {pagePrices.map(row => (
             <tr key={row.id}>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
+              <td>{row.channelId ? channelNames.get(row.channelId) ?? row.channelId : <span className="dim">默认价</span>}</td>
               <td className="mono">{row.model}</td>
               <td className="mono">${row.inputPricePerMTok}/M Token</td>
               <td className="mono">${row.outputPricePerMTok}/M Token</td>
@@ -151,6 +191,7 @@ export function PricingTable() {
           ))}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredPrices.length} onPageChange={setPage} />
     </>
   );
 }

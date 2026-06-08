@@ -4,6 +4,7 @@ import type { LogEntry } from "./types";
 import { addTpm } from "@/lib/rate-limit";
 import { getRedis } from "@/lib/redis";
 import { usePostgres } from "@/lib/db/runtime";
+import { modelLookupCandidates } from "@/lib/model-variants";
 
 type Subscriber = (entry: LogEntry) => void;
 type LogInput = Omit<LogEntry, "id" | "cacheTokens" | "cacheReadTokens" | "cacheCreationTokens" | "ttftMs" | "durationMs" | "cost"> & {
@@ -53,7 +54,7 @@ class LogHub {
     }).run();
 
     if (e.keyId) {
-      const cost = e.cost ?? logCost(e.channelType, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
+      const cost = e.cost ?? logCost(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
       const key = db.select().from(schema.keys).where(eq(schema.keys.id, e.keyId)).get();
       db.update(schema.keys)
@@ -119,7 +120,7 @@ class LogHub {
     }).returning({ id: pgSchema.requestLogs.id });
 
     if (e.keyId) {
-      const cost = e.cost ?? await logCostAsync(e.channelType, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
+      const cost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
       const key = (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0];
       await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: (key?.used ?? 0) + addTok }).where(eq(pgSchema.keys.id, e.keyId));
@@ -161,8 +162,8 @@ class LogHub {
     if (e.keyId) {
       const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
       const newTokens = e.tokensIn + e.tokensOut;
-      const oldCost = prev ? logCost(e.channelType, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
-      const newCost = e.cost ?? logCost(e.channelType, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
+      const oldCost = prev ? logCost(e.channelType, e.channelId, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
+      const newCost = e.cost ?? logCost(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (newTokens - oldTokens) / 1_000_000;
       if (addTok !== 0) {
         const key = db.select().from(schema.keys).where(eq(schema.keys.id, e.keyId)).get();
@@ -233,8 +234,8 @@ class LogHub {
     if (e.keyId) {
       const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
       const newTokens = e.tokensIn + e.tokensOut;
-      const oldCost = prev ? await logCostAsync(e.channelType, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
-      const newCost = e.cost ?? await logCostAsync(e.channelType, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
+      const oldCost = prev ? await logCostAsync(e.channelType, e.channelId, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
+      const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (newTokens - oldTokens) / 1_000_000;
       if (addTok !== 0) {
         const key = (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0];
@@ -320,8 +321,22 @@ async function addTokenUsage(keyId: string, userId: string | undefined, tokens: 
   if (userId) await addTpm("user", userId, tokens);
 }
 
-function logCost(provider: "claude" | "openai", model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
-  const price = db.select().from(schema.modelPrices).where(eq(schema.modelPrices.model, model)).all().find(p => p.provider === provider);
+function logCost(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
+  const candidates = modelLookupCandidates(model);
+  const prices = db.select().from(schema.modelPrices).all().filter(row => candidates.includes(row.model));
+  const resolvedPrice = resolvePrice(provider, channelId, candidates, prices);
+  if (!resolvedPrice) return 0;
+  return (tokensIn / 1_000_000) * resolvedPrice.inputPricePerMTok
+    + (tokensOut / 1_000_000) * resolvedPrice.outputPricePerMTok
+    + (cacheReadTokens / 1_000_000) * resolvedPrice.cacheReadPricePerMTok
+    + (cacheCreationTokens / 1_000_000) * resolvedPrice.cacheCreationPricePerMTok;
+}
+
+async function logCostAsync(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
+  const { pgDb, pgSchema } = await import("@/lib/db/pg");
+  const candidates = modelLookupCandidates(model);
+  const prices = (await pgDb.select().from(pgSchema.modelPrices)).filter(row => candidates.includes(row.model));
+  const price = resolvePrice(provider, channelId, candidates, prices);
   if (!price) return 0;
   return (tokensIn / 1_000_000) * price.inputPricePerMTok
     + (tokensOut / 1_000_000) * price.outputPricePerMTok
@@ -329,15 +344,16 @@ function logCost(provider: "claude" | "openai", model: string, tokensIn: number,
     + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok;
 }
 
-async function logCostAsync(provider: "claude" | "openai", model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
-  const { pgDb, pgSchema } = await import("@/lib/db/pg");
-  const prices = await pgDb.select().from(pgSchema.modelPrices).where(eq(pgSchema.modelPrices.model, model));
-  const price = prices.find(p => p.provider === provider);
-  if (!price) return 0;
-  return (tokensIn / 1_000_000) * price.inputPricePerMTok
-    + (tokensOut / 1_000_000) * price.outputPricePerMTok
-    + (cacheReadTokens / 1_000_000) * price.cacheReadPricePerMTok
-    + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok;
+function resolvePrice<T extends { provider: string; channelId?: string; model: string }>(provider: "claude" | "openai", channelId: string, models: string[], prices: T[]) {
+  for (const model of models) {
+    const channelPrice = prices.find(p => p.channelId === channelId && p.model === model);
+    if (channelPrice) return channelPrice;
+  }
+  for (const model of models) {
+    const providerPrice = prices.find(p => !p.channelId && p.provider === provider && p.model === model);
+    if (providerPrice) return providerPrice;
+  }
+  return null;
 }
 
 function logEntryFromInput(id: number, ts: number, e: LogInput): LogEntry {

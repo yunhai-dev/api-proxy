@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import type { PublicModel } from "@/lib/model-catalog";
 
 type Props = {
@@ -9,19 +12,30 @@ type Props = {
 };
 
 const API_KEY = "sk-relay-XXXX-xxxxxxxxxxxxxxxx";
+const pageSize = 12;
 
 function fmtPrice(value: number | null) {
   return value === null ? "未定价" : `$${value}/M`;
 }
 
 function hasPrice(model: PublicModel) {
-  return model.inputPricePerMTok !== null || model.outputPricePerMTok !== null || model.cacheReadPricePerMTok !== null || model.cacheCreationPricePerMTok !== null;
+  return model.channelPrices.length > 0 || model.inputPricePerMTok !== null || model.outputPricePerMTok !== null || model.cacheReadPricePerMTok !== null || model.cacheCreationPricePerMTok !== null;
+}
+
+function priceSummary(model: PublicModel) {
+  if (model.channelPrices.length === 0) return "未定价";
+  if (model.channelPrices.length === 1) return model.channelPrices[0].channelName;
+  return `${model.channelPrices.length} 个渠道价`;
 }
 
 export function ModelSquareList({ models }: Props) {
   const [selected, setSelected] = useState<PublicModel | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [copied, setCopied] = useState("");
+  const [query, setQuery] = useState("");
+  const [priceFilter, setPriceFilter] = useState("all");
+  const [upstreamFilter, setUpstreamFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setBaseUrl(window.location.origin);
@@ -35,6 +49,18 @@ export function ModelSquareList({ models }: Props) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selected]);
+  useEffect(() => { setPage(1); }, [query, priceFilter, upstreamFilter, models]);
+
+  const filteredModels = models.filter(model => {
+    const q = query.trim().toLowerCase();
+    const matchesQuery = !q || [model.displayName, model.model, model.upstreamModel].some(value => value.toLowerCase().includes(q));
+    const matchesPrice = priceFilter === "all" || (priceFilter === "priced" ? hasPrice(model) : !hasPrice(model));
+    const matchesUpstream = upstreamFilter === "all" || (upstreamFilter === "mapped" ? model.upstreamModel !== model.model : model.upstreamModel === model.model);
+    return matchesQuery && matchesPrice && matchesUpstream;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredModels.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageModels = filteredModels.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   async function copy(label: string, value: string) {
     await navigator.clipboard?.writeText(value);
@@ -44,8 +70,16 @@ export function ModelSquareList({ models }: Props) {
 
   return (
     <>
+      <div className="list-toolbar model-square-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型 / 上游模型" />
+        <Select value={priceFilter} onChange={setPriceFilter} options={[{ value: "all", label: "全部定价" }, { value: "priced", label: "已定价" }, { value: "unpriced", label: "未定价" }]} />
+        <Select value={upstreamFilter} onChange={setUpstreamFilter} options={[{ value: "all", label: "全部上游" }, { value: "direct", label: "直接上游" }, { value: "mapped", label: "映射上游" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredModels.length} models</span>
+      </div>
       <div className="model-square-grid">
-        {models.map(model => (
+        {pageModels.length === 0 && <div className="empty">暂无匹配模型</div>}
+        {pageModels.map(model => (
           <button className={`model-square-card ${model.provider}`} key={model.id} onClick={() => setSelected(model)} type="button">
             <div className="model-square-card-top">
               <span className={`type-pill ${model.provider}`}>{model.provider}</span>
@@ -68,12 +102,13 @@ export function ModelSquareList({ models }: Props) {
               <div><span>输出</span><strong>{fmtPrice(model.outputPricePerMTok)}</strong></div>
             </div>
             <div className="model-square-meta mono">
-              <span>upstream</span>
-              <strong>{model.upstreamModel}</strong>
+              <span>pricing</span>
+              <strong>{priceSummary(model)}</strong>
             </div>
           </button>
         ))}
       </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredModels.length} onPageChange={setPage} />
 
       {selected && (
         <div className="model-detail-backdrop" onClick={() => setSelected(null)}>
@@ -99,6 +134,17 @@ export function ModelSquareList({ models }: Props) {
               <div><span>输出单价</span><strong>{fmtPrice(selected.outputPricePerMTok)}</strong></div>
               {hasPrice(selected) && <div><span>缓存</span><strong>读 {fmtPrice(selected.cacheReadPricePerMTok)} · 写 {fmtPrice(selected.cacheCreationPricePerMTok)}</strong></div>}
             </div>
+
+            {selected.channelPrices.length > 0 && (
+              <div className="model-detail-prices mono">
+                {selected.channelPrices.map(price => (
+                  <div key={`${price.channelId || "default"}:${selected.model}`}>
+                    <span>{price.channelName}</span>
+                    <strong>输入 {fmtPrice(price.inputPricePerMTok)} · 输出 {fmtPrice(price.outputPricePerMTok)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <ModelSnippet model={selected} baseUrl={baseUrl} copied={copied} onCopy={copy} />
 

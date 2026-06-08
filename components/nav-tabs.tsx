@@ -46,7 +46,7 @@ export function NavTabs({ isAdmin = false }: { isAdmin?: boolean }) {
   return (
     <nav className="nav">
       {tabs.map(t => {
-        const active = pathname === t.href || (t.href === "/dashboard" && pathname === "/") || (t.href === "/admin/dashboard" && pathname === "/dashboard" && isAdmin);
+        const active = pathname === t.href || (t.href === "/dashboard" && pathname === "/");
         return (
           <Link key={t.href} href={t.href} className={active ? "active" : ""}>
             <span className="key">{t.key}</span> {t.label}

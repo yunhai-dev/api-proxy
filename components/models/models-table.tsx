@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { useToast } from "@/components/toast";
 
 type Provider = "claude" | "openai";
@@ -18,6 +20,7 @@ type ModelRow = {
 
 type Channel = { type: Provider; enabled: boolean; models: string[] };
 type Mapping = { provider: Provider; inboundModel: string; upstreamModel: string };
+const pageSize = 20;
 
 export function ModelsTable() {
   const toast = useToast();
@@ -32,8 +35,14 @@ export function ModelsTable() {
   const [visible, setVisible] = useState(true);
   const [enabled, setEnabled] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [visibleFilter, setVisibleFilter] = useState("all");
+  const [enabledFilter, setEnabledFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   useEffect(() => { load(); loadSources(); }, []);
+  useEffect(() => { setPage(1); }, [provider, query, visibleFilter, enabledFilter, sourceFilter]);
 
   async function load() {
     const r = await fetch("/api/models");
@@ -47,8 +56,21 @@ export function ModelsTable() {
   }
 
   const providerRows = rows.filter(row => row.provider === provider);
+  const filteredRows = providerRows.filter(row => {
+    const q = query.trim().toLowerCase();
+    const sources = mappings.filter(m => m.provider === row.provider && m.upstreamModel === row.id).map(m => m.inboundModel);
+    const matchesQuery = !q || [row.id, row.displayName, ...sources].some(value => value.toLowerCase().includes(q));
+    const matchesVisible = visibleFilter === "all" || (visibleFilter === "visible" ? row.visible : !row.visible);
+    const matchesEnabled = enabledFilter === "all" || (enabledFilter === "enabled" ? row.enabled : !row.enabled);
+    const matchesSource = sourceFilter === "all" || (sourceFilter === "configured" ? row.configured : !row.configured);
+    return matchesQuery && matchesVisible && matchesEnabled && matchesSource;
+  });
   const selectedRows = providerRows.filter(row => selected.includes(rowKey(row)));
-  const allSelected = providerRows.length > 0 && selectedRows.length === providerRows.length;
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const visibleSelectedRows = filteredRows.filter(row => selected.includes(rowKey(row)));
+  const allSelected = filteredRows.length > 0 && visibleSelectedRows.length === filteredRows.length;
   const mappedSources = new Map<string, string[]>();
   for (const mapping of mappings.filter(m => m.provider === provider)) {
     const current = mappedSources.get(mapping.upstreamModel) ?? [];
@@ -149,9 +171,16 @@ export function ModelsTable() {
   return (
     <>
       <div className="page-actions">
-        <div className="segmented">
-          <button className={`seg-btn ${provider === "claude" ? "active" : ""}`} onClick={() => switchProvider("claude")}>Claude</button>
-          <button className={`seg-btn ${provider === "openai" ? "active" : ""}`} onClick={() => switchProvider("openai")}>OpenAI</button>
+        <div className="pricing-provider-switch" aria-label="选择服务商">
+          <span className="pricing-provider-label">服务商</span>
+          <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => switchProvider("claude")} type="button">
+            <span>Claude</span>
+            <small className="mono">{rows.filter(row => row.provider === "claude").length} models</small>
+          </button>
+          <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => switchProvider("openai")} type="button">
+            <span>OpenAI</span>
+            <small className="mono">{rows.filter(row => row.provider === "openai").length} models</small>
+          </button>
         </div>
         <button className="btn ghost" onClick={() => bulkUpdate({ visible: true })} disabled={selectedRows.length === 0}>展示</button>
         <button className="btn ghost" onClick={() => bulkUpdate({ visible: false })} disabled={selectedRows.length === 0}>隐藏</button>
@@ -159,6 +188,14 @@ export function ModelsTable() {
         <button className="btn ghost" onClick={() => bulkUpdate({ enabled: false })} disabled={selectedRows.length === 0}>停用</button>
         {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 个</span>}
         <button className="btn primary" onClick={openCreate}>+ 添加模型</button>
+      </div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型 / 展示名 / 映射来源" />
+        <Select value={visibleFilter} onChange={setVisibleFilter} options={[{ value: "all", label: "全部展示状态" }, { value: "visible", label: "已展示" }, { value: "hidden", label: "已隐藏" }]} />
+        <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
+        <Select value={sourceFilter} onChange={setSourceFilter} options={[{ value: "all", label: "全部来源" }, { value: "configured", label: "手动配置" }, { value: "discovered", label: "自动发现" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredRows.length} models</span>
       </div>
 
       {open && (
@@ -208,7 +245,7 @@ export function ModelsTable() {
                 className={`check-control ${allSelected ? "checked" : ""}`}
                 aria-label="选择全部模型"
                 aria-pressed={allSelected}
-                onClick={() => setSelected(allSelected ? [] : providerRows.map(rowKey))}
+                onClick={() => setSelected(allSelected ? [] : filteredRows.map(rowKey))}
               />
             </th>
             <th>服务商</th>
@@ -220,8 +257,8 @@ export function ModelsTable() {
           </tr>
         </thead>
         <tbody>
-          {providerRows.length === 0 && <tr><td colSpan={7} className="empty">暂无模型</td></tr>}
-          {providerRows.map(row => (
+          {pageRows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型</td></tr>}
+          {pageRows.map(row => (
             <tr key={`${row.provider}:${row.id}`}>
               <td>
                 <button
@@ -247,6 +284,7 @@ export function ModelsTable() {
           ))}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
     </>
   );
 }

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/toast";
 import { fmtRelativeTime, maskKey, quotaCls, quotaPct } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { KeyForm } from "./key-form";
 
 type Key = {
@@ -20,6 +22,7 @@ type Key = {
   lastUsedAt: number | null;
 };
 type User = { id: string; username: string; displayName: string };
+const pageSize = 20;
 
 function trimNumber(value: number, digits: number) {
   return value.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -42,6 +45,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
   const [filter, setFilter] = useState<"all" | "active" | "disabled" | "exceeded">("all");
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Key | null>(null);
+  const [page, setPage] = useState(1);
 
   async function load() {
     const qs = mode === "admin" && selectedUserId !== "all" ? `?userId=${encodeURIComponent(selectedUserId)}` : "";
@@ -53,6 +57,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
     }
   }
   useEffect(() => { load(); }, [mode, selectedUserId]);
+  useEffect(() => { setPage(1); }, [selectedUserId, filter, search]);
 
   const counts = useMemo(() => ({
     all: keys.length,
@@ -72,6 +77,9 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
     return l;
   }, [keys, filter, search]);
   const userNames = useMemo(() => new Map(users.map(u => [u.id, `${u.displayName} (${u.username})`])), [users]);
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageList = list.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   async function toggle(k: Key) {
     const next = k.status === "active" ? "disabled" : "active";
@@ -147,7 +155,8 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
       <div className="filterbar">
         <div className="search">
           <span className="icon mono">/</span>
-          <input
+          <Input
+            tone="search"
             type="text"
             placeholder={mode === "admin" ? "按名称、密钥前缀筛选…" : "按名称、密钥前缀筛选…"}
             value={search}
@@ -192,10 +201,10 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
           </tr>
         </thead>
         <tbody>
-          {list.length === 0 && (
+          {pageList.length === 0 && (
             <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty">无匹配密钥 <span className="mono">// no results</span></td></tr>
           )}
-          {list.map(k => {
+          {pageList.map(k => {
             const pct = quotaPct(k.used, k.quota);
             const qCls = quotaCls(k.used, k.quota);
             return (
@@ -256,6 +265,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
           })}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={list.length} onPageChange={setPage} />
     </>
   );
 }

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getUserDetailAsync } from "@/lib/user-stats";
-import { statusLabel } from "@/lib/utils";
 import { UserTokenChart } from "@/components/users/user-token-chart";
+import { UserDetailTables } from "@/components/users/user-detail-tables";
 import { RangeForm } from "@/components/dashboard/range-form";
 import type { DashboardRange } from "@/lib/types";
 import { requireAdmin } from "@/lib/auth";
@@ -63,20 +63,7 @@ export default async function UserDetailPage({ params, searchParams }: { params:
         <UserTokenChart data={stats.tokenSeries} />
       </section>
 
-      <section className="section">
-        <h2>绑定 API Key</h2>
-        <table className="table"><thead><tr><th>名称</th><th>前缀</th><th>状态</th><th>区间请求</th><th>区间 Token</th><th>区间消费</th></tr></thead><tbody>{keys.length === 0 && <tr><td colSpan={6} className="empty">暂无绑定 Key</td></tr>}{keys.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono">{k.prefix}</td><td>{k.status}</td><td className="mono">{k.periodStats.requests}</td><td className="mono">{k.periodStats.tokens.toLocaleString()}</td><td className="mono">${k.periodStats.cost.toFixed(4)}</td></tr>)}</tbody></table>
-      </section>
-
-      <section className="section">
-        <h2>模型统计</h2>
-        <table className="table"><thead><tr><th>模型</th><th>请求</th><th>Token</th><th>消费</th></tr></thead><tbody>{stats.models.length === 0 && <tr><td colSpan={4} className="empty">暂无模型数据</td></tr>}{stats.models.map(m => <tr key={m.model}><td className="mono">{m.model}</td><td className="mono">{m.requests}</td><td className="mono">{m.tokens.toLocaleString()}</td><td className="mono">${m.cost.toFixed(4)}</td></tr>)}</tbody></table>
-      </section>
-
-      <section className="section">
-        <h2>最近请求</h2>
-        <table className="table"><thead><tr><th>时间</th><th>模型</th><th>状态</th><th>Token</th></tr></thead><tbody>{stats.recentLogs.length === 0 && <tr><td colSpan={4} className="empty">暂无请求</td></tr>}{stats.recentLogs.map(log => <tr key={log.id}><td className="mono dim">{new Date(log.ts).toLocaleString()}</td><td className="mono">{log.model}</td><td>{statusLabel(log.status)}</td><td className="mono">{(log.tokensIn + log.tokensOut + log.cacheReadTokens + log.cacheCreationTokens).toLocaleString()}</td></tr>)}</tbody></table>
-      </section>
+      <UserDetailTables keys={keys} models={stats.models} recentLogs={stats.recentLogs} />
     </section>
   );
 }

@@ -10,9 +10,11 @@ import { acquireChannelSlot, isChannelSaturated } from "./channel-queue";
 import { acquireKeySlot } from "./key-queue";
 import { getSettingsAsync } from "./settings";
 import { modelConfigAsync } from "./model-catalog";
+import { recordChannelObservation } from "./channel-health";
 import { effectiveUserLimits, effectiveUserLimitsAsync } from "./user-quota";
 import { checkTpm, consumeRpm } from "./rate-limit";
 import { usePostgres } from "./db/runtime";
+import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
@@ -148,9 +150,10 @@ export type ChannelCandidate = typeof schema.channels.$inferSelect;
 
 export function selectChannels(
   type: Provider,
-  model: string,
+  model: string | string[],
   exclude: Set<string> = new Set(),
 ): ChannelCandidate[] {
+  const models = Array.isArray(model) ? model : [model];
   const rows = db
     .select()
     .from(schema.channels)
@@ -160,7 +163,7 @@ export function selectChannels(
     if (exclude.has(c.id)) return false;
     if (c.status === "err") return false;
     if (c.models.length === 0) return true;            // 空数组 = 接受所有模型
-    if (c.models.includes(model)) return true;
+    if (models.some(item => c.models.includes(item))) return true;
     if (c.models.includes("*")) return true;
     return false;
   });
@@ -168,30 +171,28 @@ export function selectChannels(
 
 export async function selectChannelsAsync(
   type: Provider,
-  model: string,
+  model: string | string[],
   exclude: Set<string> = new Set(),
 ): Promise<ChannelCandidate[]> {
   if (!usePostgres()) return selectChannels(type, model, exclude);
+  const models = Array.isArray(model) ? model : [model];
   const { pgDb, pgSchema } = await import("./db/pg");
   const rows = await pgDb.select().from(pgSchema.channels).where(and(eq(pgSchema.channels.type, type), eq(pgSchema.channels.enabled, true)));
   return (rows as ChannelCandidate[]).filter(c => {
     if (exclude.has(c.id)) return false;
     if (c.status === "err") return false;
     if (c.models.length === 0) return true;
-    if (c.models.includes(model)) return true;
+    if (models.some(item => c.models.includes(item))) return true;
     if (c.models.includes("*")) return true;
     return false;
   });
 }
 
-function pickWeighted(channels: ChannelCandidate[]): ChannelCandidate | null {
+function pickPriorityRandom(channels: ChannelCandidate[]): ChannelCandidate | null {
   if (!channels.length) return null;
-  const total = channels.reduce((s, c) => s + Math.max(1, c.weight), 0);
-  let r = Math.random() * total;
-  for (const c of channels) {
-    if ((r -= Math.max(1, c.weight)) <= 0) return c;
-  }
-  return channels[0];
+  const maxWeight = Math.max(...channels.map(c => c.weight));
+  const top = channels.filter(c => c.weight === maxWeight);
+  return top[Math.floor(Math.random() * top.length)] ?? top[0];
 }
 
 /* ============================================================
@@ -365,6 +366,34 @@ async function modelMappingAsync(provider: Provider, model: string) {
     .limit(1))[0] ?? null;
 }
 
+async function modelMappingCandidateAsync(provider: Provider, models: string[]) {
+  for (const model of models) {
+    const mapping = await modelMappingAsync(provider, model);
+    if (mapping) return { mapping, matchedModel: model };
+  }
+  return { mapping: null, matchedModel: "" };
+}
+
+async function modelConfigCandidateAsync(provider: Provider, models: string[]) {
+  for (const model of models) {
+    const catalog = await modelConfigAsync(provider, model);
+    if (catalog) return { catalog, matchedModel: model };
+  }
+  return { catalog: null, matchedModel: "" };
+}
+
+function upstreamModelError(model: string) {
+  return `不支持模型 ${model}`;
+}
+
+function unsupportedModelMessage(status: number, error: string, model: string) {
+  if (status !== 400 && status !== 404) return error;
+  const lower = error.toLowerCase();
+  const isModelError = lower.includes("model") || error.includes("模型");
+  const isUnsupported = /not found|not supported|unsupported|does not exist|invalid|不存在|不支持|无效/i.test(error);
+  return isModelError && isUnsupported ? upstreamModelError(model) : error;
+}
+
 function bodyWithModel(body: string, model: string) {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
@@ -432,15 +461,17 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 400, error: "缺少 model 字段" };
   }
-  const mapping = await modelMappingAsync(req.type, model);
-  const catalog = await modelConfigAsync(req.type, model);
+  const modelCandidates = modelLookupCandidates(model);
+  const { mapping, matchedModel: mappingMatchedModel } = await modelMappingCandidateAsync(req.type, modelCandidates);
+  const { catalog } = await modelConfigCandidateAsync(req.type, modelCandidates);
   if (catalog && !catalog.enabled) {
     await recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: "模型已停用", body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: mapping?.upstreamModel || model, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key });
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 403, error: "模型已停用" };
   }
-  const upstreamModel = mapping?.upstreamModel || model;
-  const upstreamCatalog = upstreamModel === model ? null : await modelConfigAsync(req.type, upstreamModel);
+  const upstreamModel = mapping ? appendModelVariant(model, mappingMatchedModel, mapping.upstreamModel) : model;
+  const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
+  const { catalog: upstreamCatalog } = upstreamModel === model ? { catalog: null } : await modelConfigCandidateAsync(req.type, upstreamModelCandidates);
   if (upstreamCatalog && !upstreamCatalog.enabled) {
     await recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: "映射模型已停用", body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key });
     releaseAllKeySlots();
@@ -450,15 +481,16 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const upstreamBody = req.stream && req.type === "openai" && req.openAiEndpoint !== "responses" ? withOpenAiStreamUsage(mappedBody) : mappedBody;
 
   // 3) 选渠道
-  let candidates = await selectChannelsAsync(req.type, upstreamModel);
+  let candidates = await selectChannelsAsync(req.type, upstreamModelCandidates);
   if (mapping?.channelIds.length) {
     const allowed = new Set(mapping.channelIds);
     candidates = candidates.filter(channel => allowed.has(channel.id));
   }
   if (candidates.length === 0) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 404, error: NO_LIVE_CHANNEL_ERROR, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key });
+    const error = upstreamModelError(upstreamModel);
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 404, error, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key });
     releaseAllKeySlots();
-    return { kind: "client_error", requestId, status: 404, error: NO_LIVE_CHANNEL_ERROR };
+    return { kind: "client_error", requestId, status: 404, error };
   }
 
   // 4) 转发（带重试）
@@ -467,18 +499,20 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   let lastError = "";
   let lastChannel: ChannelCandidate | undefined;
 
-  for (let i = 0; i < Math.min(settings.proxyMaxRetries, candidates.length); i++) {
-    const pool = candidates.filter(c => !tried.has(c.id));
+  for (let i = 0; i < settings.proxyMaxRetries; i++) {
+    const freshPool = candidates.filter(c => !tried.has(c.id));
+    const pool = freshPool.length ? freshPool : candidates.filter(c => c.status !== "err");
     const saturation = await Promise.all(pool.map(async c => [c.id, await isChannelSaturated(c.id, c.maxConcurrency ?? 0)] as const));
     const saturatedIds = new Set(saturation.filter(([, saturated]) => saturated).map(([id]) => id));
     const availablePool = pool.filter(c => !saturatedIds.has(c.id));
-    const ch = pickWeighted(availablePool.length ? availablePool : pool);
+    const ch = pickPriorityRandom(availablePool.length ? availablePool : pool);
     if (!ch) break;
-    lastChannel = ch;
-    tried.add(ch.id);
+	    lastChannel = ch;
+	    tried.add(ch.id);
 
-    const releaseSlot = await acquireChannelSlot(ch.id, ch.maxConcurrency ?? 0);
-    const result = await callUpstream({
+	    const releaseSlot = await acquireChannelSlot(ch.id, ch.maxConcurrency ?? 0);
+    const attemptStart = Date.now();
+	    const result = await callUpstream({
       channelType: req.type,
       openAiEndpoint: req.openAiEndpoint,
       baseUrl: ch.baseUrl,
@@ -490,8 +524,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       timeoutMs: MAX_LATENCY_MS,
     });
 
-    if (result.ok) {
-      const latency = Date.now() - t0;
+	    if (result.ok) {
+      await recordChannelObservation(ch, { ok: true, latencyMs: Date.now() - attemptStart });
+	      const latency = Date.now() - t0;
       // 5) 处理响应
       if (req.stream) {
         const logged = await pipeStreamResponse(result, {
@@ -506,9 +541,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       }
     }
 
-    releaseSlot();
+	    releaseSlot();
+	    const observed = await recordChannelObservation(ch, {
+      ok: false,
+      latencyMs: Date.now() - attemptStart,
+      error: result.errorMsg,
+    }, { failureStatus: result.status === 429 ? "warn" : "err" });
+    ch.status = observed.status;
 
-    // 可重试：429 / 5xx / 网络错(0)
+	    // 可重试：429 / 5xx / 网络错(0)
     const retryable = (settings.proxyRetryNetwork && result.status === 0)
       || (settings.proxyRetry429 && result.status === 429)
       || (settings.proxyRetry5xx && result.status >= 500 && result.status < 600);
@@ -516,13 +557,14 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     lastError = `${ch.name}: ${result.errorMsg}`;
     if (!retryable) {
       // 4xx（非 429）不重试
-      await recordFailure({ requestId, ts: t0, type: req.type, status: result.status, error: result.errorMsg, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key, channel: ch, attempts });
+      const error = unsupportedModelMessage(result.status, result.errorMsg, upstreamModel);
+      await recordFailure({ requestId, ts: t0, type: req.type, status: result.status, error, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key, channel: ch, attempts });
       releaseAllKeySlots();
       return {
         kind: "upstream_error",
         requestId,
         status: result.status,
-        error: result.errorMsg,
+        error,
         attempts,
       };
     }

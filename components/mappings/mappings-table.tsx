@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { useToast } from "@/components/toast";
 
 type Mapping = {
@@ -20,6 +22,7 @@ type Channel = {
   enabled: boolean;
   models: string[];
 };
+const pageSize = 20;
 
 export function MappingsTable() {
   const toast = useToast();
@@ -32,6 +35,10 @@ export function MappingsTable() {
   const [channelIds, setChannelIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<Mapping | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   async function load() {
     const r = await fetch("/api/model-mappings");
@@ -44,6 +51,7 @@ export function MappingsTable() {
   }
 
   useEffect(() => { load(); loadChannels(); }, []);
+  useEffect(() => { setPage(1); }, [query, providerFilter, channelFilter]);
 
   const upstreamModels = [...new Set(channels
     .filter(c => c.enabled && c.type === provider && (channelIds.length === 0 || channelIds.includes(c.id)))
@@ -51,6 +59,17 @@ export function MappingsTable() {
     .filter(model => model && model !== "*"))]
     .sort();
   const channelNames = new Map(channels.map(c => [c.id, c.name]));
+  const filteredRows = rows.filter(row => {
+    const q = query.trim().toLowerCase();
+    const boundNames = row.channelIds?.map(id => channelNames.get(id) ?? id) ?? [];
+    const matchesQuery = !q || [row.inboundModel, row.upstreamModel, ...boundNames].some(value => value.toLowerCase().includes(q));
+    const matchesProvider = providerFilter === "all" || row.provider === providerFilter;
+    const matchesChannel = channelFilter === "all" || (channelFilter === "__all_channels" ? !row.channelIds?.length : row.channelIds?.includes(channelFilter));
+    return matchesQuery && matchesProvider && matchesChannel;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function resetForm() {
     setInboundModels("");
@@ -133,6 +152,13 @@ export function MappingsTable() {
     <>
       <div className="page-actions">
         <button className="btn primary" onClick={openCreate}>+ 添加映射</button>
+      </div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索入站 / 上游 / 渠道" />
+        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, { value: "__all_channels", label: "全渠道映射" }, ...channels.map(c => ({ value: c.id, label: c.name }))]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredRows.length} mappings</span>
       </div>
 
       {open && (
@@ -219,8 +245,8 @@ export function MappingsTable() {
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={6} className="empty">暂无模型映射</td></tr>}
-          {rows.map(row => (
+          {pageRows.length === 0 && <tr><td colSpan={6} className="empty">暂无匹配映射</td></tr>}
+          {pageRows.map(row => (
             <tr key={row.id}>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
               <td className="mono">{row.inboundModel}</td>
@@ -237,6 +263,7 @@ export function MappingsTable() {
           ))}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
     </>
   );
 }

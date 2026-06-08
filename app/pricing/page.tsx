@@ -7,7 +7,7 @@ export default async function PricingPage() {
     <section>
       <div className="section-title">
         <h1>模型定价</h1>
-        <p>按服务商和模型配置输入/输出 Token 单价，Dashboard 与排行榜会按这里计算成本。</p>
+        <p>按渠道和模型配置输入/输出 Token 单价，未选择渠道时作为该服务商模型默认价。</p>
       </div>
       <PricingTable />
     </section>

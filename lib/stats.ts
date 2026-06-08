@@ -2,6 +2,7 @@ import { db, schema } from "./db";
 import { and, desc, eq, gte, lt, or } from "drizzle-orm";
 import type { DashboardRange, DashboardStats, LogEntry } from "./types";
 import { usePostgres } from "./db/runtime";
+import { modelLookupCandidates } from "./model-variants";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -38,15 +39,8 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   const now = Date.now();
   cleanupStaleActiveRequests(now);
   const prices = db.select().from(schema.modelPrices).all();
-  const priceMap = new Map(prices.map(p => [`${p.provider}:${p.model}`, p]));
-  const costFor = (provider: "claude" | "openai", model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => {
-    const price = priceMap.get(`${provider}:${model}`);
-    if (!price) return 0;
-    return (inputTokens / 1_000_000) * price.inputPricePerMTok
-      + (outputTokens / 1_000_000) * price.outputPricePerMTok
-      + (cacheReadTokens / 1_000_000) * price.cacheReadPricePerMTok
-      + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok;
-  };
+  const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
+  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap);
   const { since, until } = resolvePeriod(period, now);
   const periodMs = Math.max(1, until - since);
   const prevSince = since - periodMs;
@@ -127,7 +121,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   const cacheReadTokens = totalCacheReadTokens / 1_000_000;
   const cacheCreationTokens = totalCacheCreationTokens / 1_000_000;
 
-  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
+  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
   const totalPromptTokens = tokensIn + cacheReadTokens + cacheCreationTokens;
   const cacheHit = totalPromptTokens > 0 ? (cacheReadTokens / totalPromptTokens) * 100 : 0;
   const seconds = Math.max(1, periodMs / 1000);
@@ -201,7 +195,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     .map(k => ({
       ...k,
       totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens,
-      cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0),
+      cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0),
     }))
     .sort((a, b) => b.totalTokens - a.totalTokens)
     .slice(0, 6);
@@ -219,6 +213,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     cacheTokens: number;
     cacheReadTokens: number;
     cacheCreationTokens: number;
+    cost: number;
   }>();
   for (const row of rangeRows) {
     const channelType = row.channelType === "claude" ? "claude" : "openai";
@@ -236,6 +231,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
       cacheTokens: 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
+      cost: 0,
     };
     cur.requests += 1;
     if (row.status >= 200 && row.status < 300) {
@@ -249,6 +245,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     cur.cacheReadTokens += row.cacheReadTokens;
     cur.cacheCreationTokens += row.cacheCreationTokens;
     cur.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
+    cur.cost += costFor(channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
     modelMap.set(key, cur);
   }
 
@@ -265,7 +262,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
         cacheReadTokens: m.cacheReadTokens,
         cacheCreationTokens: m.cacheCreationTokens,
         totalTokens,
-        cost: costFor(m.provider, m.model, m.tokensIn, m.tokensOut, m.cacheReadTokens, m.cacheCreationTokens),
+        cost: m.cost,
       };
     })
     .sort((a, b) => b.totalTokens - a.totalTokens)
@@ -350,8 +347,8 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   await cleanupStaleActiveRequestsAsync(now);
   const { pgDb, pgSchema } = await import("./db/pg");
   const prices = await pgDb.select().from(pgSchema.modelPrices);
-  const priceMap = new Map(prices.map(p => [`${p.provider}:${p.model}`, p]));
-  const costFor = (provider: "claude" | "openai", model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => logCost(provider, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap);
+  const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
+  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap);
   const { since, until } = resolvePeriod(period, now);
   const periodMs = Math.max(1, until - since);
   const prevSince = since - periodMs;
@@ -416,7 +413,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const cacheReadTokens = totalCacheReadTokens / 1_000_000;
   const cacheCreationTokens = totalCacheCreationTokens / 1_000_000;
   const cacheTokens = cacheReadTokens + cacheCreationTokens;
-  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
+  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
   const totalPromptTokens = tokensIn + cacheReadTokens + cacheCreationTokens;
   const cacheHit = totalPromptTokens > 0 ? (cacheReadTokens / totalPromptTokens) * 100 : 0;
   const seconds = Math.max(1, periodMs / 1000);
@@ -450,7 +447,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const throughputSeries = buckets.map(b => ({ ts: b.ts, qps: b.requests / bucketSeconds, tps: b.tokens / bucketSeconds }));
   const trafficMap = new Map<string, { id: string; name: string; type: "claude" | "openai"; n: number }>();
   const keyMap = new Map<string, { id: string; name: string; prefix: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number }>();
-  const modelMap = new Map<string, { provider: "claude" | "openai"; model: string; requests: number; success: number; latencies: number[]; ttfts: number[]; durations: number[]; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number }>();
+  const modelMap = new Map<string, { provider: "claude" | "openai"; model: string; requests: number; success: number; latencies: number[]; ttfts: number[]; durations: number[]; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number }>();
   for (const row of rangeRows) {
     const provider = row.channelType === "claude" ? "claude" : "openai";
     const channelId = row.channelId ?? "missing-channel";
@@ -467,7 +464,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     key.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
     keyMap.set(keyId, key);
     const modelKey = `${provider}:${row.model}`;
-    const model = modelMap.get(modelKey) ?? { provider, model: row.model, requests: 0, success: 0, latencies: [], ttfts: [], durations: [], tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+    const model = modelMap.get(modelKey) ?? { provider, model: row.model, requests: 0, success: 0, latencies: [], ttfts: [], durations: [], tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
     model.requests += 1;
     if (row.status >= 200 && row.status < 300) model.success += 1;
     model.tokensIn += row.tokensIn;
@@ -475,10 +472,11 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     model.cacheReadTokens += row.cacheReadTokens;
     model.cacheCreationTokens += row.cacheCreationTokens;
     model.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
+    model.cost += costFor(provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
     modelMap.set(modelKey, model);
   }
-  const topKeys = [...keyMap.values()].map(k => ({ ...k, totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens, cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
-  const modelStats = [...modelMap.values()].map(m => ({ provider: m.provider, model: m.model, requests: m.requests, tokensIn: m.tokensIn, tokensOut: m.tokensOut, cacheTokens: m.cacheTokens, cacheReadTokens: m.cacheReadTokens, cacheCreationTokens: m.cacheCreationTokens, totalTokens: m.tokensIn + m.tokensOut + m.cacheReadTokens + m.cacheCreationTokens, cost: costFor(m.provider, m.model, m.tokensIn, m.tokensOut, m.cacheReadTokens, m.cacheCreationTokens) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 8);
+  const topKeys = [...keyMap.values()].map(k => ({ ...k, totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens, cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
+  const modelStats = [...modelMap.values()].map(m => ({ provider: m.provider, model: m.model, requests: m.requests, tokensIn: m.tokensIn, tokensOut: m.tokensOut, cacheTokens: m.cacheTokens, cacheReadTokens: m.cacheReadTokens, cacheCreationTokens: m.cacheCreationTokens, totalTokens: m.tokensIn + m.tokensOut + m.cacheReadTokens + m.cacheCreationTokens, cost: m.cost })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 8);
   const userTokenTotals = new Map<string, { id: string; name: string; totalTokens: number }>();
   for (const row of rangeRows) {
     const id = row.keyUserId ?? "unknown-user";
@@ -518,7 +516,7 @@ export function getChannelHealth(period?: { since: number; until: number }) {
   const channels = db
     .select()
     .from(schema.channels)
-    .where(eq(schema.channels.enabled, true))
+    .where(and(eq(schema.channels.enabled, true), gte(schema.channels.monitorIntervalSec, 1)))
     .orderBy(schema.channels.name)
     .all();
 
@@ -542,7 +540,7 @@ export function getChannelHealth(period?: { since: number; until: number }) {
 export async function getChannelHealthAsync(period?: { since: number; until: number }) {
   if (!usePostgres()) return getChannelHealth(period);
   const { pgDb, pgSchema } = await import("./db/pg");
-  const channels = await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.enabled, true)).orderBy(pgSchema.channels.name);
+  const channels = await pgDb.select().from(pgSchema.channels).where(and(eq(pgSchema.channels.enabled, true), gte(pgSchema.channels.monitorIntervalSec, 1))).orderBy(pgSchema.channels.name);
   if (!period) return channels.map(c => ({ ...c, testLogs: [] }));
   const logs = await pgDb.select().from(pgSchema.channelTestLogs).where(and(gte(pgSchema.channelTestLogs.ts, period.since), lt(pgSchema.channelTestLogs.ts, period.until))).orderBy(pgSchema.channelTestLogs.ts);
   const byChannel = new Map<string, typeof logs>();
@@ -608,7 +606,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
     .all();
 
   const prices = db.select().from(schema.modelPrices).all();
-  const priceMap = new Map(prices.map(p => [`${p.provider}:${p.model}`, p]));
+  const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
 
   return rows.map(row => ({
     ...row,
@@ -616,7 +614,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
     keyPrefix: row.keyPrefix ?? "—",
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
-    cost: logCost(row.channelType ?? "openai", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap),
+    cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap),
   })) as LogEntry[];
 }
 
@@ -669,19 +667,20 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
   if (combinedWhere) query = query.where(combinedWhere);
   const rows = await query.orderBy(desc(pgSchema.requestLogs.ts)).limit(limit);
   const prices = await pgDb.select().from(pgSchema.modelPrices);
-  const priceMap = new Map(prices.map(p => [`${p.provider}:${p.model}`, p]));
+  const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
   return rows.map(row => ({
     ...row,
     keyName: row.keyName ?? "未认证",
     keyPrefix: row.keyPrefix ?? "—",
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
-    cost: logCost(row.channelType === "claude" ? "claude" : "openai", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap),
+    cost: logCost(row.channelType === "claude" ? "claude" : "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap),
   })) as LogEntry[];
 }
 
 function logCost(
   provider: "claude" | "openai",
+  channelId: string,
   model: string,
   tokensIn: number,
   tokensOut: number,
@@ -689,7 +688,18 @@ function logCost(
   cacheCreationTokens: number,
   priceMap: Map<string, Pick<typeof schema.modelPrices.$inferSelect, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok">>,
 ) {
-  const price = priceMap.get(`${provider}:${model}`);
+  const models = modelLookupCandidates(model);
+  let price: Pick<typeof schema.modelPrices.$inferSelect, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok"> | undefined;
+  for (const candidate of models) {
+    price = priceMap.get(`${channelId}:${candidate}`);
+    if (price) break;
+  }
+  if (!price) {
+    for (const candidate of models) {
+      price = priceMap.get(`${provider}:${candidate}`);
+      if (price) break;
+    }
+  }
   if (!price) return 0;
   return (tokensIn / 1_000_000) * price.inputPricePerMTok
     + (tokensOut / 1_000_000) * price.outputPricePerMTok

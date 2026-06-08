@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
     const value = {
       id: row.id,
       provider: row.provider,
+      channelId: typeof row.channelId === "string" ? row.channelId : "",
       model: row.model,
       displayName: typeof row.displayName === "string" ? row.displayName : "",
       visible: row.visible !== false,

@@ -152,6 +152,7 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS model_prices (
     id text PRIMARY KEY,
     provider text NOT NULL,
+    channel_id text NOT NULL DEFAULT '',
     model text NOT NULL,
     input_price_per_mtok real NOT NULL DEFAULT 0,
     output_price_per_mtok real NOT NULL DEFAULT 0,
@@ -159,7 +160,9 @@ const statements = [
     cache_creation_price_per_mtok real NOT NULL DEFAULT 0,
     updated_at bigint NOT NULL
   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS model_prices_provider_model_unique ON model_prices (provider, model)`,
+  `ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`,
+  `DROP INDEX IF EXISTS model_prices_provider_model_unique`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`,
   `CREATE TABLE IF NOT EXISTS email_verifications (
     id text PRIMARY KEY,
     user_id text NOT NULL,
@@ -217,7 +220,10 @@ try {
     const present = await existingTables();
     const missing = requiredTables.filter(table => !present.has(table));
     if (missing.length === 0) {
-      console.log("[schema] PostgreSQL schema exists, skipping initialization");
+      console.log("[schema] PostgreSQL schema exists, applying safe migrations");
+      await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
+      await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
+      await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);
     } else {
       console.log(`[schema] initializing PostgreSQL schema, missing: ${missing.join(", ")}`);
       for (const statement of statements) {

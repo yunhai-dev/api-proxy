@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/toast";
+import { Select } from "@/components/ui/select";
 
 type AppSettings = {
   debugModels: boolean;
@@ -31,6 +32,17 @@ type AppSettings = {
   smtpFromEmail: string;
   smtpFromName: string;
 };
+
+const announcementModeOptions = [
+  { value: "marquee", label: "轮播滚动" },
+  { value: "modal", label: "弹窗" },
+];
+
+const smtpSecureOptions = [
+  { value: "starttls", label: "STARTTLS" },
+  { value: "ssl", label: "SSL/TLS" },
+  { value: "none", label: "None" },
+];
 
 export function SettingsForm() {
   const toast = useToast();
@@ -119,7 +131,7 @@ export function SettingsForm() {
           <h2>公告</h2>
           <Toggle label="启用公告" hint="开启后在用户后台展示公告，可选择滚动公告或弹窗公告。" checked={settings.announcementEnabled} onChange={announcementEnabled => setSettings({ ...settings, announcementEnabled })} />
           <div className="field-row">
-            <div className="field"><label>展示方式</label><select value={settings.announcementMode} onChange={e => setSettings({ ...settings, announcementMode: e.target.value as AppSettings["announcementMode"] })}><option value="marquee">轮播滚动</option><option value="modal">弹窗</option></select></div>
+            <div className="field"><label>展示方式</label><Select className="fill-select" value={settings.announcementMode} onChange={announcementMode => setSettings({ ...settings, announcementMode: announcementMode as AppSettings["announcementMode"] })} options={announcementModeOptions} /></div>
             <div className="field"><label>标题</label><input value={settings.announcementTitle} onChange={e => setSettings({ ...settings, announcementTitle: e.target.value })} placeholder="公告" /></div>
           </div>
           <div className="field">
@@ -139,7 +151,7 @@ export function SettingsForm() {
           <div className="field"><label>网站 Logo URL</label><input className="mono" value={settings.siteLogoUrl} onChange={e => setSettings({ ...settings, siteLogoUrl: e.target.value })} placeholder="https://example.com/logo.svg" /><div className="hint">用于顶部品牌和浏览器标签页图标；留空使用默认圆点。</div></div>
           <Toggle label="启用 SMTP" hint="注册邮箱验证会通过该 SMTP 发送验证码和验证链接。" checked={settings.smtpEnabled} onChange={smtpEnabled => setSettings({ ...settings, smtpEnabled })} />
           <div className="field-row"><div className="field"><label>SMTP Host</label><input className="mono" value={settings.smtpHost} onChange={e => setSettings({ ...settings, smtpHost: e.target.value })} /></div><div className="field"><label>端口</label><input className="mono" value={settings.smtpPort} onChange={e => setSettings({ ...settings, smtpPort: Number(e.target.value.replace(/\D/g, "")) || 587 })} /></div></div>
-          <div className="field-row"><div className="field"><label>加密方式</label><select value={settings.smtpSecure} onChange={e => setSettings({ ...settings, smtpSecure: e.target.value as AppSettings["smtpSecure"] })}><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option></select></div><div className="field"><label>SMTP 用户</label><input className="mono" value={settings.smtpUser} onChange={e => setSettings({ ...settings, smtpUser: e.target.value })} /></div></div>
+          <div className="field-row"><div className="field"><label>加密方式</label><Select className="fill-select" value={settings.smtpSecure} onChange={smtpSecure => setSettings({ ...settings, smtpSecure: smtpSecure as AppSettings["smtpSecure"] })} options={smtpSecureOptions} /></div><div className="field"><label>SMTP 用户</label><input className="mono" value={settings.smtpUser} onChange={e => setSettings({ ...settings, smtpUser: e.target.value })} /></div></div>
           <div className="field"><label>SMTP 密码 / 授权码</label><input className="mono" type="password" value={settings.smtpPassword === "__configured__" ? "" : settings.smtpPassword} placeholder={settings.smtpPassword === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, smtpPassword: e.target.value })} /></div>
           <div className="field-row"><div className="field"><label>发件邮箱</label><input className="mono" value={settings.smtpFromEmail} onChange={e => setSettings({ ...settings, smtpFromEmail: e.target.value })} /></div><div className="field"><label>发件名称</label><input value={settings.smtpFromName} onChange={e => setSettings({ ...settings, smtpFromName: e.target.value })} /></div></div>
           <div className="field-row"><div className="field"><label>测试收件邮箱</label><input className="mono" value={testEmail} onChange={e => setTestEmail(e.target.value)} /></div><div className="field"><label>&nbsp;</label><button className="btn" type="button" onClick={sendTestEmail}>发送测试邮件</button></div></div>

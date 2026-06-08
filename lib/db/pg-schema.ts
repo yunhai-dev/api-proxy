@@ -104,13 +104,14 @@ export const settings = pgTable("settings", {
 export const modelPrices = pgTable("model_prices", {
   id: text("id").primaryKey(),
   provider: text("provider", { enum: ["claude", "openai"] }).notNull(),
+  channelId: text("channel_id").notNull().default(""),
   model: text("model").notNull(),
   inputPricePerMTok: real("input_price_per_mtok").notNull().default(0),
   outputPricePerMTok: real("output_price_per_mtok").notNull().default(0),
   cacheReadPricePerMTok: real("cache_read_price_per_mtok").notNull().default(0),
   cacheCreationPricePerMTok: real("cache_creation_price_per_mtok").notNull().default(0),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-}, table => [uniqueIndex("model_prices_provider_model_unique").on(table.provider, table.model)]);
+}, table => [uniqueIndex("model_prices_channel_model_unique").on(table.channelId, table.model)]);
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),

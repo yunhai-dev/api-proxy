@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { useToast } from "@/components/toast";
 
 type Role = "super_admin" | "admin" | "user";
@@ -15,6 +17,8 @@ const roleOptions = [
   { value: "admin", label: "管理员" },
   { value: "user", label: "用户" },
 ];
+
+const pageSize = 20;
 
 function fmtUsd(value: number) {
   return `$${value.toFixed(4)}`;
@@ -35,8 +39,13 @@ export function UsersTable() {
   const [role, setRole] = useState<Role>("user");
   const [quotaTarget, setQuotaTarget] = useState<User | null>(null);
   const [quota, setQuota] = useState<UserQuota | null>(null);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [query, roleFilter, statusFilter]);
 
   async function load() {
     const r = await fetch("/api/users");
@@ -73,9 +82,27 @@ export function UsersTable() {
     if (r.ok) { toast("额度已更新"); setQuotaTarget(null); setQuota(null); load(); }
   }
 
+  const filteredRows = rows.filter(row => {
+    const q = query.trim().toLowerCase();
+    const matchesQuery = !q || [row.username, row.displayName, row.email].some(value => value.toLowerCase().includes(q));
+    const matchesRole = roleFilter === "all" || row.role === roleFilter;
+    const matchesStatus = statusFilter === "all" || row.status === statusFilter;
+    return matchesQuery && matchesRole && matchesStatus;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
     <>
       <div className="page-actions"><button className="btn primary" onClick={() => setOpen(true)}>+ 新建用户</button></div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索用户名 / 显示名 / 邮箱" />
+        <Select value={roleFilter} onChange={setRoleFilter} options={[{ value: "all", label: "全部角色" }, ...roleOptions]} />
+        <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "pending", label: "待验证" }, { value: "active", label: "启用" }, { value: "disabled", label: "停用" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredRows.length} users</span>
+      </div>
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -109,8 +136,8 @@ export function UsersTable() {
       <table className="table">
         <thead><tr><th>用户名</th><th>显示名称</th><th>邮箱</th><th>余额</th><th>角色</th><th>状态</th><th>创建时间</th><th className="right">操作</th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={8} className="empty">暂无用户</td></tr>}
-          {rows.map(row => (
+          {pageRows.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配用户</td></tr>}
+          {pageRows.map(row => (
             <tr className="clickable-row" key={row.id} onClick={() => router.push(`/users/${row.id}`)}>
               <td className="mono"><Link href={`/users/${row.id}`}>{row.username}</Link></td>
               <td>{row.displayName}</td>
@@ -124,6 +151,7 @@ export function UsersTable() {
           ))}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
     </>
   );
 }

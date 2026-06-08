@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/toast";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { ChannelForm } from "./channel-form";
 
 type Channel = {
@@ -22,6 +25,7 @@ type Channel = {
 
 type EditTarget = "add" | { kind: "edit"; channel: Channel } | null;
 type TestLog = { id: number; channelId: string; ts: number; ok: boolean; latencyMs: number; errorMsg: string | null };
+const pageSize = 20;
 
 export function ChannelsTable() {
   const toast = useToast();
@@ -31,12 +35,30 @@ export function ChannelsTable() {
   const [historyTarget, setHistoryTarget] = useState<Channel | null>(null);
   const [historyRows, setHistoryRows] = useState<TestLog[]>([]);
   const [testing, setTesting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [enabledFilter, setEnabledFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   async function load() {
     const r = await fetch("/api/channels");
     if (r.ok) setChannels(await r.json());
   }
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [query, typeFilter, statusFilter, enabledFilter]);
+
+  const filteredChannels = channels.filter(c => {
+    const q = query.trim().toLowerCase();
+    const matchesQuery = !q || [c.name, c.baseUrl, c.testModel, ...c.models].some(value => value.toLowerCase().includes(q));
+    const matchesType = typeFilter === "all" || c.type === typeFilter;
+    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
+    const matchesEnabled = enabledFilter === "all" || (enabledFilter === "enabled" ? c.enabled : !c.enabled);
+    return matchesQuery && matchesType && matchesStatus && matchesEnabled;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredChannels.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageChannels = filteredChannels.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   async function testAll() {
     if (testing) return;
@@ -109,6 +131,14 @@ export function ChannelsTable() {
           + 添加渠道 <span className="mono kbd">N</span>
         </button>
       </div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称 / 地址 / 模型" />
+        <Select value={typeFilter} onChange={setTypeFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "ok", label: "正常" }, { value: "warn", label: "限流" }, { value: "err", label: "降级" }]} />
+        <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredChannels.length} channels</span>
+      </div>
 
       <ChannelForm trigger={target} onSaved={() => { setTarget(null); load(); }} />
 
@@ -177,10 +207,10 @@ export function ChannelsTable() {
           </tr>
         </thead>
         <tbody>
-          {channels.length === 0 && (
+          {pageChannels.length === 0 && (
             <tr><td colSpan={11} className="empty">暂无渠道</td></tr>
           )}
-          {channels.map(c => (
+          {pageChannels.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td><span className={`type-pill ${c.type}`}>{c.type}</span></td>
@@ -223,6 +253,7 @@ export function ChannelsTable() {
           ))}
         </tbody>
       </table>
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredChannels.length} onPageChange={setPage} />
     </>
   );
 }

@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/toast";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 
 type GiftCard = {
   id: string;
@@ -16,6 +19,7 @@ type GiftCard = {
 };
 
 type CreatedCard = GiftCard & { code: string };
+const pageSize = 20;
 
 export function AdminGiftCards() {
   const toast = useToast();
@@ -26,6 +30,9 @@ export function AdminGiftCards() {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   async function load() {
     const res = await fetch("/api/gift-cards");
@@ -33,8 +40,19 @@ export function AdminGiftCards() {
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [query, statusFilter]);
 
-  const allSelected = cards.length > 0 && selected.size === cards.length;
+  const filteredCards = cards.filter(card => {
+    const q = query.trim().toLowerCase();
+    const code = `${card.codePrefix}${card.codeSuffix}`.toLowerCase();
+    const matchesQuery = !q || code.includes(q) || card.createdBy.toLowerCase().includes(q) || (card.redeemedBy ?? "").toLowerCase().includes(q);
+    const matchesStatus = statusFilter === "all" || card.status === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageCards = filteredCards.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const allSelected = filteredCards.length > 0 && filteredCards.every(card => selected.has(card.id));
 
   async function createCards(e: React.FormEvent) {
     e.preventDefault();
@@ -65,7 +83,7 @@ export function AdminGiftCards() {
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(cards.map(card => card.id)));
+    setSelected(allSelected ? new Set() : new Set(filteredCards.map(card => card.id)));
   }
 
   function toggleOne(id: string) {
@@ -97,6 +115,12 @@ export function AdminGiftCards() {
       <div className="page-actions">
         <button className="btn primary" onClick={() => { setCreated([]); setOpen(true); }}>+ 生成礼品卡 <span className="mono kbd">G</span></button>
         {selected.size > 0 && <button className="btn danger" onClick={deleteSelected}>删除选中 <span className="mono kbd">{selected.size}</span></button>}
+      </div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索卡号 / 创建人 / 核销用户" />
+        <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "active", label: "可核销" }, { value: "redeemed", label: "已核销" }]} />
+        <span className="spacer" />
+        <span className="mono dim">{filteredCards.length} gift cards</span>
       </div>
 
       {open && (
@@ -139,8 +163,8 @@ export function AdminGiftCards() {
         <table className="table">
           <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th><th>卡号</th><th>金额</th><th>状态</th><th>创建时间</th><th>核销用户</th><th>核销时间</th></tr></thead>
           <tbody>
-            {cards.length === 0 && <tr><td colSpan={7} className="empty">暂无礼品卡</td></tr>}
-            {cards.map(card => (
+            {pageCards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡</td></tr>}
+            {pageCards.map(card => (
               <tr key={card.id}>
                 <td><button type="button" className={`check-control ${selected.has(card.id) ? "checked" : ""}`} onClick={() => toggleOne(card.id)} aria-label={`选择礼品卡 ${card.codePrefix}${card.codeSuffix}`} aria-pressed={selected.has(card.id)} /></td>
                 <td className="mono">{card.codePrefix}****{card.codeSuffix}</td>
@@ -153,6 +177,7 @@ export function AdminGiftCards() {
             ))}
           </tbody>
         </table>
+        <ListPagination page={safePage} pageSize={pageSize} total={filteredCards.length} onPageChange={setPage} />
       </section>
     </div>
   );

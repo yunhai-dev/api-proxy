@@ -28,7 +28,7 @@ export function Select({
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const [menuRect, setMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number; minWidth: number; maxWidth: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const current = options.find(o => o.value === value);
@@ -41,7 +41,7 @@ export function Select({
     const idx = filteredOptions.findIndex(o => o.value === value);
     setHighlight(idx >= 0 ? idx : 0);
     const rect = wrapRef.current?.getBoundingClientRect();
-    if (rect) setMenuRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    if (rect) setMenuRect({ top: rect.bottom + 4, left: rect.left, minWidth: rect.width, maxWidth: Math.max(rect.width, window.innerWidth - rect.left - 16) });
     const onClick = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     };
@@ -105,7 +105,7 @@ export function Select({
       {open && (
         <div
           className="select-menu"
-          style={menuRect ? { position: "fixed", top: menuRect.top, left: menuRect.left, right: "auto", width: menuRect.width } : undefined}
+          style={menuRect ? { position: "fixed", top: menuRect.top, left: menuRect.left, right: "auto", minWidth: menuRect.minWidth, maxWidth: menuRect.maxWidth } : undefined}
         >
           {filteredOptions.length === 0 && <div className="select-empty mono">无匹配选项</div>}
           {filteredOptions.map((o, i) => (
