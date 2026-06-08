@@ -1153,12 +1153,7 @@ main { padding: 28px 24px 64px; min-width: 0; }
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.list-toolbar input {
-  width: min(280px, 100%);
-}
-.ui-input.search-input {
-  width: min(280px, 100%);
-}
+.list-toolbar .ui-search-input { width: min(300px, 100%); }
 .list-toolbar .spacer { flex: 1 1 auto; }
 .list-pagination {
   display: flex;
@@ -1176,6 +1171,50 @@ main { padding: 28px 24px 64px; min-width: 0; }
 }
 
 /* ---- buttons ---- */
+.ui-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--bg-1);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12.5px;
+  outline: none;
+  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.ui-input::placeholder { color: var(--text-4); }
+.ui-input:hover { border-color: var(--line-2); background: var(--bg-2); }
+.ui-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px oklch(0.80 0.135 65 / 0.14); }
+.ui-search-input {
+  height: 30px;
+  width: min(300px, 100%);
+  display: inline-grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.ui-search-input:hover { border-color: var(--line-2); background: var(--bg-2); }
+.ui-search-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px oklch(0.80 0.135 65 / 0.14); }
+.ui-search-input .ui-input {
+  height: 28px;
+  padding: 0 10px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ui-search-input .ui-input:hover,
+.ui-search-input .ui-input:focus { border: 0; background: transparent; box-shadow: none; }
+.ui-search-input-mark {
+  color: var(--text-4);
+  font-size: 11px;
+  text-align: center;
+  transform: translateY(-0.5px);
+}
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 30px; padding: 0 12px;
@@ -1690,19 +1729,23 @@ section,
 
 /* ---- table ---- */
 .table {
-  border-top: 1px solid var(--line);
-  min-width: max-content;
-}
-:where(main, .container, section, .section, .settings-card, .modal-body):has(.table) {
-  overflow-x: auto;
+  display: block;
+  width: 100%;
   max-width: 100%;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
 }
-:where(main, .container, section, .section, .settings-card, .modal-body):has(.table)::-webkit-scrollbar { height: 8px; }
-:where(main, .container, section, .section, .settings-card, .modal-body):has(.table)::-webkit-scrollbar-thumb {
+.table::-webkit-scrollbar { height: 8px; }
+.table::-webkit-scrollbar-thumb {
   background: var(--line-2);
   border-radius: 999px;
+}
+.table :where(thead, tbody) {
+  display: table;
+  width: max-content;
+  min-width: 100%;
 }
 .table th {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.10em;
@@ -2633,11 +2676,14 @@ section,
 .channel-history-list {
   border: 1px solid var(--line);
   border-radius: 4px;
-  overflow: hidden;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .channel-history-row {
   display: grid;
   grid-template-columns: 170px 60px 70px 1fr;
+  min-width: 620px;
   gap: 12px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);

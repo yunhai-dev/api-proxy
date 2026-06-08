@@ -153,16 +153,13 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
       )}
 
       <div className="filterbar">
-        <div className="search">
-          <span className="icon mono">/</span>
-          <Input
-            tone="search"
-            type="text"
-            placeholder={mode === "admin" ? "按名称、密钥前缀筛选…" : "按名称、密钥前缀筛选…"}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
+        <Input
+          tone="search"
+          type="text"
+          placeholder={mode === "admin" ? "按名称、密钥前缀筛选…" : "按名称、密钥前缀筛选…"}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         {mode === "admin" && (
           <Select
             value={selectedUserId}

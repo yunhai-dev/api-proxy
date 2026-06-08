@@ -7,5 +7,13 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 export function Input({ className = "", tone = "default", type = "text", ...props }: InputProps) {
-  return <input type={type} className={`ui-input ${tone === "search" ? "search-input" : ""} ${className}`.trim()} {...props} />;
+  if (tone === "search") {
+    return (
+      <span className={`ui-search-input ${className}`.trim()}>
+        <span className="ui-search-input-mark mono" aria-hidden="true">/</span>
+        <input type={type} className="ui-input" {...props} />
+      </span>
+    );
+  }
+  return <input type={type} className={`ui-input ${className}`.trim()} {...props} />;
 }

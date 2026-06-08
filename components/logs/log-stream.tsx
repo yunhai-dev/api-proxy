@@ -151,16 +151,14 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
             </button>
           ))}
         </div>
-        <div className="search log-search">
-          <span className="icon mono">/</span>
-          <Input
-            tone="search"
-            type="text"
-            placeholder="请求ID / API Key"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
+        <Input
+          className="log-search"
+          tone="search"
+          type="text"
+          placeholder="请求ID / API Key"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         {mode === "admin" && (
           <Select
             value={selectedUserId}
