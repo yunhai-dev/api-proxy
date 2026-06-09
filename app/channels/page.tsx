@@ -19,7 +19,7 @@ export default async function ChannelsPage() {
   const degraded = all.filter(c => c.status === "err").length;
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="渠道"
         sub={

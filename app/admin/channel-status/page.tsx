@@ -38,7 +38,7 @@ export default async function ChannelStatusPage({ searchParams }: { searchParams
   const health = await getChannelHealthAsync({ since, until });
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="状态"
         sub={

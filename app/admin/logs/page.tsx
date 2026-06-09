@@ -17,7 +17,7 @@ export default async function AdminLogsPage() {
     : db.select({ id: schema.users.id, username: schema.users.username, displayName: schema.users.displayName }).from(schema.users).all();
   const initial = await getRecentLogsAsync(50);
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="管理请求日志"
         sub={

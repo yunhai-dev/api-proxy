@@ -40,6 +40,8 @@ export function UsersTable() {
   const [role, setRole] = useState<Role>("user");
   const [quotaTarget, setQuotaTarget] = useState<User | null>(null);
   const [quota, setQuota] = useState<UserQuota | null>(null);
+  const [quotaDeltaMode, setQuotaDeltaMode] = useState("increase");
+  const [quotaDelta, setQuotaDelta] = useState("");
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -94,14 +96,19 @@ export function UsersTable() {
 
   async function openQuota(row: User) {
     setQuotaTarget(row);
+    setQuotaDeltaMode("increase");
+    setQuotaDelta("");
     const r = await fetch(`/api/users/${row.id}/quota`);
     if (r.ok) setQuota(await r.json());
   }
 
   async function saveQuota() {
     if (!quotaTarget || !quota) return;
-    const r = await fetch(`/api/users/${quotaTarget.id}/quota`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(quota) });
-    if (r.ok) { toast("额度已更新"); setQuotaTarget(null); setQuota(null); load(); }
+    const delta = quotaDelta.trim() ? Number(quotaDelta) : 0;
+    if (quotaDelta.trim() && (!Number.isFinite(delta) || delta <= 0)) { toast("请输入有效的调整金额"); return; }
+    const quotaUsd = quotaDeltaMode === "decrease" ? Math.max(0, quota.quotaUsd - delta) : quota.quotaUsd + delta;
+    const r = await fetch(`/api/users/${quotaTarget.id}/quota`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...quota, quotaUsd }) });
+    if (r.ok) { toast("额度已更新"); setQuotaTarget(null); setQuota(null); setQuotaDelta(""); load(); }
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -137,7 +144,8 @@ export function UsersTable() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head"><h2>用户额度 · {quotaTarget.displayName}</h2><button className="modal-close" onClick={() => setQuotaTarget(null)}>×</button></div>
             <div className="modal-body">
-              <div className="field"><label>额度 ($)</label><input className="mono" value={quota.quotaUsd || ""} onChange={e => setQuota({ ...quota, quotaUsd: Number(e.target.value) || 0 })} /></div>
+              <div className="field-row"><div className="field"><label>当前额度 ($)</label><input className="mono" value={quota.quotaUsd.toFixed(4)} disabled /></div><div className="field"><label>调整方式</label><Select className="fill-select" value={quotaDeltaMode} onChange={setQuotaDeltaMode} options={[{ value: "increase", label: "增加额度" }, { value: "decrease", label: "减少额度" }]} /></div><div className="field"><label>调整金额 ($)</label><input className="mono" value={quotaDelta} placeholder="不调整" onChange={e => setQuotaDelta(e.target.value.replace(/[^\d.]/g, ""))} /></div></div>
+              <div className="hint mono">调整后额度：${(quotaDeltaMode === "decrease" ? Math.max(0, quota.quotaUsd - (Number(quotaDelta) || 0)) : quota.quotaUsd + (Number(quotaDelta) || 0)).toFixed(4)}</div>
               <div className="field-row"><div className="field"><label>RPM</label><input className="mono" value={quota.rateLimitRpm || ""} placeholder="使用系统默认" onChange={e => setQuota({ ...quota, rateLimitRpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div><div className="field"><label>TPM</label><input className="mono" value={quota.rateLimitTpm || ""} placeholder="使用系统默认" onChange={e => setQuota({ ...quota, rateLimitTpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div><div className="field"><label>最大并发</label><input className="mono" value={quota.maxConcurrency || ""} placeholder="使用系统默认" onChange={e => setQuota({ ...quota, maxConcurrency: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div></div>
               <div className="hint">留空或 0 表示使用系统设置里的默认用户限制。</div>
               <div className="hint mono">已用：${quota.usedUsd.toFixed(4)}</div>

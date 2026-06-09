@@ -9,7 +9,7 @@ export default async function LogsPage() {
   const user = await requireUser();
   const initial = (await getRecentLogsAsync(50, "all", { userId: user.id })).map(row => ({ ...row, channelName: row.channelType }));
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="请求日志"
         sub={

@@ -45,6 +45,10 @@ function providerLabel(provider: LogEntry["channelType"]) {
   return provider === "claude" ? "Claude" : "OpenAI";
 }
 
+function tokenText(value: number | null | undefined) {
+  return value == null ? "—" : value.toLocaleString();
+}
+
 export function LogStream({ initial, mode = "user", users = [] }: { initial: LogEntry[]; mode?: "user" | "admin"; users?: UserOption[] }) {
   const isAdminMode = mode === "admin";
   const [rows, setRows] = useState<LogEntry[]>(initial);
@@ -228,10 +232,10 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               <span className={cls} style={{ textAlign: "right" }}>{statusLabel(r.status)}{r.errorMsg || r.requestDetail ? <span className="err-toggle"> 查看</span> : null}</span>
               <span className={`lat ttft ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></span>
               <span className={`lat duration ${slow ? "slow" : ""}`}>{r.durationMs > 0 ? <>{r.durationMs}<span className="dim">ms</span></> : <span className="running">进行中</span>}</span>
-              <span className="tokens">{r.tokensIn || "—"}</span>
-              <span className="tokens">{r.tokensOut || "—"}</span>
-              <span className="tokens cache-token">{r.cacheReadTokens || "—"}</span>
-              <span className="tokens cache-token create-token">{r.cacheCreationTokens || "—"}</span>
+              <span className="tokens">{tokenText(r.tokensIn)}</span>
+              <span className="tokens">{tokenText(r.tokensOut)}</span>
+              <span className="tokens cache-token">{tokenText(r.cacheReadTokens)}</span>
+              <span className="tokens cache-token create-token">{tokenText(r.cacheCreationTokens)}</span>
               <span className="tokens">{r.cost > 0 ? `$${r.cost.toFixed(6)}` : "—"}</span>
             </div>
           );

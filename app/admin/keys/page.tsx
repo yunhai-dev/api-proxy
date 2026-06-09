@@ -18,7 +18,7 @@ export default async function AdminKeysPage() {
   const disabled = all.length - active;
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="管理 API 密钥"
         sub={

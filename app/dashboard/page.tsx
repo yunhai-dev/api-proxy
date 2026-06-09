@@ -60,7 +60,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <div className="container">
+      <div className="container data-container">
         <PageHead
           title="我的状态"
           sub={

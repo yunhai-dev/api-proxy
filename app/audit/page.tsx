@@ -10,7 +10,7 @@ export default async function AuditPage() {
   const activity = await getRecentActivityAsync(100);
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="审计日志"
         sub={

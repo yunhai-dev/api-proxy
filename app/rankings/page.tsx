@@ -12,7 +12,7 @@ export default async function RankingsPage({ searchParams }: { searchParams: Pro
   const stats = await getDashboardStatsAsync("24h");
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="排行榜"
         sub={

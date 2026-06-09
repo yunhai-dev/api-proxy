@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function MappingsPage() {
   await requireAdmin();
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="模型映射"
         sub={

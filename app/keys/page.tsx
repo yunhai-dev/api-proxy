@@ -19,7 +19,7 @@ export default async function KeysPage() {
   const disabled = all.length - active;
 
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="API 密钥"
         sub={

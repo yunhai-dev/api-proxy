@@ -34,7 +34,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
   const customTo = canUseCustom ? parsedTo : now;
   const stats = range === "custom" ? await getDashboardStatsAsync({ since: customFrom, until: customTo }) : await getDashboardStatsAsync(range);
   return (
-    <div className="container">
+    <div className="container data-container">
       <PageHead
         title="管理总览"
         sub={
