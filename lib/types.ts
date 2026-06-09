@@ -59,6 +59,20 @@ export type DashboardStats = {
     totalTokens: number;
     cost: number;
   }[];
+  topUsers: {
+    id: string;
+    name: string;
+    username: string;
+    last: number;
+    requests: number;
+    tokensIn: number;
+    tokensOut: number;
+    cacheTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    totalTokens: number;
+    cost: number;
+  }[];
   modelStats: {
     provider: "claude" | "openai";
     model: string;

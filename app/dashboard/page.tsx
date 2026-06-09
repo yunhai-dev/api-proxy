@@ -41,6 +41,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const quotaUsd = detail?.quota?.quotaUsd ?? 0;
   const usedUsd = detail?.quota?.usedUsd ?? 0;
   const balanceUsd = Math.max(0, quotaUsd - usedUsd);
+  const usageByKey = new Map(stats.topKeys.map(k => [k.id, k]));
+  const keyRows = (detail?.keys.length
+    ? detail.keys.map(k => {
+      const usage = usageByKey.get(k.id);
+      return {
+        id: k.id,
+        name: k.name,
+        prefix: k.prefix,
+        requests: usage?.requests ?? k.periodStats.requests,
+        tokens: usage?.totalTokens ?? k.periodStats.tokens,
+        cost: usage?.cost ?? k.periodStats.cost,
+        last: usage?.last ?? k.lastUsedAt ?? 0,
+      };
+    })
+    : stats.topKeys.map(k => ({ id: k.id, name: k.name, prefix: k.prefix, requests: k.requests, tokens: k.totalTokens, cost: k.cost, last: k.last })))
+    .sort((a, b) => b.tokens - a.tokens);
 
   return (
     <>
@@ -134,13 +150,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
         <section className="section" style={{ marginTop: 32 }}>
           <h2>我的 API Key 消耗</h2>
+          <div className="table-wrap">
           <table className="table">
             <thead><tr><th>名称</th><th>前缀</th><th>请求</th><th>Token</th><th>费用</th><th>最后使用</th></tr></thead>
             <tbody>
-              {stats.topKeys.length === 0 && <tr><td colSpan={6} className="empty">暂无 Key 使用数据</td></tr>}
-              {stats.topKeys.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}</td><td className="mono">{k.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(k.totalTokens / 1_000_000)}</td><td className="mono">${k.cost.toFixed(4)}</td><td className="mono dim">{k.last ? new Date(k.last).toLocaleString() : "—"}</td></tr>)}
+              {keyRows.length === 0 && <tr><td colSpan={6} className="empty">暂无绑定 Key</td></tr>}
+              {keyRows.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}</td><td className="mono">{k.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(k.tokens / 1_000_000)}</td><td className="mono">${k.cost.toFixed(4)}</td><td className="mono dim">{k.last ? new Date(k.last).toLocaleString() : "—"}</td></tr>)}
             </tbody>
           </table>
+          </div>
         </section>
 
         <section className="section" style={{ marginTop: 32 }}>

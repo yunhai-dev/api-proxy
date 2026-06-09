@@ -6,6 +6,7 @@ import { fmtRelativeTime, maskKey, quotaCls, quotaPct } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { KeyForm } from "./key-form";
 
 type Key = {
@@ -22,7 +23,34 @@ type Key = {
   lastUsedAt: number | null;
 };
 type User = { id: string; username: string; displayName: string };
+type CcSwitchApp = "claude" | "codex";
 const pageSize = 20;
+
+function ccSwitchUsageScript(app: CcSwitchApp) {
+  return `({
+    request: {
+      url: "{{baseUrl}}/v1/usage",
+      method: "GET",
+      headers: { "Authorization": "Bearer {{apiKey}}" }
+    },
+    extractor: function(response) {
+      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
+      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
+      return {
+        isValid: response?.is_active ?? response?.isValid ?? true,
+        remaining,
+        unit
+      };
+    }
+  })`;
+}
+
+function base64Utf8(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 function trimNumber(value: number, digits: number) {
   return value.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -45,41 +73,48 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
   const [filter, setFilter] = useState<"all" | "active" | "disabled" | "exceeded">("all");
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Key | null>(null);
+  const [ccSwitchTarget, setCcSwitchTarget] = useState<Key | null>(null);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const userNames = useMemo(() => new Map(users.map(u => [u.id, `${u.displayName} (${u.username})`])), [users]);
+  const { sortedRows, sortHeader, sort } = useSortableRows(keys, {
+    name: row => row.name,
+    prefix: row => row.prefix,
+    user: row => userNames.get(row.userId) ?? row.userId,
+    createdAt: row => row.createdAt,
+    lastUsedAt: row => row.lastUsedAt ?? 0,
+    channelScope: row => row.channelScope,
+    used: row => row.used,
+    status: row => row.status,
+  }, "createdAt", "desc");
 
   async function load() {
-    const qs = mode === "admin" && selectedUserId !== "all" ? `?userId=${encodeURIComponent(selectedUserId)}` : "";
-    const r = await fetch(`/api/keys${qs}`);
-    if (r.ok) setKeys(await r.json());
-    if (mode === "admin") {
-      const u = await fetch("/api/users");
-      if (u.ok) setUsers(await u.json());
-    }
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    if (mode === "admin") params.set("userId", selectedUserId);
+    if (filter !== "all") params.set("status", filter);
+    if (search.trim()) params.set("search", search.trim());
+    try {
+      const r = await fetch(`/api/keys?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setKeys(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+      if (mode === "admin") {
+        const u = await fetch("/api/users");
+        if (u.ok) setUsers(await u.json());
+      }
+    } finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [mode, selectedUserId]);
-  useEffect(() => { setPage(1); }, [selectedUserId, filter, search]);
+  useEffect(() => { load(); }, [mode, selectedUserId, filter, search, page, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [selectedUserId, filter, search, sort.key, sort.dir]);
 
-  const counts = useMemo(() => ({
-    all: keys.length,
-    active: keys.filter(k => k.status === "active").length,
-    disabled: keys.filter(k => k.status === "disabled").length,
-    exceeded: keys.filter(k => k.quota > 0 && k.used >= k.quota).length,
-  }), [keys]);
-
-  const list = useMemo(() => {
-    let l = keys;
-    if (filter === "exceeded") l = l.filter(k => k.quota > 0 && k.used >= k.quota);
-    else if (filter !== "all") l = l.filter(k => k.status === filter);
-    if (search) {
-      const s = search.toLowerCase();
-      l = l.filter(k => k.name.toLowerCase().includes(s) || k.prefix.toLowerCase().includes(s));
-    }
-    return l;
-  }, [keys, filter, search]);
-  const userNames = useMemo(() => new Map(users.map(u => [u.id, `${u.displayName} (${u.username})`])), [users]);
-  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageList = list.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   async function toggle(k: Key) {
     const next = k.status === "active" ? "disabled" : "active";
@@ -117,6 +152,28 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
     toast(`已复制 ${k.prefix}…`);
   }
 
+  function openCcSwitchImport(k: Key) {
+    setCcSwitchTarget(k);
+  }
+
+  function importToCcSwitch(k: Key, app: CcSwitchApp) {
+    const baseUrl = window.location.origin.replace(/\/$/, "");
+    const params = new URLSearchParams({
+      resource: "provider",
+      app,
+      name: k.name,
+      endpoint: baseUrl,
+      homepage: baseUrl,
+      apiKey: k.fullKey,
+      usageEnabled: "true",
+      usageBaseUrl: baseUrl,
+      usageApiKey: k.fullKey,
+      usageScript: base64Utf8(ccSwitchUsageScript(app)),
+    });
+    setCcSwitchTarget(null);
+    window.location.href = `ccswitch://v1/import?${params.toString()}`;
+  }
+
   async function doDelete(k: Key) {
     const r = await fetch(`/api/keys/${k.id}`, { method: "DELETE" });
     if (r.ok) {
@@ -152,6 +209,26 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
         </div>
       )}
 
+      {ccSwitchTarget && (
+        <div className="modal-backdrop" onClick={() => setCcSwitchTarget(null)}>
+          <div className="modal confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>导入到 CCS</h2>
+              <button className="modal-close" onClick={() => setCcSwitchTarget(null)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <p className="confirm-text">请选择 <span className="mono">{ccSwitchTarget.name}</span> 要导入的目标应用。</p>
+              <p className="confirm-sub">导入链接会按所选应用携带对应 app 参数和用量查询脚本。</p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setCcSwitchTarget(null)}>取消</button>
+              <button className="btn ghost" onClick={() => importToCcSwitch(ccSwitchTarget, "claude")}>Claude Code</button>
+              <button className="btn primary" onClick={() => importToCcSwitch(ccSwitchTarget, "codex")}>Codex</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="filterbar">
         <Input
           tone="search"
@@ -169,39 +246,43 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
         )}
         <div className="chips">
           <button className={`chip ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
-            全部 <span className="count">{counts.all}</span>
+            全部
           </button>
           <button className={`chip ${filter === "active" ? "active" : ""}`} onClick={() => setFilter("active")}>
-            活跃 <span className="count">{counts.active}</span>
+            活跃
           </button>
           <button className={`chip ${filter === "disabled" ? "active" : ""}`} onClick={() => setFilter("disabled")}>
-            已停用 <span className="count">{counts.disabled}</span>
+            已停用
           </button>
           <button className={`chip ${filter === "exceeded" ? "active" : ""}`} onClick={() => setFilter("exceeded")}>
-            配额超限 <span className="count">{counts.exceeded}</span>
+            配额超限
           </button>
         </div>
+        <span className="spacer" />
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} keys`}</span>
       </div>
 
+      <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
-            <th>名称</th>
-            <th>密钥</th>
-            {mode === "admin" && <th>用户</th>}
-            <th>创建时间</th>
-            <th>最后使用</th>
-            <th>渠道范围</th>
-            <th>用量</th>
-            <th>状态</th>
+            {sortHeader("name", "名称")}
+            {sortHeader("prefix", "密钥")}
+            {mode === "admin" && sortHeader("user", "用户")}
+            {sortHeader("createdAt", "创建时间")}
+            {sortHeader("lastUsedAt", "最后使用")}
+            {sortHeader("channelScope", "渠道范围")}
+            {sortHeader("used", "用量")}
+            {sortHeader("status", "状态")}
             <th className="right">操作</th>
           </tr>
         </thead>
         <tbody>
-          {pageList.length === 0 && (
+          {loading && <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && keys.length === 0 && (
             <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty">无匹配密钥 <span className="mono">// no results</span></td></tr>
           )}
-          {pageList.map(k => {
+          {sortedRows.map(k => {
             const pct = quotaPct(k.used, k.quota);
             const qCls = quotaCls(k.used, k.quota);
             return (
@@ -252,6 +333,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
                     : <span className="status"><span className="dot off" /><span className="label dim">已停用</span></span>}
                 </td>
                 <td className="right nowrap">
+                  <button className="btn sm ghost" onClick={() => openCcSwitchImport(k)}>导入 CCS</button>
                   <button className="btn sm ghost" onClick={() => toggle(k)}>
                     {k.status === "active" ? "停用" : "启用"}
                   </button>
@@ -262,7 +344,8 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
           })}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={list.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

@@ -49,7 +49,7 @@ export default function AccountPage() {
     } finally { setBusy(false); }
   }
 
-  if (!me) return <div className="empty">加载中…</div>;
+  if (!me) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
   return (
     <section className="container account-page">

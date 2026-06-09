@@ -1,5 +1,5 @@
 import { logHub } from "@/lib/log-generator";
-import { AuthError, requireUser } from "@/lib/auth";
+import { AuthError, isAdmin, requireUser } from "@/lib/auth";
 import { requestedUserId, scopedUserId } from "@/lib/scope";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
@@ -10,8 +10,10 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   let userId = "";
+  let admin = false;
   try {
     const user = await requireUser();
+    admin = isAdmin(user);
     userId = scopedUserId(user, requestedUserId(new URL(req.url)));
   } catch (e) {
     if (e instanceof AuthError) return Response.json({ error: e.message }, { status: e.status });
@@ -43,7 +45,7 @@ export async function GET(req: Request) {
               : db.select({ userId: schema.keys.userId }).from(schema.keys).where(eq(schema.keys.id, entry.keyId)).get();
             if (key?.userId !== userId) return;
           }
-          send("log", entry);
+          send("log", admin ? entry : { ...entry, channelName: entry.channelType });
         })();
       });
 

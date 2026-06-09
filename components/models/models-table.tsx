@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 
 type Provider = "claude" | "openai";
@@ -40,13 +41,34 @@ export function ModelsTable() {
   const [enabledFilter, setEnabledFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
+    provider: row => row.provider,
+    id: row => row.id,
+    displayName: row => row.displayName,
+    visible: row => row.visible,
+    enabled: row => row.enabled,
+    configured: row => row.configured,
+  }, "id");
 
-  useEffect(() => { load(); loadSources(); }, []);
-  useEffect(() => { setPage(1); }, [provider, query, visibleFilter, enabledFilter, sourceFilter]);
+  useEffect(() => { loadSources(); }, []);
+  useEffect(() => { load(); }, [page, provider, query, visibleFilter, enabledFilter, sourceFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [provider, query, visibleFilter, enabledFilter, sourceFilter, sort.key, sort.dir]);
 
   async function load() {
-    const r = await fetch("/api/models");
-    if (r.ok) setRows(await r.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), provider, query, visible: visibleFilter, enabled: enabledFilter, source: sourceFilter });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const r = await fetch(`/api/models?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setRows(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
 
   async function loadSources() {
@@ -55,22 +77,11 @@ export function ModelsTable() {
     if (mappingsRes.ok) setMappings(await mappingsRes.json());
   }
 
-  const providerRows = rows.filter(row => row.provider === provider);
-  const filteredRows = providerRows.filter(row => {
-    const q = query.trim().toLowerCase();
-    const sources = mappings.filter(m => m.provider === row.provider && m.upstreamModel === row.id).map(m => m.inboundModel);
-    const matchesQuery = !q || [row.id, row.displayName, ...sources].some(value => value.toLowerCase().includes(q));
-    const matchesVisible = visibleFilter === "all" || (visibleFilter === "visible" ? row.visible : !row.visible);
-    const matchesEnabled = enabledFilter === "all" || (enabledFilter === "enabled" ? row.enabled : !row.enabled);
-    const matchesSource = sourceFilter === "all" || (sourceFilter === "configured" ? row.configured : !row.configured);
-    return matchesQuery && matchesVisible && matchesEnabled && matchesSource;
-  });
-  const selectedRows = providerRows.filter(row => selected.includes(rowKey(row)));
-  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const selectedRows = rows.filter(row => selected.includes(rowKey(row)));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount);
-  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const visibleSelectedRows = filteredRows.filter(row => selected.includes(rowKey(row)));
-  const allSelected = filteredRows.length > 0 && visibleSelectedRows.length === filteredRows.length;
+  const visibleSelectedRows = rows.filter(row => selected.includes(rowKey(row)));
+  const allSelected = rows.length > 0 && visibleSelectedRows.length === rows.length;
   const mappedSources = new Map<string, string[]>();
   for (const mapping of mappings.filter(m => m.provider === provider)) {
     const current = mappedSources.get(mapping.upstreamModel) ?? [];
@@ -175,11 +186,11 @@ export function ModelsTable() {
           <span className="pricing-provider-label">服务商</span>
           <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => switchProvider("claude")} type="button">
             <span>Claude</span>
-            <small className="mono">{rows.filter(row => row.provider === "claude").length} models</small>
+            <small className="mono">{provider === "claude" ? total : ""} models</small>
           </button>
           <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => switchProvider("openai")} type="button">
             <span>OpenAI</span>
-            <small className="mono">{rows.filter(row => row.provider === "openai").length} models</small>
+            <small className="mono">{provider === "openai" ? total : ""} models</small>
           </button>
         </div>
         <button className="btn ghost" onClick={() => bulkUpdate({ visible: true })} disabled={selectedRows.length === 0}>展示</button>
@@ -195,7 +206,7 @@ export function ModelsTable() {
         <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
         <Select value={sourceFilter} onChange={setSourceFilter} options={[{ value: "all", label: "全部来源" }, { value: "configured", label: "手动配置" }, { value: "discovered", label: "自动发现" }]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredRows.length} models</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} models`}</span>
       </div>
 
       {open && (
@@ -236,6 +247,7 @@ export function ModelsTable() {
         </div>
       )}
 
+      <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
@@ -245,20 +257,21 @@ export function ModelsTable() {
                 className={`check-control ${allSelected ? "checked" : ""}`}
                 aria-label="选择全部模型"
                 aria-pressed={allSelected}
-                onClick={() => setSelected(allSelected ? [] : filteredRows.map(rowKey))}
+                onClick={() => setSelected(allSelected ? [] : rows.map(rowKey))}
               />
             </th>
-            <th>服务商</th>
-            <th>模型名称</th>
-            <th>展示名称</th>
-            <th>是否展示</th>
-            <th>是否启用</th>
+            {sortHeader("provider", "服务商")}
+            {sortHeader("id", "模型名称")}
+            {sortHeader("displayName", "展示名称")}
+            {sortHeader("visible", "是否展示")}
+            {sortHeader("enabled", "是否启用")}
             <th className="right">操作</th>
           </tr>
         </thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型</td></tr>}
-          {pageRows.map(row => (
+          {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型</td></tr>}
+          {sortedRows.map(row => (
             <tr key={`${row.provider}:${row.id}`}>
               <td>
                 <button
@@ -284,7 +297,8 @@ export function ModelsTable() {
           ))}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

@@ -92,7 +92,7 @@ export function SettingsForm() {
     toast(r.ok ? "测试邮件已发送" : data.error || "发送失败");
   }
 
-  if (!settings) return <div className="empty">加载中…</div>;
+  if (!settings) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
   return (
     <div className="settings-panel">

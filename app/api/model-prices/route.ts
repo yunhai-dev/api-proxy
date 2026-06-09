@@ -4,21 +4,50 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
+import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await requireAdmin();
+    const { hasPagination, page, pageSize } = pageParams(req.nextUrl);
+    const q = queryText(req.nextUrl, "query", "search").toLowerCase();
+    const provider = req.nextUrl.searchParams.get("provider") ?? "all";
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
-      return NextResponse.json(await pgDb.select().from(pgSchema.modelPrices));
+      const rows = await pgDb.select().from(pgSchema.modelPrices);
+      const filtered = sortPrices(req.nextUrl, filterPrices(rows, q, provider));
+      return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
     }
-    return NextResponse.json(db.select().from(schema.modelPrices).all());
+    const rows = db.select().from(schema.modelPrices).all();
+    const filtered = sortPrices(req.nextUrl, filterPrices(rows, q, provider));
+    return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+function filterPrices<T extends { provider: string; model: string; channelId?: string }>(rows: T[], q: string, provider: string) {
+  return rows.filter(row => {
+    const matchesQuery = !q || row.model.toLowerCase().includes(q) || (row.channelId ?? "").toLowerCase().includes(q);
+    const matchesProvider = provider === "all" || row.provider === provider;
+    return matchesQuery && matchesProvider;
+  });
+}
+
+function sortPrices<T extends { provider: string; channelId?: string; model: string; inputPricePerMTok: number; outputPricePerMTok: number; cacheReadPricePerMTok: number; cacheCreationPricePerMTok: number; updatedAt: number }>(url: URL, rows: T[]) {
+  return sortRows(url, rows, {
+    provider: row => row.provider,
+    channelId: row => row.channelId ?? "",
+    model: row => row.model,
+    inputPricePerMTok: row => row.inputPricePerMTok,
+    outputPricePerMTok: row => row.outputPricePerMTok,
+    cacheReadPricePerMTok: row => row.cacheReadPricePerMTok,
+    cacheCreationPricePerMTok: row => row.cacheCreationPricePerMTok,
+    updatedAt: row => row.updatedAt,
+  }, "model");
 }
 
 export async function POST(req: NextRequest) {

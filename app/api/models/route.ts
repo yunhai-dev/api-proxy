@@ -5,6 +5,7 @@ import { AuthError, requireAdmin } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { listedModels, listedModelsAsync } from "@/lib/model-catalog";
 import { usePostgres } from "@/lib/db/runtime";
+import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -17,17 +18,46 @@ function providerFrom(input: unknown): Provider | null {
 export async function GET(req: NextRequest) {
   try {
     await requireAdmin();
+    const { hasPagination, page, pageSize } = pageParams(req.nextUrl);
+    const q = queryText(req.nextUrl, "query", "search").toLowerCase();
+    const visible = req.nextUrl.searchParams.get("visible") ?? "all";
+    const enabled = req.nextUrl.searchParams.get("enabled") ?? "all";
+    const source = req.nextUrl.searchParams.get("source") ?? "all";
     const provider = providerFrom(req.nextUrl.searchParams.get("provider"));
     const providers: Provider[] = provider ? [provider] : ["claude", "openai"];
     if (usePostgres()) {
       const rows = await Promise.all(providers.map(async p => (await listedModelsAsync(p)).map(model => ({ provider: p, ...model }))));
-      return NextResponse.json(rows.flat());
+      const filtered = sortModels(req.nextUrl, filterModels(rows.flat(), q, visible, enabled, source));
+      return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
     }
-    return NextResponse.json(providers.flatMap(p => listedModels(p).map(model => ({ provider: p, ...model }))));
+    const rows = providers.flatMap(p => listedModels(p).map(model => ({ provider: p, ...model })));
+    const filtered = sortModels(req.nextUrl, filterModels(rows, q, visible, enabled, source));
+    return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+function filterModels<T extends { id: string; displayName: string; visible: boolean; enabled: boolean; configured: boolean }>(rows: T[], q: string, visible: string, enabled: string, source: string) {
+  return rows.filter(row => {
+    const matchesQuery = !q || [row.id, row.displayName].some(value => value.toLowerCase().includes(q));
+    const matchesVisible = visible === "all" || (visible === "visible" ? row.visible : !row.visible);
+    const matchesEnabled = enabled === "all" || (enabled === "enabled" ? row.enabled : !row.enabled);
+    const matchesSource = source === "all" || (source === "configured" ? row.configured : !row.configured);
+    return matchesQuery && matchesVisible && matchesEnabled && matchesSource;
+  });
+}
+
+function sortModels<T extends { provider: string; id: string; displayName: string; visible: boolean; enabled: boolean; configured: boolean }>(url: URL, rows: T[]) {
+  return sortRows(url, rows, {
+    provider: row => row.provider,
+    id: row => row.id,
+    displayName: row => row.displayName,
+    visible: row => row.visible,
+    enabled: row => row.enabled,
+    configured: row => row.configured,
+  }, "id");
 }
 
 export async function POST(req: NextRequest) {

@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { ChannelForm } from "./channel-form";
 
 type Channel = {
@@ -40,25 +41,40 @@ export function ChannelsTable() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [enabledFilter, setEnabledFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { sortedRows, sortHeader, sort } = useSortableRows(channels, {
+    name: row => row.name,
+    type: row => row.type,
+    baseUrl: row => row.baseUrl,
+    models: row => row.models.join(","),
+    weight: row => row.weight,
+    maxConcurrency: row => row.maxConcurrency,
+    monitorIntervalSec: row => row.monitorIntervalSec,
+    testModel: row => row.testModel,
+    status: row => row.status,
+    enabled: row => row.enabled,
+  }, "weight", "desc");
 
   async function load() {
-    const r = await fetch("/api/channels");
-    if (r.ok) setChannels(await r.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, type: typeFilter, status: statusFilter, enabled: enabledFilter });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const r = await fetch(`/api/channels?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setChannels(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query, typeFilter, statusFilter, enabledFilter]);
+  useEffect(() => { load(); }, [page, query, typeFilter, statusFilter, enabledFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [query, typeFilter, statusFilter, enabledFilter, sort.key, sort.dir]);
 
-  const filteredChannels = channels.filter(c => {
-    const q = query.trim().toLowerCase();
-    const matchesQuery = !q || [c.name, c.baseUrl, c.testModel, ...c.models].some(value => value.toLowerCase().includes(q));
-    const matchesType = typeFilter === "all" || c.type === typeFilter;
-    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
-    const matchesEnabled = enabledFilter === "all" || (enabledFilter === "enabled" ? c.enabled : !c.enabled);
-    return matchesQuery && matchesType && matchesStatus && matchesEnabled;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredChannels.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageChannels = filteredChannels.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   async function testAll() {
     if (testing) return;
@@ -137,7 +153,7 @@ export function ChannelsTable() {
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "ok", label: "正常" }, { value: "warn", label: "限流" }, { value: "err", label: "降级" }]} />
         <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredChannels.length} channels</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} channels`}</span>
       </div>
 
       <ChannelForm trigger={target} onSaved={() => { setTarget(null); load(); }} />
@@ -190,27 +206,29 @@ export function ChannelsTable() {
         </div>
       )}
 
+      <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
-            <th>名称</th>
-            <th>服务商</th>
-            <th className="channel-base-col">基础地址</th>
-            <th className="channel-models-col">模型</th>
-            <th>权重</th>
-            <th>并发</th>
-            <th>监控</th>
-            <th className="channel-test-model-col">测试模型</th>
-            <th>状态</th>
-            <th>启用</th>
+            {sortHeader("name", "名称")}
+            {sortHeader("type", "服务商")}
+            {sortHeader("baseUrl", "基础地址", "channel-base-col")}
+            {sortHeader("models", "模型", "channel-models-col")}
+            {sortHeader("weight", "权重")}
+            {sortHeader("maxConcurrency", "并发")}
+            {sortHeader("monitorIntervalSec", "监控")}
+            {sortHeader("testModel", "测试模型", "channel-test-model-col")}
+            {sortHeader("status", "状态")}
+            {sortHeader("enabled", "启用")}
             <th className="right channel-actions-col">操作</th>
           </tr>
         </thead>
         <tbody>
-          {pageChannels.length === 0 && (
+          {loading && <tr><td colSpan={11} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && channels.length === 0 && (
             <tr><td colSpan={11} className="empty">暂无渠道</td></tr>
           )}
-          {pageChannels.map(c => (
+          {sortedRows.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td><span className={`type-pill ${c.type}`}>{c.type}</span></td>
@@ -253,7 +271,8 @@ export function ChannelsTable() {
           ))}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredChannels.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 
 type GiftCard = {
   id: string;
@@ -33,26 +34,38 @@ export function AdminGiftCards() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { sortedRows, sortHeader, sort } = useSortableRows(cards, {
+    code: row => `${row.codePrefix}${row.codeSuffix}`,
+    amountUsd: row => row.amountUsd,
+    status: row => row.status,
+    createdAt: row => row.createdAt,
+    redeemedBy: row => row.redeemedBy ?? "",
+    redeemedAt: row => row.redeemedAt ?? 0,
+  }, "createdAt", "desc");
 
   async function load() {
-    const res = await fetch("/api/gift-cards");
-    if (res.ok) setCards(await res.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, status: statusFilter });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const res = await fetch(`/api/gift-cards?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCards(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query, statusFilter]);
+  useEffect(() => { load(); }, [page, query, statusFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [query, statusFilter, sort.key, sort.dir]);
 
-  const filteredCards = cards.filter(card => {
-    const q = query.trim().toLowerCase();
-    const code = `${card.codePrefix}${card.codeSuffix}`.toLowerCase();
-    const matchesQuery = !q || code.includes(q) || card.createdBy.toLowerCase().includes(q) || (card.redeemedBy ?? "").toLowerCase().includes(q);
-    const matchesStatus = statusFilter === "all" || card.status === statusFilter;
-    return matchesQuery && matchesStatus;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredCards.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageCards = filteredCards.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const allSelected = filteredCards.length > 0 && filteredCards.every(card => selected.has(card.id));
+  const allSelected = cards.length > 0 && cards.every(card => selected.has(card.id));
 
   async function createCards(e: React.FormEvent) {
     e.preventDefault();
@@ -83,7 +96,7 @@ export function AdminGiftCards() {
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(filteredCards.map(card => card.id)));
+    setSelected(allSelected ? new Set() : new Set(cards.map(card => card.id)));
   }
 
   function toggleOne(id: string) {
@@ -120,7 +133,7 @@ export function AdminGiftCards() {
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索卡号 / 创建人 / 核销用户" />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "active", label: "可核销" }, { value: "redeemed", label: "已核销" }]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredCards.length} gift cards</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} gift cards`}</span>
       </div>
 
       {open && (
@@ -160,11 +173,13 @@ export function AdminGiftCards() {
 
       <section className="section">
         <h2>礼品卡记录</h2>
+        <div className="table-wrap">
         <table className="table">
-          <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th><th>卡号</th><th>金额</th><th>状态</th><th>创建时间</th><th>核销用户</th><th>核销时间</th></tr></thead>
+          <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th>{sortHeader("code", "卡号")}{sortHeader("amountUsd", "金额")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}{sortHeader("redeemedBy", "核销用户")}{sortHeader("redeemedAt", "核销时间")}</tr></thead>
           <tbody>
-            {pageCards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡</td></tr>}
-            {pageCards.map(card => (
+            {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+            {!loading && cards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡</td></tr>}
+            {sortedRows.map(card => (
               <tr key={card.id}>
                 <td><button type="button" className={`check-control ${selected.has(card.id) ? "checked" : ""}`} onClick={() => toggleOne(card.id)} aria-label={`选择礼品卡 ${card.codePrefix}${card.codeSuffix}`} aria-pressed={selected.has(card.id)} /></td>
                 <td className="mono">{card.codePrefix}****{card.codeSuffix}</td>
@@ -177,7 +192,8 @@ export function AdminGiftCards() {
             ))}
           </tbody>
         </table>
-        <ListPagination page={safePage} pageSize={pageSize} total={filteredCards.length} onPageChange={setPage} />
+        </div>
+        <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
       </section>
     </div>
   );

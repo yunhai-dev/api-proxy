@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtClockStamp, statusClass, statusLabel } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 
 type LogEntry = {
   id: number;
@@ -40,7 +41,12 @@ type StatusFilter = (typeof STATUSES)[number];
 type UserOption = { id: string; username: string; displayName: string };
 const pageSize = 50;
 
+function providerLabel(provider: LogEntry["channelType"]) {
+  return provider === "claude" ? "Claude" : "OpenAI";
+}
+
 export function LogStream({ initial, mode = "user", users = [] }: { initial: LogEntry[]; mode?: "user" | "admin"; users?: UserOption[] }) {
+  const isAdminMode = mode === "admin";
   const [rows, setRows] = useState<LogEntry[]>(initial);
   const [selectedUserId, setSelectedUserId] = useState("all");
   const [paused, setPaused] = useState(false);
@@ -50,20 +56,49 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const [channelFilter, setChannelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(initial.length);
+  const [loading, setLoading] = useState(false);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
   const [selectedError, setSelectedError] = useState<LogEntry | null>(null);
+  const { sortedRows, sortButton, sort } = useSortableRows(rows, {
+    ts: row => row.ts,
+    requestId: row => row.requestId,
+    keyName: row => row.keyName || row.keyPrefix,
+    channelName: row => isAdminMode ? row.channelName : row.channelType,
+    model: row => row.inboundModel || row.model,
+    status: row => row.status,
+    ttftMs: row => row.ttftMs || row.latencyMs,
+    durationMs: row => row.durationMs,
+    tokensIn: row => row.tokensIn,
+    tokensOut: row => row.tokensOut,
+    cacheReadTokens: row => row.cacheReadTokens,
+    cacheCreationTokens: row => row.cacheCreationTokens,
+    cost: row => row.cost,
+  }, "ts", "desc");
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
-  useEffect(() => {
-    if (mode !== "admin") return;
-    const qs = selectedUserId === "all" ? "" : `?userId=${encodeURIComponent(selectedUserId)}`;
-    fetch(`/api/logs${qs}`).then(r => r.ok ? r.json() : []).then(setRows).catch(() => null);
-  }, [mode, selectedUserId]);
-  useEffect(() => { setPage(1); }, [selectedUserId, status, search, providerFilter, channelFilter, modelFilter]);
+  async function load() {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), status, query: search, provider: providerFilter, model: modelFilter });
+    if (isAdminMode) params.set("channel", channelFilter);
+    params.set("sort", sort.key === "requestId" ? "ts" : sort.key === "ttftMs" || sort.key === "durationMs" ? "latencyMs" : sort.key);
+    params.set("sortDir", sort.dir);
+    if (isAdminMode) params.set("userId", selectedUserId);
+    try {
+      const r = await fetch(`/api/logs?${params}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setRows(data.rows ?? []);
+      setTotal(data.total ?? 0);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, [mode, selectedUserId, status, search, providerFilter, channelFilter, modelFilter, page, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [selectedUserId, status, search, providerFilter, channelFilter, modelFilter, sort.key, sort.dir]);
 
   useEffect(() => {
-    const qs = mode === "admin" && selectedUserId !== "all" ? `?userId=${encodeURIComponent(selectedUserId)}` : "";
+    const qs = isAdminMode && selectedUserId !== "all" ? `?userId=${encodeURIComponent(selectedUserId)}` : "";
     const es = new EventSource(`/api/logs/stream${qs}`);
     es.addEventListener("log", (e) => {
       if (pausedRef.current) return;
@@ -76,7 +111,9 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
             next[idx] = entry;
             return next;
           }
-          return [entry, ...prev].slice(0, 200);
+          if (page !== 1 || status !== "all" || search || providerFilter !== "all" || (isAdminMode && channelFilter !== "all") || modelFilter !== "all") return prev;
+          setTotal(total => total + 1);
+          return [entry, ...prev].slice(0, pageSize);
         });
         setNewIds(prev => new Set(prev).add(entry.id || Date.now()));
         setTimeout(() => {
@@ -92,37 +129,12 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
       // 让浏览器自动重连
     };
     return () => es.close();
-  }, [mode, selectedUserId]);
+  }, [isAdminMode, selectedUserId, page, status, search, providerFilter, channelFilter, modelFilter]);
 
-  const filtered = useMemo(() => {
-    let out = rows;
-    if (status !== "all") out = out.filter(r => {
-      if (status === "2xx") return r.status >= 200 && r.status < 300;
-      if (status === "4xx") return r.status >= 400 && r.status < 500;
-      if (status === "5xx") return r.status >= 500 && r.status < 600;
-      if (status === "err") return r.status === 0 || r.status >= 500;
-      return true;
-    });
-    const s = search.trim().toLowerCase();
-    if (s) {
-      out = out.filter(r =>
-        r.requestId.toLowerCase().includes(s) ||
-        r.keyPrefix.toLowerCase().includes(s) ||
-        r.keyName.toLowerCase().includes(s) ||
-        r.model.toLowerCase().includes(s) ||
-        r.channelName.toLowerCase().includes(s)
-      );
-    }
-    if (providerFilter !== "all") out = out.filter(r => r.channelType === providerFilter);
-    if (channelFilter !== "all") out = out.filter(r => r.channelName === channelFilter);
-    if (modelFilter !== "all") out = out.filter(r => (r.inboundModel || r.model) === modelFilter || r.model === modelFilter);
-    return out;
-  }, [rows, status, search, providerFilter, channelFilter, modelFilter]);
-  const channelOptions = [...new Set(rows.map(r => r.channelName).filter(Boolean))].sort();
+  const channelOptions = isAdminMode ? [...new Set(rows.map(r => r.channelName).filter(Boolean))].sort() : [];
   const modelOptions = [...new Set(rows.flatMap(r => [r.inboundModel, r.model]).filter(Boolean))].sort();
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function errorText(entry: LogEntry) {
     const detail = entry.errorMsg ?? entry.requestDetail;
@@ -159,7 +171,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        {mode === "admin" && (
+        {isAdminMode && (
           <Select
             value={selectedUserId}
             onChange={setSelectedUserId}
@@ -167,32 +179,33 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           />
         )}
         <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
-        <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, ...channelOptions.map(name => ({ value: name, label: name }))]} />
+        {isAdminMode && <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, ...channelOptions.map(name => ({ value: name, label: name }))]} />}
         <Select value={modelFilter} onChange={setModelFilter} options={[{ value: "all", label: "全部模型" }, ...modelOptions.map(name => ({ value: name, label: name }))]} />
         <div className="spacer" />
-        <span className="dim mono" style={{ fontSize: 11.5 }}>{filtered.length} logs</span>
+        <span className="dim mono" style={{ fontSize: 11.5 }}>{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} logs`}</span>
       </div>
 
       <div className="log-wrap">
         <div className="log-row head">
-          <span>时间</span>
-          <span>请求ID</span>
-          <span>密钥</span>
-          <span>渠道</span>
-          <span>模型</span>
-          <span style={{ textAlign: "right" }}>状态</span>
-          <span style={{ textAlign: "right" }}>首字</span>
-          <span style={{ textAlign: "right" }}>完成</span>
-          <span style={{ textAlign: "right" }}>输入</span>
-          <span style={{ textAlign: "right" }}>输出</span>
-          <span style={{ textAlign: "right" }}>命中</span>
-          <span style={{ textAlign: "right" }}>创建</span>
-          <span style={{ textAlign: "right" }}>消费</span>
+          <span>{sortButton("ts", "时间")}</span>
+          <span>{sortButton("requestId", "请求ID")}</span>
+          <span>{sortButton("keyName", "密钥")}</span>
+          <span>{sortButton("channelName", isAdminMode ? "渠道" : "服务商")}</span>
+          <span>{sortButton("model", "模型")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("status", "状态")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("ttftMs", "首字")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("durationMs", "完成")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("tokensIn", "输入")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("tokensOut", "输出")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("cacheReadTokens", "命中")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("cacheCreationTokens", "创建")}</span>
+          <span style={{ textAlign: "right" }}>{sortButton("cost", "消费")}</span>
         </div>
-        {pageRows.length === 0 && (
+        {loading && <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>}
+        {!loading && rows.length === 0 && (
           <div className="empty">无日志 <span className="mono">// no rows</span></div>
         )}
-        {pageRows.map((r, i) => {
+        {sortedRows.map((r, i) => {
           const cls = statusClass(r.status);
           const slow = r.latencyMs > 3000;
           const isNew = newIds.has(r.id) || newIds.has(r.ts);
@@ -208,7 +221,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               <span className="ts">{fmtClockStamp(r.ts)}</span>
               <span className="reqid" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</span>
               <span className="key">{r.keyPrefix}</span>
-              <span className={`channel ${r.channelType}`}>{r.channelName}</span>
+              <span className={`channel ${r.channelType}`}>{isAdminMode ? r.channelName : providerLabel(r.channelType)}</span>
               <span className="model" title={r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} -> ${r.upstreamModel}` : r.model}>
                 {r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} → ${r.upstreamModel}` : r.model}
               </span>
@@ -224,7 +237,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           );
         })}
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
 
       {selectedError && (
         <div className="modal-backdrop" onClick={() => setSelectedError(null)}>

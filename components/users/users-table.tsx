@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 
 type Role = "super_admin" | "admin" | "user";
@@ -43,13 +44,34 @@ export function UsersTable() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
+    username: row => row.username,
+    displayName: row => row.displayName,
+    email: row => row.email,
+    balance: row => userBalance(row),
+    role: row => row.role,
+    status: row => row.status,
+    createdAt: row => row.createdAt,
+  }, "username");
 
-  useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); }, [query, roleFilter, statusFilter]);
+  useEffect(() => { load(); }, [page, query, roleFilter, statusFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [query, roleFilter, statusFilter, sort.key, sort.dir]);
 
   async function load() {
-    const r = await fetch("/api/users");
-    if (r.ok) setRows(await r.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, role: roleFilter, status: statusFilter });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const r = await fetch(`/api/users?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setRows(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
 
   async function create() {
@@ -82,16 +104,8 @@ export function UsersTable() {
     if (r.ok) { toast("额度已更新"); setQuotaTarget(null); setQuota(null); load(); }
   }
 
-  const filteredRows = rows.filter(row => {
-    const q = query.trim().toLowerCase();
-    const matchesQuery = !q || [row.username, row.displayName, row.email].some(value => value.toLowerCase().includes(q));
-    const matchesRole = roleFilter === "all" || row.role === roleFilter;
-    const matchesStatus = statusFilter === "all" || row.status === statusFilter;
-    return matchesQuery && matchesRole && matchesStatus;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <>
@@ -101,7 +115,7 @@ export function UsersTable() {
         <Select value={roleFilter} onChange={setRoleFilter} options={[{ value: "all", label: "全部角色" }, ...roleOptions]} />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "pending", label: "待验证" }, { value: "active", label: "启用" }, { value: "disabled", label: "停用" }]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredRows.length} users</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} users`}</span>
       </div>
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
@@ -133,25 +147,28 @@ export function UsersTable() {
         </div>
       )}
 
-      <table className="table">
-        <thead><tr><th>用户名</th><th>显示名称</th><th>邮箱</th><th>余额</th><th>角色</th><th>状态</th><th>创建时间</th><th className="right">操作</th></tr></thead>
+      <div className="table-wrap">
+      <table className="table users-table">
+        <thead><tr>{sortHeader("username", "用户名")}{sortHeader("displayName", "显示名称")}{sortHeader("email", "邮箱")}{sortHeader("balance", "余额")}{sortHeader("role", "角色")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}<th className="right">操作</th></tr></thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配用户</td></tr>}
-          {pageRows.map(row => (
+          {loading && <tr><td colSpan={8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配用户</td></tr>}
+          {sortedRows.map(row => (
             <tr className="clickable-row" key={row.id} onClick={() => router.push(`/users/${row.id}`)}>
               <td className="mono"><Link href={`/users/${row.id}`}>{row.username}</Link></td>
               <td>{row.displayName}</td>
               <td className="mono dim">{row.email || "—"}</td>
-              <td className="mono nowrap">{fmtUsd(userBalance(row))} <span className="dim">剩余</span></td>
-              <td onClick={e => e.stopPropagation()}><Select size="sm" value={row.role} onChange={v => patch(row, { role: v as Role })} options={roleOptions} /></td>
-              <td onClick={e => e.stopPropagation()}><button className={`toggle-label ${row.status === "active" ? "on" : "off"}`} onClick={() => patch(row, { status: row.status === "active" ? "disabled" : "active" })}><span className="dot" />{row.status === "pending" ? "待验证" : row.status === "active" ? "启用" : "停用"}</button></td>
+              <td className="mono nowrap users-balance-cell">{fmtUsd(userBalance(row))} <span className="dim">剩余</span></td>
+              <td className="users-control-cell" onClick={e => e.stopPropagation()}><Select size="sm" value={row.role} onChange={v => patch(row, { role: v as Role })} options={roleOptions} /></td>
+              <td className="users-control-cell users-status-cell" onClick={e => e.stopPropagation()}><button className={`toggle-label ${row.status === "active" ? "on" : "off"}`} onClick={() => patch(row, { status: row.status === "active" ? "disabled" : "active" })}><span className="dot" />{row.status === "pending" ? "待验证" : row.status === "active" ? "启用" : "停用"}</button></td>
               <td className="mono dim">{new Date(row.createdAt).toISOString().slice(0, 10)}</td>
-              <td className="right" onClick={e => e.stopPropagation()}><button className="btn sm ghost" onClick={() => openQuota(row)}>额度</button> <button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button></td>
+              <td className="right users-actions-cell" onClick={e => e.stopPropagation()}><span className="users-actions"><button className="btn sm ghost" onClick={() => openQuota(row)}>额度</button><button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button></span></td>
             </tr>
           ))}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

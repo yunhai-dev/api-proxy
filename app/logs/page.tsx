@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function LogsPage() {
   const user = await requireUser();
-  const initial = await getRecentLogsAsync(50, "all", { userId: user.id });
+  const initial = (await getRecentLogsAsync(50, "all", { userId: user.id })).map(row => ({ ...row, channelName: row.channelType }));
   return (
     <div className="container">
       <PageHead

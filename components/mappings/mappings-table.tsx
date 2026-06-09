@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 
 type Mapping = {
@@ -39,10 +40,30 @@ export function MappingsTable() {
   const [providerFilter, setProviderFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const channelNames = new Map(channels.map(c => [c.id, c.name]));
+  const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
+    provider: row => row.provider,
+    inboundModel: row => row.inboundModel,
+    upstreamModel: row => row.upstreamModel,
+    channels: row => row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部",
+    createdAt: row => row.createdAt,
+  }, "createdAt", "desc");
 
   async function load() {
-    const r = await fetch("/api/model-mappings");
-    if (r.ok) setRows(await r.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, provider: providerFilter, channelId: channelFilter });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const r = await fetch(`/api/model-mappings?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setRows(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
 
   async function loadChannels() {
@@ -50,26 +71,17 @@ export function MappingsTable() {
     if (r.ok) setChannels(await r.json());
   }
 
-  useEffect(() => { load(); loadChannels(); }, []);
-  useEffect(() => { setPage(1); }, [query, providerFilter, channelFilter]);
+  useEffect(() => { loadChannels(); }, []);
+  useEffect(() => { load(); }, [page, query, providerFilter, channelFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [query, providerFilter, channelFilter, sort.key, sort.dir]);
 
   const upstreamModels = [...new Set(channels
     .filter(c => c.enabled && c.type === provider && (channelIds.length === 0 || channelIds.includes(c.id)))
     .flatMap(c => c.models)
     .filter(model => model && model !== "*"))]
     .sort();
-  const channelNames = new Map(channels.map(c => [c.id, c.name]));
-  const filteredRows = rows.filter(row => {
-    const q = query.trim().toLowerCase();
-    const boundNames = row.channelIds?.map(id => channelNames.get(id) ?? id) ?? [];
-    const matchesQuery = !q || [row.inboundModel, row.upstreamModel, ...boundNames].some(value => value.toLowerCase().includes(q));
-    const matchesProvider = providerFilter === "all" || row.provider === providerFilter;
-    const matchesChannel = channelFilter === "all" || (channelFilter === "__all_channels" ? !row.channelIds?.length : row.channelIds?.includes(channelFilter));
-    return matchesQuery && matchesProvider && matchesChannel;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function resetForm() {
     setInboundModels("");
@@ -158,7 +170,7 @@ export function MappingsTable() {
         <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
         <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, { value: "__all_channels", label: "全渠道映射" }, ...channels.map(c => ({ value: c.id, label: c.name }))]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredRows.length} mappings</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} mappings`}</span>
       </div>
 
       {open && (
@@ -233,20 +245,22 @@ export function MappingsTable() {
         </div>
       )}
 
+      <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
-            <th>服务商</th>
-            <th>入站模型</th>
-            <th>上游模型</th>
-            <th>绑定渠道</th>
-            <th>创建时间</th>
+            {sortHeader("provider", "服务商")}
+            {sortHeader("inboundModel", "入站模型")}
+            {sortHeader("upstreamModel", "上游模型")}
+            {sortHeader("channels", "绑定渠道")}
+            {sortHeader("createdAt", "创建时间")}
             <th className="right">操作</th>
           </tr>
         </thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={6} className="empty">暂无匹配映射</td></tr>}
-          {pageRows.map(row => (
+          {loading && <tr><td colSpan={6} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={6} className="empty">暂无匹配映射</td></tr>}
+          {sortedRows.map(row => (
             <tr key={row.id}>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
               <td className="mono">{row.inboundModel}</td>
@@ -263,7 +277,8 @@ export function MappingsTable() {
           ))}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredRows.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

@@ -1,11 +1,27 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { TopRankingBarChart } from "@/components/rankings/top-ranking-bar-chart";
 import { fmtRelativeTime } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 import { useEffect, useState } from "react";
+
+type TopUser = {
+  id: string;
+  name: string;
+  username: string;
+  last: number;
+  requests: number;
+  tokensIn: number;
+  tokensOut: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+  cost: number;
+};
 
 type TopKey = {
   id: string;
@@ -33,12 +49,13 @@ type ModelStat = {
   cost: number;
 };
 const pageSize = 20;
+type RankingTab = "keys" | "users" | "models";
 
-export function RankingsTabs({ tab, topKeys, modelStats }: { tab: "keys" | "models"; topKeys: TopKey[]; modelStats: ModelStat[] }) {
+export function RankingsTabs({ tab, topKeys, topUsers, modelStats }: { tab: RankingTab; topKeys: TopKey[]; topUsers: TopUser[]; modelStats: ModelStat[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  function setTab(next: "keys" | "models") {
+  function setTab(next: RankingTab) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", next);
     router.replace(`/rankings?${params.toString()}`);
@@ -47,11 +64,12 @@ export function RankingsTabs({ tab, topKeys, modelStats }: { tab: "keys" | "mode
   return (
     <section className="section">
       <div className="rank-tabs">
-        <button type="button" className={tab === "keys" ? "active" : ""} onClick={() => setTab("keys")}>API Key</button>
+        <button type="button" className={tab === "keys" ? "active" : ""} onClick={() => setTab("keys")}>密钥</button>
+        <button type="button" className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>用户</button>
         <button type="button" className={tab === "models" ? "active" : ""} onClick={() => setTab("models")}>模型</button>
       </div>
 
-      {tab === "keys" ? <KeyTable rows={topKeys} /> : <ModelTable rows={modelStats} />}
+      {tab === "keys" ? <KeyTable rows={topKeys} /> : tab === "users" ? <UserTable rows={topUsers} /> : <ModelTable rows={modelStats} />}
     </section>
   );
 }
@@ -66,17 +84,89 @@ function KeyTable({ rows }: { rows: TopKey[] }) {
   });
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const { sortedRows, sortHeader } = useSortableRows(filtered, {
+    name: row => row.name,
+    prefix: row => row.prefix,
+    requests: row => row.requests,
+    totalTokens: row => row.totalTokens,
+    tokensIn: row => row.tokensIn,
+    tokensOut: row => row.tokensOut,
+    cacheReadTokens: row => row.cacheReadTokens,
+    cacheCreationTokens: row => row.cacheCreationTokens,
+    cost: row => row.cost,
+    last: row => row.last,
+  }, "totalTokens", "desc");
+  const chartRows = sortedRows.slice(0, 10).map(row => ({
+    id: row.id,
+    label: row.name,
+    value: row.totalTokens,
+    requests: row.requests,
+    cost: row.cost,
+    tone: "key" as const,
+  }));
+  const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
-      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索 Key 名称 / 前缀" /><span className="spacer" /><span className="mono dim">{filtered.length} keys</span></div>
+      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索密钥 / 前缀" /><span className="spacer" /><span className="mono dim">{filtered.length} keys</span></div>
+      <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无密钥消耗数据" />
+      <div className="table-wrap">
       <table className="table key-stats-table">
-        <thead><tr><th>API Key</th><th>前缀</th><th className="right">请求数</th><th className="right">Token 总数</th><th className="right">输入</th><th className="right">输出</th><th className="right">命中</th><th className="right">创建</th><th className="right">费用</th><th>最后使用</th></tr></thead>
+        <thead><tr>{sortHeader("name", "密钥")}{sortHeader("prefix", "前缀")}{sortHeader("requests", "请求数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}{sortHeader("last", "最后使用")}</tr></thead>
         <tbody>
           {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配密钥</td></tr>}
-          {pageRows.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}…</td><td className="right mono">{k.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(k.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${k.cost.toFixed(2)}</td><td className="mono dim">{fmtRelativeTime(k.last)}</td></tr>)}
+          {pageRows.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}</td><td className="right mono">{k.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(k.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${k.cost.toFixed(2)}</td><td className="mono dim">{fmtRelativeTime(k.last)}</td></tr>)}
         </tbody>
       </table>
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
+    </>
+  );
+}
+
+function UserTable({ rows }: { rows: TopUser[] }) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [query]);
+  const filtered = rows.filter(row => {
+    const q = query.trim().toLowerCase();
+    return !q || row.name.toLowerCase().includes(q) || row.username.toLowerCase().includes(q);
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const { sortedRows, sortHeader } = useSortableRows(filtered, {
+    name: row => row.name,
+    username: row => row.username,
+    requests: row => row.requests,
+    totalTokens: row => row.totalTokens,
+    tokensIn: row => row.tokensIn,
+    tokensOut: row => row.tokensOut,
+    cacheReadTokens: row => row.cacheReadTokens,
+    cacheCreationTokens: row => row.cacheCreationTokens,
+    cost: row => row.cost,
+    last: row => row.last,
+  }, "totalTokens", "desc");
+  const chartRows = sortedRows.slice(0, 10).map(row => ({
+    id: row.id,
+    label: row.name,
+    value: row.totalTokens,
+    requests: row.requests,
+    cost: row.cost,
+    tone: "user" as const,
+  }));
+  const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  return (
+    <>
+      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索用户 / 用户名" /><span className="spacer" /><span className="mono dim">{filtered.length} users</span></div>
+      <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无用户消耗数据" />
+      <div className="table-wrap">
+      <table className="table key-stats-table">
+        <thead><tr>{sortHeader("name", "用户")}{sortHeader("username", "用户名")}{sortHeader("requests", "请求数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}{sortHeader("last", "最后使用")}</tr></thead>
+        <tbody>
+          {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配用户</td></tr>}
+          {pageRows.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="right mono">{u.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${u.cost.toFixed(2)}</td><td className="mono dim">{fmtRelativeTime(u.last)}</td></tr>)}
+        </tbody>
+      </table>
+      </div>
       <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
     </>
   );
@@ -93,17 +183,39 @@ function ModelTable({ rows }: { rows: ModelStat[] }) {
   });
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const { sortedRows, sortHeader } = useSortableRows(filtered, {
+    model: row => row.model,
+    provider: row => row.provider,
+    requests: row => row.requests,
+    totalTokens: row => row.totalTokens,
+    tokensIn: row => row.tokensIn,
+    tokensOut: row => row.tokensOut,
+    cacheReadTokens: row => row.cacheReadTokens,
+    cacheCreationTokens: row => row.cacheCreationTokens,
+    cost: row => row.cost,
+  }, "totalTokens", "desc");
+  const chartRows = sortedRows.slice(0, 10).map(row => ({
+    id: `${row.provider}:${row.model}`,
+    label: row.model,
+    value: row.totalTokens,
+    requests: row.requests,
+    cost: row.cost,
+    tone: row.provider,
+  }));
+  const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
       <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型" /><Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} /><span className="spacer" /><span className="mono dim">{filtered.length} models</span></div>
+      <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无模型消耗数据" />
+      <div className="table-wrap">
       <table className="table model-stats-table">
-        <thead><tr><th>模型</th><th>供应商</th><th className="right">请求总数</th><th className="right">Token 总数</th><th className="right">输入</th><th className="right">输出</th><th className="right">命中</th><th className="right">创建</th><th className="right">费用</th></tr></thead>
+        <thead><tr>{sortHeader("model", "模型")}{sortHeader("provider", "供应商")}{sortHeader("requests", "请求总数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}</tr></thead>
         <tbody>
           {pageRows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配模型消耗数据</td></tr>}
           {pageRows.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider}</span></td><td className="right mono">{m.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${m.cost.toFixed(2)}</td></tr>)}
         </tbody>
       </table>
+      </div>
       <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
     </>
   );

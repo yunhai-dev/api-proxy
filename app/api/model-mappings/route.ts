@@ -4,21 +4,49 @@ import { nanoid } from "nanoid";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
 import { eq } from "drizzle-orm";
+import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await requireAdmin();
+    const { hasPagination, page, pageSize } = pageParams(req.nextUrl);
+    const q = queryText(req.nextUrl, "query", "search").toLowerCase();
+    const provider = req.nextUrl.searchParams.get("provider") ?? "all";
+    const channelId = req.nextUrl.searchParams.get("channelId") ?? "all";
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
-      return NextResponse.json(await pgDb.select().from(pgSchema.modelMappings).orderBy(pgSchema.modelMappings.createdAt));
+      const rows = await pgDb.select().from(pgSchema.modelMappings).orderBy(pgSchema.modelMappings.createdAt);
+      const filtered = sortMappings(req.nextUrl, filterMappings(rows, q, provider, channelId));
+      return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
     }
-    return NextResponse.json(db.select().from(schema.modelMappings).orderBy(schema.modelMappings.createdAt).all());
+    const rows = db.select().from(schema.modelMappings).orderBy(schema.modelMappings.createdAt).all();
+    const filtered = sortMappings(req.nextUrl, filterMappings(rows, q, provider, channelId));
+    return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+function filterMappings<T extends { provider: string; inboundModel: string; upstreamModel: string; channelIds: string[] }>(rows: T[], q: string, provider: string, channelId: string) {
+  return rows.filter(row => {
+    const matchesQuery = !q || [row.inboundModel, row.upstreamModel, ...row.channelIds].some(value => value.toLowerCase().includes(q));
+    const matchesProvider = provider === "all" || row.provider === provider;
+    const matchesChannel = channelId === "all" || (channelId === "__all_channels" ? !row.channelIds.length : row.channelIds.includes(channelId));
+    return matchesQuery && matchesProvider && matchesChannel;
+  });
+}
+
+function sortMappings<T extends { provider: string; inboundModel: string; upstreamModel: string; channelIds: string[]; createdAt: number }>(url: URL, rows: T[]) {
+  return sortRows(url, rows, {
+    provider: row => row.provider,
+    inboundModel: row => row.inboundModel,
+    upstreamModel: row => row.upstreamModel,
+    channels: row => row.channelIds.join(","),
+    createdAt: row => row.createdAt,
+  }, "createdAt", "desc");
 }
 
 function validatedChannelIds(input: unknown, provider: "claude" | "openai") {

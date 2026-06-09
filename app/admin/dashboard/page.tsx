@@ -1,5 +1,6 @@
 import { PageHead } from "@/components/page-head";
 import { ChannelTrafficChart } from "@/components/dashboard/channel-traffic-chart";
+import { ModelUsageBarChart } from "@/components/dashboard/model-usage-bar-chart";
 import { RangeForm } from "@/components/dashboard/range-form";
 import { ThroughputChart } from "@/components/dashboard/throughput-chart";
 import { UserTokenTrendChart } from "@/components/dashboard/user-token-trend-chart";
@@ -78,18 +79,22 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
       </section>
 
       <section className="section" style={{ marginTop: 32 }}>
-        <h2>API Key 消耗排行</h2>
+        <h2>用户消耗榜</h2>
+        <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>名称</th><th>前缀</th><th>请求</th><th>Token</th><th>费用</th><th>最后使用</th></tr></thead>
+          <thead><tr><th>用户</th><th>用户名</th><th>请求</th><th>Token</th><th>费用</th><th>最后使用</th></tr></thead>
           <tbody>
-            {stats.topKeys.length === 0 && <tr><td colSpan={6} className="empty">暂无 Key 使用数据</td></tr>}
-            {stats.topKeys.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}</td><td className="mono">{k.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(k.totalTokens / 1_000_000)}</td><td className="mono">${k.cost.toFixed(4)}</td><td className="mono dim">{k.last ? new Date(k.last).toLocaleString() : "—"}</td></tr>)}
+            {stats.topUsers.length === 0 && <tr><td colSpan={6} className="empty">暂无用户使用数据</td></tr>}
+            {stats.topUsers.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="mono">{u.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="mono">${u.cost.toFixed(4)}</td><td className="mono dim">{u.last ? new Date(u.last).toLocaleString() : "—"}</td></tr>)}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="section" style={{ marginTop: 32 }}>
         <h2>模型消耗排行</h2>
+        <ModelUsageBarChart rows={stats.modelStats} />
+        <div className="table-wrap">
         <table className="table model-stats-table">
           <thead><tr><th>模型</th><th>服务商</th><th>请求</th><th>Token</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>
           <tbody>
@@ -97,6 +102,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
             {stats.modelStats.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider}</span></td><td className="mono">{m.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="mono">${m.cost.toFixed(4)}</td></tr>)}
           </tbody>
         </table>
+        </div>
       </section>
     </div>
   );

@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { AuthError, isAdmin, requireUser } from "@/lib/auth";
 import { combineWhere, keyOwnerWhere, requestedUserId } from "@/lib/scope";
 import { usePostgres } from "@/lib/db/runtime";
+import { pageParams, pageRows, sortRows } from "@/lib/pagination";
 
 function sk() { return "sk-relay-" + nanoid(4); }
 
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
     const user = await requireUser();
     const status = req.nextUrl.searchParams.get("status");
     const search = req.nextUrl.searchParams.get("search")?.toLowerCase();
+    const { hasPagination, page, pageSize } = pageParams(req.nextUrl);
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       const requested = requestedUserId(req.nextUrl);
@@ -20,8 +22,10 @@ export async function GET(req: NextRequest) {
       let rows = await pgDb.select().from(pgSchema.keys);
       if (scoped) rows = rows.filter(k => k.userId === scoped);
       if (status === "active" || status === "disabled") rows = rows.filter(k => k.status === status);
+      if (status === "exceeded") rows = rows.filter(k => k.quota > 0 && k.used >= k.quota);
       if (search) rows = rows.filter(k => k.name.toLowerCase().includes(search) || k.prefix.toLowerCase().includes(search));
-      return NextResponse.json(rows);
+      const sorted = sortKeys(req.nextUrl, rows);
+      return NextResponse.json(hasPagination ? pageRows(sorted, page, pageSize) : sorted);
     }
     const owner = keyOwnerWhere(user, requestedUserId(req.nextUrl));
     const statusWhere = status === "active" || status === "disabled" ? eq(schema.keys.status, status) : undefined;
@@ -33,11 +37,26 @@ export async function GET(req: NextRequest) {
     const filtered = search
       ? rows.filter(k => k.name.toLowerCase().includes(search) || k.prefix.toLowerCase().includes(search))
       : rows;
-    return NextResponse.json(filtered);
+    const withExceeded = status === "exceeded" ? filtered.filter(k => k.quota > 0 && k.used >= k.quota) : filtered;
+    const sorted = sortKeys(req.nextUrl, withExceeded);
+    return NextResponse.json(hasPagination ? pageRows(sorted, page, pageSize) : sorted);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+function sortKeys<T extends { name: string; prefix: string; userId: string; createdAt: number; lastUsedAt: number | null; channelScope: string; used: number; status: string }>(url: URL, rows: T[]) {
+  return sortRows(url, rows, {
+    name: row => row.name,
+    prefix: row => row.prefix,
+    user: row => row.userId,
+    createdAt: row => row.createdAt,
+    lastUsedAt: row => row.lastUsedAt ?? 0,
+    channelScope: row => row.channelScope,
+    used: row => row.used,
+    status: row => row.status,
+  }, "createdAt", "desc");
 }
 
 export async function POST(req: NextRequest) {

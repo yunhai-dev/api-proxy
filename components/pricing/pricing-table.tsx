@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { useSortableRows } from "@/components/ui/sortable-table";
 
 type ModelPrice = {
   id: string;
@@ -35,16 +36,38 @@ export function PricingTable() {
   const [output, setOutput] = useState("");
   const [cacheRead, setCacheRead] = useState("");
   const [cacheCreation, setCacheCreation] = useState("");
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [providerFilter, setProviderFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { sortedRows, sortHeader, sort } = useSortableRows(prices, {
+    provider: row => row.provider,
+    channelId: row => row.channelId ?? "",
+    model: row => row.model,
+    inputPricePerMTok: row => row.inputPricePerMTok,
+    outputPricePerMTok: row => row.outputPricePerMTok,
+    cacheReadPricePerMTok: row => row.cacheReadPricePerMTok,
+    cacheCreationPricePerMTok: row => row.cacheCreationPricePerMTok,
+  }, "model");
 
-  useEffect(() => { load(); loadSources(); }, []);
-  useEffect(() => { setPage(1); }, [query, providerFilter]);
+  useEffect(() => { loadSources(); }, []);
+  useEffect(() => { load(); }, [page, query, provider, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); }, [query, provider, sort.key, sort.dir]);
 
   async function load() {
-    const r = await fetch("/api/model-prices");
-    if (r.ok) setPrices(await r.json());
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, provider });
+    params.set("sort", sort.key);
+    params.set("sortDir", sort.dir);
+    try {
+      const r = await fetch(`/api/model-prices?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setPrices(data.rows ?? []);
+        setTotal(data.total ?? 0);
+      }
+    } finally { setLoading(false); }
   }
 
   async function loadSources() {
@@ -69,16 +92,8 @@ export function PricingTable() {
   };
   const channelNames = new Map(channels.map(c => [c.id, c.name]));
   const existing = prices.find(row => (row.channelId ?? "") === channelId && row.model === model.trim());
-  const filteredPrices = prices.filter(row => {
-    const q = query.trim().toLowerCase();
-    const channelName = row.channelId ? channelNames.get(row.channelId) ?? row.channelId : "默认价";
-    const matchesQuery = !q || row.model.toLowerCase().includes(q) || channelName.toLowerCase().includes(q);
-    const matchesProvider = providerFilter === "all" || row.provider === providerFilter;
-    return matchesQuery && matchesProvider;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredPrices.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pagePrices = filteredPrices.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function modelOptionsFor(nextProvider: "claude" | "openai") {
     return [...new Set([
@@ -108,6 +123,7 @@ export function PricingTable() {
     if (!r.ok) { toast(data.error || "保存定价失败"); return; }
     toast("模型定价已保存");
     setModel(""); setInput(""); setOutput(""); setCacheRead(""); setCacheCreation("");
+    setOpen(false);
     load();
   }
 
@@ -118,7 +134,7 @@ export function PricingTable() {
 
   return (
     <>
-      <div className="pricing-editor">
+      <div className="page-actions pricing-actions">
         <div className="pricing-provider-switch" aria-label="选择服务商">
           <span className="pricing-provider-label">服务商</span>
           <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => { setProvider("claude"); setChannelId(""); setModel(""); }} type="button">
@@ -130,54 +146,67 @@ export function PricingTable() {
             <small className="mono">{providerCounts.openai} models</small>
           </button>
         </div>
-        <Select
-          className="fill-select"
-          value={channelId || "__default"}
-          onChange={v => { setChannelId(v === "__default" ? "" : v); setModel(""); }}
-          options={[{ value: "__default", label: `${provider === "claude" ? "Claude" : "OpenAI"} 默认价` }, ...channels.filter(c => c.type === provider).map(c => ({ value: c.id, label: `${c.name} (${c.type})` }))]}
-        />
-        <Select
-          className="fill-select"
-          editable
-          value={model}
-          onChange={setModel}
-          placeholder="选择或输入模型 ID"
-          options={modelOptions.map(m => {
-            const used = prices.some(row => (row.channelId ?? "") === channelId && row.model === m);
-            return { value: m, label: m, hint: used ? "已定价" : undefined, disabled: used };
-          })}
-        />
-        <input className="mono" value={input} onChange={e => setInput(e.target.value)} placeholder="输入 $/M" />
-        <input className="mono" value={output} onChange={e => setOutput(e.target.value)} placeholder="输出 $/M" />
-        <input className="mono" value={cacheRead} onChange={e => setCacheRead(e.target.value)} placeholder="命中缓存 $/M" />
-        <input className="mono" value={cacheCreation} onChange={e => setCacheCreation(e.target.value)} placeholder="创建缓存 $/M" />
-        <button className="btn primary" onClick={save} disabled={!!existing}>保存定价</button>
+        <button className="btn primary" onClick={() => setOpen(true)}>+ 添加定价</button>
       </div>
-      {existing && <div className="pricing-error">该渠道下该模型已配置定价，请先删除旧定价后再新增。</div>}
+
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal pricing-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>添加模型定价</h2>
+              <button className="modal-close" onClick={() => setOpen(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>渠道</label>
+                <Select className="fill-select" value={channelId || "__default"} onChange={v => { setChannelId(v === "__default" ? "" : v); setModel(""); }} options={[{ value: "__default", label: `${provider === "claude" ? "Claude" : "OpenAI"} 默认价` }, ...channels.filter(c => c.type === provider).map(c => ({ value: c.id, label: `${c.name} (${c.type})` }))]} />
+              </div>
+              <div className="field">
+                <label>模型</label>
+                <Select className="fill-select" editable value={model} onChange={setModel} placeholder="选择或输入模型 ID" options={modelOptions.map(m => { const used = prices.some(row => (row.channelId ?? "") === channelId && row.model === m); return { value: m, label: m, hint: used ? "已定价" : undefined, disabled: used }; })} />
+              </div>
+              <div className="field-row">
+                <div className="field"><label>输入单价</label><input className="mono" value={input} onChange={e => setInput(e.target.value)} placeholder="$/M Token" /></div>
+                <div className="field"><label>输出单价</label><input className="mono" value={output} onChange={e => setOutput(e.target.value)} placeholder="$/M Token" /></div>
+              </div>
+              <div className="field-row">
+                <div className="field"><label>命中缓存</label><input className="mono" value={cacheRead} onChange={e => setCacheRead(e.target.value)} placeholder="$/M Token" /></div>
+                <div className="field"><label>创建缓存</label><input className="mono" value={cacheCreation} onChange={e => setCacheCreation(e.target.value)} placeholder="$/M Token" /></div>
+              </div>
+              {existing && <div className="pricing-error">该渠道下该模型已配置定价，请先删除旧定价后再新增。</div>}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setOpen(false)}>取消</button>
+              <button className="btn primary" onClick={save} disabled={!!existing}>保存定价</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型定价" />
-        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
         <span className="spacer" />
-        <span className="mono dim">{filteredPrices.length} prices</span>
+        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} prices`}</span>
       </div>
 
+      <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
-            <th>服务商</th>
-            <th>渠道</th>
-            <th>模型</th>
-            <th>输入单价</th>
-            <th>输出单价</th>
-            <th>命中缓存</th>
-            <th>创建缓存</th>
+            {sortHeader("provider", "服务商")}
+            {sortHeader("channelId", "渠道")}
+            {sortHeader("model", "模型")}
+            {sortHeader("inputPricePerMTok", "输入单价")}
+            {sortHeader("outputPricePerMTok", "输出单价")}
+            {sortHeader("cacheReadPricePerMTok", "命中缓存")}
+            {sortHeader("cacheCreationPricePerMTok", "创建缓存")}
             <th className="right">操作</th>
           </tr>
         </thead>
         <tbody>
-          {pagePrices.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配定价，未配置的模型成本按 0 计算。</td></tr>}
-          {pagePrices.map(row => (
+          {loading && <tr><td colSpan={8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && prices.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配定价，未配置的模型成本按 0 计算。</td></tr>}
+          {sortedRows.map(row => (
             <tr key={row.id}>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
               <td>{row.channelId ? channelNames.get(row.channelId) ?? row.channelId : <span className="dim">默认价</span>}</td>
@@ -191,7 +220,8 @@ export function PricingTable() {
           ))}
         </tbody>
       </table>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredPrices.length} onPageChange={setPage} />
+      </div>
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
     </>
   );
 }

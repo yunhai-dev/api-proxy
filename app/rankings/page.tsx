@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function RankingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
-  const tab = sp.tab === "models" ? "models" : "keys";
+  const tab = sp.tab === "users" || sp.tab === "models" ? sp.tab : "keys";
   const stats = await getDashboardStatsAsync("24h");
 
   return (
@@ -19,12 +19,12 @@ export default async function RankingsPage({ searchParams }: { searchParams: Pro
           <>
             <span>最近 24 小时</span>
             <span className="sep">/</span>
-            <span>API Key 与模型消耗</span>
+            <span>密钥、用户与模型消耗</span>
           </>
         }
       />
 
-      <RankingsTabs tab={tab} topKeys={stats.topKeys} modelStats={stats.modelStats} />
+      <RankingsTabs tab={tab} topKeys={stats.topKeys} topUsers={stats.topUsers} modelStats={stats.modelStats} />
     </div>
   );
 }

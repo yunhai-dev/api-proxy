@@ -1,26 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { ensureChannelMonitor } from "@/lib/channel-monitor";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
+import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await requireAdmin();
     ensureChannelMonitor();
+    const { hasPagination, page, pageSize } = pageParams(req.nextUrl);
+    const q = queryText(req.nextUrl, "query", "search").toLowerCase();
+    const type = req.nextUrl.searchParams.get("type") ?? "all";
+    const status = req.nextUrl.searchParams.get("status") ?? "all";
+    const enabled = req.nextUrl.searchParams.get("enabled") ?? "all";
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
-      const rows = await pgDb.select().from(pgSchema.channels);
-      return NextResponse.json(rows.map(({ apiKey, ...rest }) => rest));
+      const rows = await pgDb.select().from(pgSchema.channels).orderBy(desc(pgSchema.channels.weight), pgSchema.channels.name);
+      const filtered = sortChannels(req.nextUrl, filterChannels(rows.map(({ apiKey, ...rest }) => rest), q, type, status, enabled));
+      return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
     }
-    const rows = db.select().from(schema.channels).all();
-    return NextResponse.json(rows.map(({ apiKey, ...rest }) => rest));
+    const rows = db.select().from(schema.channels).orderBy(desc(schema.channels.weight), schema.channels.name).all();
+    const filtered = sortChannels(req.nextUrl, filterChannels(rows.map(({ apiKey, ...rest }) => rest), q, type, status, enabled));
+    return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+function filterChannels<T extends { name: string; baseUrl: string; testModel: string; models: string[]; type: string; status: string; enabled: boolean }>(rows: T[], q: string, type: string, status: string, enabled: string) {
+  return rows.filter(row => {
+    const matchesQuery = !q || [row.name, row.baseUrl, row.testModel, ...row.models].some(value => value.toLowerCase().includes(q));
+    const matchesType = type === "all" || row.type === type;
+    const matchesStatus = status === "all" || row.status === status;
+    const matchesEnabled = enabled === "all" || (enabled === "enabled" ? row.enabled : !row.enabled);
+    return matchesQuery && matchesType && matchesStatus && matchesEnabled;
+  });
+}
+
+function sortChannels<T extends { name: string; type: string; baseUrl: string; models: string[]; weight: number; maxConcurrency: number; monitorIntervalSec: number; testModel: string; status: string; enabled: boolean }>(url: URL, rows: T[]) {
+  return sortRows(url, rows, {
+    name: row => row.name,
+    type: row => row.type,
+    baseUrl: row => row.baseUrl,
+    models: row => row.models.join(","),
+    weight: row => row.weight,
+    maxConcurrency: row => row.maxConcurrency,
+    monitorIntervalSec: row => row.monitorIntervalSec,
+    testModel: row => row.testModel,
+    status: row => row.status,
+    enabled: row => row.enabled,
+  }, "weight", "desc");
 }
 
 export async function POST(req: NextRequest) {

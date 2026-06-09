@@ -496,19 +496,22 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   // 4) 转发（带重试）
   const attempts: { channel: string; error: string; status: number }[] = [];
   const tried = new Set<string>();
+  const attemptCounts = new Map<string, number>();
+  let retryChannel: ChannelCandidate | null = null;
   let lastError = "";
+  let lastStatus = 0;
   let lastChannel: ChannelCandidate | undefined;
 
   for (let i = 0; i < settings.proxyMaxRetries; i++) {
     const freshPool = candidates.filter(c => !tried.has(c.id));
-    const pool = freshPool.length ? freshPool : candidates.filter(c => c.status !== "err");
+    const pool = retryChannel ? [retryChannel] : freshPool.length ? freshPool : candidates;
     const saturation = await Promise.all(pool.map(async c => [c.id, await isChannelSaturated(c.id, c.maxConcurrency ?? 0)] as const));
     const saturatedIds = new Set(saturation.filter(([, saturated]) => saturated).map(([id]) => id));
     const availablePool = pool.filter(c => !saturatedIds.has(c.id));
     const ch = pickPriorityRandom(availablePool.length ? availablePool : pool);
     if (!ch) break;
+    retryChannel = null;
 	    lastChannel = ch;
-	    tried.add(ch.id);
 
 	    const releaseSlot = await acquireChannelSlot(ch.id, ch.maxConcurrency ?? 0);
     const attemptStart = Date.now();
@@ -549,35 +552,30 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     }, { failureStatus: result.status === 429 ? "warn" : "err" });
     ch.status = observed.status;
 
-	    // 可重试：429 / 5xx / 网络错(0)
-    const retryable = (settings.proxyRetryNetwork && result.status === 0)
-      || (settings.proxyRetry429 && result.status === 429)
-      || (settings.proxyRetry5xx && result.status >= 500 && result.status < 600);
     attempts.push({ channel: ch.name, error: result.errorMsg, status: result.status });
     lastError = `${ch.name}: ${result.errorMsg}`;
-    if (!retryable) {
-      // 4xx（非 429）不重试
-      const error = unsupportedModelMessage(result.status, result.errorMsg, upstreamModel);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: result.status, error, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key, channel: ch, attempts });
-      releaseAllKeySlots();
-      return {
-        kind: "upstream_error",
-        requestId,
-        status: result.status,
-        error,
-        attempts,
-      };
+    lastStatus = result.status;
+    const count = (attemptCounts.get(ch.id) ?? 0) + 1;
+    attemptCounts.set(ch.id, count);
+    if (count < 2 && i + 1 < settings.proxyMaxRetries) {
+      retryChannel = ch;
+    } else {
+      tried.add(ch.id);
     }
   }
 
   // 全部失败
-  await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: NO_LIVE_CHANNEL_ERROR, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key, channel: lastChannel, attempts });
+  const finalStatus = lastStatus > 0 ? lastStatus : 502;
+  const finalError = lastError
+    ? unsupportedModelMessage(lastStatus, lastError, upstreamModel)
+    : NO_LIVE_CHANNEL_ERROR;
+  await recordFailure({ requestId, ts: t0, type: req.type, status: finalStatus, error: finalError, body: req.body, requestHeaders: req.incomingHeaders, model: upstreamModel, inboundModel: model, upstreamModel, mappingId: mapping?.id, mappedChannelIds: mapping?.channelIds ?? [], key, channel: lastChannel, attempts });
   releaseAllKeySlots();
   return {
     kind: "upstream_error",
     requestId,
-    status: 502,
-    error: NO_LIVE_CHANNEL_ERROR,
+    status: finalStatus,
+    error: finalError,
     attempts,
   };
 }
