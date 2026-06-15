@@ -126,11 +126,14 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS model_mappings (
     id text PRIMARY KEY,
     provider text NOT NULL,
+    target_provider text NOT NULL DEFAULT 'claude',
     inbound_model text NOT NULL,
     upstream_model text NOT NULL,
     channel_ids text[] NOT NULL DEFAULT '{}',
     created_at bigint NOT NULL
   )`,
+  `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`,
+  `UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`,
   `CREATE UNIQUE INDEX IF NOT EXISTS model_mappings_provider_inbound_unique ON model_mappings (provider, inbound_model)`,
   `CREATE TABLE IF NOT EXISTS model_catalog (
     id text PRIMARY KEY,
@@ -221,6 +224,8 @@ try {
     const missing = requiredTables.filter(table => !present.has(table));
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
+      await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`);
+      await sql.unsafe(`UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`);
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);

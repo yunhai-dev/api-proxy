@@ -1,6 +1,7 @@
 "use client";
 
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatShanghaiTime } from "@/lib/time";
 
 type UserLine = { id: string; name: string; totalTokens: number };
 type Point = { ts: number } & Record<string, number>;
@@ -15,10 +16,7 @@ const COLORS = [
 ];
 
 function fmtTime(ts: number, showDate: boolean) {
-  const d = new Date(ts);
-  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (!showDate) return time;
-  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${time}`;
+  return formatShanghaiTime(ts, showDate);
 }
 
 function fmtToken(value: number) {

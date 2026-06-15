@@ -1,20 +1,17 @@
 import { db, schema } from "./db";
-import { and, desc, eq, gte, lt, or } from "drizzle-orm";
-import type { DashboardRange, DashboardStats, LogEntry } from "./types";
+import { and, desc, eq, gte, lt, or, sql } from "drizzle-orm";
+import type { DashboardRange, DashboardStats, LogEntry, LogListEntry } from "./types";
 import { usePostgres } from "./db/runtime";
 import { modelLookupCandidates } from "./model-variants";
 import { getSettings, getSettingsAsync } from "./settings";
+import { startOfShanghaiDay } from "./time";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const STALE_ACTIVE_MS = 30 * 60 * 1000;
 
 function rangeStart(range: DashboardRange, now = Date.now()) {
-  if (range === "today") {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }
+  if (range === "today") return startOfShanghaiDay(now);
   if (range === "7d") return now - 7 * DAY;
   return now - DAY;
 }
@@ -593,7 +590,7 @@ export async function getChannelHealthAsync(period?: { since: number; until: num
   return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [] }));
 }
 
-export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): LogEntry[] {
+export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): LogListEntry[] {
   const where = statusFilter === "2xx"
     ? and(gte(schema.requestLogs.status, 200), lt(schema.requestLogs.status, 300))
     : statusFilter === "4xx"
@@ -627,8 +624,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
       cacheTokens: schema.requestLogs.cacheTokens,
       cacheReadTokens: schema.requestLogs.cacheReadTokens,
       cacheCreationTokens: schema.requestLogs.cacheCreationTokens,
-      requestDetail: schema.requestLogs.requestDetail,
-      errorMsg: schema.requestLogs.errorMsg,
+      hasDetail: sql<boolean>`(${schema.requestLogs.requestDetail} is not null or ${schema.requestLogs.errorMsg} is not null)`,
       keyName: schema.keys.name,
       keyPrefix: schema.keys.prefix,
       channelName: schema.channels.name,
@@ -657,10 +653,10 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
     cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
-  })) as LogEntry[];
+  })) as LogListEntry[];
 }
 
-export async function getRecentLogsAsync(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): Promise<LogEntry[]> {
+export async function getRecentLogsAsync(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): Promise<LogListEntry[]> {
   if (!usePostgres()) return getRecentLogs(limit, statusFilter, opts);
   const { pgDb, pgSchema } = await import("./db/pg");
   const where = statusFilter === "2xx"
@@ -695,8 +691,7 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
       cacheTokens: pgSchema.requestLogs.cacheTokens,
       cacheReadTokens: pgSchema.requestLogs.cacheReadTokens,
       cacheCreationTokens: pgSchema.requestLogs.cacheCreationTokens,
-      requestDetail: pgSchema.requestLogs.requestDetail,
-      errorMsg: pgSchema.requestLogs.errorMsg,
+      hasDetail: sql<boolean>`(${pgSchema.requestLogs.requestDetail} is not null or ${pgSchema.requestLogs.errorMsg} is not null)`,
       keyName: pgSchema.keys.name,
       keyPrefix: pgSchema.keys.prefix,
       channelName: pgSchema.channels.name,
@@ -718,7 +713,49 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
     cost: logCost(row.channelType === "claude" ? "claude" : "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
-  })) as LogEntry[];
+  })) as LogListEntry[];
+}
+
+export type LogDetail = Pick<LogEntry, "id" | "requestId" | "status" | "model" | "inboundModel" | "upstreamModel" | "requestDetail" | "errorMsg">;
+
+export function getLogDetail(id: number, opts: { userId?: string } = {}): LogDetail | null {
+  let query = db
+    .select({
+      id: schema.requestLogs.id,
+      requestId: schema.requestLogs.requestId,
+      status: schema.requestLogs.status,
+      model: schema.requestLogs.model,
+      inboundModel: schema.requestLogs.inboundModel,
+      upstreamModel: schema.requestLogs.upstreamModel,
+      requestDetail: schema.requestLogs.requestDetail,
+      errorMsg: schema.requestLogs.errorMsg,
+    })
+    .from(schema.requestLogs)
+    .leftJoin(schema.keys, eq(schema.keys.id, schema.requestLogs.keyId))
+    .$dynamic();
+  query = query.where(opts.userId ? and(eq(schema.requestLogs.id, id), eq(schema.keys.userId, opts.userId)) : eq(schema.requestLogs.id, id));
+  return (query.limit(1).get() ?? null) as LogDetail | null;
+}
+
+export async function getLogDetailAsync(id: number, opts: { userId?: string } = {}): Promise<LogDetail | null> {
+  if (!usePostgres()) return getLogDetail(id, opts);
+  const { pgDb, pgSchema } = await import("./db/pg");
+  let query = pgDb
+    .select({
+      id: pgSchema.requestLogs.id,
+      requestId: pgSchema.requestLogs.requestId,
+      status: pgSchema.requestLogs.status,
+      model: pgSchema.requestLogs.model,
+      inboundModel: pgSchema.requestLogs.inboundModel,
+      upstreamModel: pgSchema.requestLogs.upstreamModel,
+      requestDetail: pgSchema.requestLogs.requestDetail,
+      errorMsg: pgSchema.requestLogs.errorMsg,
+    })
+    .from(pgSchema.requestLogs)
+    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
+    .$dynamic();
+  query = query.where(opts.userId ? and(eq(pgSchema.requestLogs.id, id), eq(pgSchema.keys.userId, opts.userId)) : eq(pgSchema.requestLogs.id, id));
+  return ((await query.limit(1))[0] ?? null) as LogDetail | null;
 }
 
 function logCost(

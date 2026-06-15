@@ -6,23 +6,12 @@ import { UserDetailTables } from "@/components/users/user-detail-tables";
 import { RangeForm } from "@/components/dashboard/range-form";
 import type { DashboardRange } from "@/lib/types";
 import { requireAdmin } from "@/lib/auth";
+import { parseShanghaiDateTimeLocal, startOfShanghaiDay, toShanghaiDateTimeLocal } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-function toDateTimeLocal(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function parseDateTimeLocal(v: string | undefined) {
-  if (!v) return null;
-  const t = new Date(v).getTime();
-  return Number.isFinite(t) ? t : null;
-}
-
 function rangeSince(range: DashboardRange, now: number) {
-  if (range === "today") { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  if (range === "today") return startOfShanghaiDay(now);
   if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
   return now - 24 * 60 * 60 * 1000;
 }
@@ -32,8 +21,8 @@ export default async function UserDetailPage({ params, searchParams }: { params:
   const { id } = await params;
   const sp = await searchParams;
   const now = Date.now();
-  const parsedFrom = parseDateTimeLocal(sp.from);
-  const parsedTo = parseDateTimeLocal(sp.to);
+  const parsedFrom = parseShanghaiDateTimeLocal(sp.from);
+  const parsedTo = parseShanghaiDateTimeLocal(sp.to);
   const canUseCustom = sp.range === "custom" && parsedFrom !== null && parsedTo !== null && parsedTo > parsedFrom;
   const range = (canUseCustom ? "custom" : (sp.range === "today" || sp.range === "7d" || sp.range === "24h" ? sp.range : "24h")) as DashboardRange;
   const since = canUseCustom ? parsedFrom : rangeSince(range, now);
@@ -48,7 +37,7 @@ export default async function UserDetailPage({ params, searchParams }: { params:
         <p className="mono">{user.username} · {user.email || "无邮箱"}</p>
       </div>
       <div className="page-actions"><Link className="btn" href="/users">返回用户列表</Link></div>
-      <RangeForm action={`/users/${id}`} from={toDateTimeLocal(since)} to={toDateTimeLocal(until)} />
+      <RangeForm action={`/users/${id}`} from={toShanghaiDateTimeLocal(since)} to={toShanghaiDateTimeLocal(until)} />
 
       <div className="stat-strip">
         <Stat label="请求量" value={stats.requests.toLocaleString()} />

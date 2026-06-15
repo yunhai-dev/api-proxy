@@ -7,27 +7,16 @@ import { UserTokenTrendChart } from "@/components/dashboard/user-token-trend-cha
 import { requireAdmin } from "@/lib/auth";
 import { getDashboardStatsAsync } from "@/lib/stats";
 import type { DashboardRange } from "@/lib/types";
+import { formatShanghaiDateTime, parseShanghaiDateTimeLocal, toShanghaiDateTimeLocal } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
-
-function toDateTimeLocal(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function parseDateTimeLocal(v: string | undefined) {
-  if (!v) return null;
-  const t = new Date(v).getTime();
-  return Number.isFinite(t) ? t : null;
-}
 
 export default async function AdminDashboardPage({ searchParams }: { searchParams: Promise<{ range?: string; from?: string; to?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
   const now = Date.now();
-  const parsedFrom = parseDateTimeLocal(sp.from);
-  const parsedTo = parseDateTimeLocal(sp.to);
+  const parsedFrom = parseShanghaiDateTimeLocal(sp.from);
+  const parsedTo = parseShanghaiDateTimeLocal(sp.to);
   const canUseCustom = sp.range === "custom" && parsedFrom !== null && parsedTo !== null && parsedTo > parsedFrom;
   const range = (canUseCustom ? "custom" : (sp.range === "today" || sp.range === "7d" || sp.range === "24h" ? sp.range : "24h")) as DashboardRange;
   const customFrom = canUseCustom ? parsedFrom : now - 24 * 60 * 60 * 1000;
@@ -45,7 +34,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
           </>
         }
       />
-      <RangeForm action="/admin/dashboard" from={toDateTimeLocal(customFrom)} to={toDateTimeLocal(customTo)} />
+      <RangeForm action="/admin/dashboard" from={toShanghaiDateTimeLocal(customFrom)} to={toShanghaiDateTimeLocal(customTo)} />
 
       <div className="stat-strip">
         <Stat label="请求量" value={fmtNum(stats.requests24h)} extra={`较前一区间 ${signed(stats.requestsDelta)}%`} />
@@ -85,7 +74,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
           <thead><tr><th>用户</th><th>用户名</th><th>请求</th><th>Token</th><th>费用</th><th>最后使用</th></tr></thead>
           <tbody>
             {stats.topUsers.length === 0 && <tr><td colSpan={6} className="empty">暂无用户使用数据</td></tr>}
-            {stats.topUsers.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="mono">{u.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="mono">${u.cost.toFixed(4)}</td><td className="mono dim">{u.last ? new Date(u.last).toLocaleString() : "—"}</td></tr>)}
+            {stats.topUsers.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="mono">{u.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="mono">${u.cost.toFixed(4)}</td><td className="mono dim">{u.last ? formatShanghaiDateTime(u.last) : "—"}</td></tr>)}
           </tbody>
         </table>
         </div>

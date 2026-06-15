@@ -1,23 +1,16 @@
 "use client";
 
 import { useState } from "react";
-
-function toDateTimeLocal(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+import { startOfShanghaiDay, toShanghaiDateTimeLocal } from "@/lib/time";
 
 function todayRange() {
   const now = Date.now();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  return { from: toDateTimeLocal(start.getTime()), to: toDateTimeLocal(now) };
+  return { from: toShanghaiDateTimeLocal(startOfShanghaiDay(now)), to: toShanghaiDateTimeLocal(now) };
 }
 
 function rollingRange(ms: number) {
   const now = Date.now();
-  return { from: toDateTimeLocal(now - ms), to: toDateTimeLocal(now) };
+  return { from: toShanghaiDateTimeLocal(now - ms), to: toShanghaiDateTimeLocal(now) };
 }
 
 export function RangeForm({ from, to, action = "/dashboard" }: { from: string; to: string; action?: string }) {

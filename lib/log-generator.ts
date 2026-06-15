@@ -1,13 +1,13 @@
 import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
-import type { LogEntry } from "./types";
+import type { LogEntry, LogListEntry } from "./types";
 import { addTpm } from "@/lib/rate-limit";
 import { getRedis } from "@/lib/redis";
 import { usePostgres } from "@/lib/db/runtime";
 import { modelLookupCandidates } from "@/lib/model-variants";
 import { getSettings, getSettingsAsync } from "@/lib/settings";
 
-type Subscriber = (entry: LogEntry) => void;
+type Subscriber = (entry: LogListEntry) => void;
 type LogInput = Omit<LogEntry, "id" | "cacheTokens" | "cacheReadTokens" | "cacheCreationTokens" | "ttftMs" | "durationMs" | "cost"> & {
   cacheTokens?: number;
   cacheReadTokens?: number;
@@ -18,7 +18,7 @@ type LogInput = Omit<LogEntry, "id" | "cacheTokens" | "cacheReadTokens" | "cache
 };
 
 class LogHub {
-  version = 4;
+  version = 5;
   private subscribers = new Set<Subscriber>();
   private redisStarted = false;
   private instanceId = crypto.randomUUID();
@@ -91,9 +91,9 @@ class LogHub {
       cost: e.cost ?? 0,
     };
     for (const sub of this.subscribers) {
-      try { sub(entry); } catch { /* */ }
+      try { sub(toLogListEntry(entry)); } catch { /* */ }
     }
-    this.publish(entry);
+    this.publish(toLogListEntry(entry));
     return entry;
   }
 
@@ -130,8 +130,9 @@ class LogHub {
     }
 
     const entry = logEntryFromInput(Number(inserted[0]?.id ?? 0), ts, e);
-    this.emit(entry);
-    this.publish(entry);
+    const listEntry = toLogListEntry(entry);
+    this.emit(listEntry);
+    this.publish(listEntry);
     return entry;
   }
 
@@ -199,9 +200,9 @@ class LogHub {
       cost: e.cost ?? 0,
     };
     for (const sub of this.subscribers) {
-      try { sub(entry); } catch { /* */ }
+      try { sub(toLogListEntry(entry)); } catch { /* */ }
     }
-    this.publish(entry);
+    this.publish(toLogListEntry(entry));
     return entry;
   }
 
@@ -247,18 +248,19 @@ class LogHub {
     }
 
     const entry = logEntryFromInput(id, e.ts, e);
-    this.emit(entry);
-    this.publish(entry);
+    const listEntry = toLogListEntry(entry);
+    this.emit(listEntry);
+    this.publish(listEntry);
     return entry;
   }
 
-  private emit(entry: LogEntry) {
+  private emit(entry: LogListEntry) {
     for (const sub of this.subscribers) {
       try { sub(entry); } catch { /* */ }
     }
   }
 
-  private publish(entry: LogEntry) {
+  private publish(entry: LogListEntry) {
     void getRedis().then(redis => redis?.publish("logs:stream", JSON.stringify({ instanceId: this.instanceId, entry }))).catch(() => null);
   }
 
@@ -271,15 +273,22 @@ class LogHub {
       await subscriber.connect();
       await subscriber.subscribe("logs:stream", message => {
         try {
-          const data = JSON.parse(message) as { instanceId?: string; entry?: LogEntry };
+          const data = JSON.parse(message) as { instanceId?: string; entry?: LogEntry | LogListEntry };
           if (data.instanceId === this.instanceId || !data.entry) return;
+          const entry = toLogListEntry(data.entry);
           for (const sub of this.subscribers) {
-            try { sub(data.entry); } catch { /* */ }
+            try { sub(entry); } catch { /* */ }
           }
         } catch { /* ignore malformed pubsub messages */ }
       });
     }).catch(() => { this.redisStarted = false; });
   }
+}
+
+function toLogListEntry(entry: LogEntry | LogListEntry): LogListEntry {
+  const full = entry as LogEntry & { hasDetail?: boolean };
+  const { requestDetail, errorMsg, ...rest } = full;
+  return { ...rest, hasDetail: full.hasDetail || Boolean(requestDetail || errorMsg) };
 }
 
 function addUserUsage(userId: string | undefined, tokens: number, usd: number) {
@@ -388,5 +397,5 @@ declare global {
 }
 
 const existing = globalThis.__logHub as (LogHub & { update?: unknown; version?: number }) | undefined;
-export const logHub = existing && existing.version === 4 && typeof existing.update === "function" ? existing : new LogHub();
+export const logHub = existing && existing.version === 5 && typeof existing.update === "function" ? existing : new LogHub();
 globalThis.__logHub = logHub;

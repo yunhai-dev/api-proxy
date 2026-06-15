@@ -31,8 +31,16 @@ globalThis.__channelMonitor = state;
 export function ensureChannelMonitor() {
   if (state.started) return;
   state.started = true;
-  state.timer = setInterval(() => { void tick(); }, 1000);
+  state.timer = setInterval(() => { void runChannelMonitorTick(); }, 1000);
   state.timer.unref?.();
+}
+
+export async function runChannelMonitorTick() {
+  try {
+    await tick();
+  } catch (e) {
+    console.error("channel monitor tick failed", e);
+  }
 }
 
 async function tick() {

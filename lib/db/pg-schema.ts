@@ -77,6 +77,7 @@ export const channelTestLogs = pgTable("channel_test_logs", {
 export const modelMappings = pgTable("model_mappings", {
   id: text("id").primaryKey(),
   provider: text("provider", { enum: ["claude", "openai"] }).notNull(),
+  targetProvider: text("target_provider", { enum: ["claude", "openai"] }).notNull().default("claude"),
   inboundModel: text("inbound_model").notNull(),
   upstreamModel: text("upstream_model").notNull(),
   channelIds: text("channel_ids").array().notNull().default([]),

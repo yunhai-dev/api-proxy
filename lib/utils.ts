@@ -1,7 +1,9 @@
+import { formatShanghaiClock } from "./time";
+
 export function pad2(n: number) { return String(n).padStart(2, "0"); }
 
 export function fmtClock(d = new Date()) {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  return formatShanghaiClock(d.getTime());
 }
 
 export function maskKey(prefix: string) {
@@ -26,8 +28,7 @@ export function fmtRelativeTime(ts: number | null): string {
 }
 
 export function fmtClockStamp(ts: number) {
-  const d = new Date(ts);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  return formatShanghaiClock(ts);
 }
 
 export function fmtClockWithZone(d = new Date()) {

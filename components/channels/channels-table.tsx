@@ -6,6 +6,7 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
+import { formatShanghaiDateTime } from "@/lib/time";
 import { ChannelForm } from "./channel-form";
 
 type Channel = {
@@ -190,7 +191,7 @@ export function ChannelsTable() {
                 <div className="channel-history-list mono">
                   {historyRows.map(row => (
                     <div className="channel-history-row" key={row.id}>
-                      <span>{new Date(row.ts).toLocaleString()}</span>
+                      <span>{formatShanghaiDateTime(row.ts)}</span>
                       <span className={row.ok ? "ok" : "err"}>{row.ok ? "成功" : "失败"}</span>
                       <span>{row.latencyMs || "—"}ms</span>
                       <span title={row.errorMsg ?? ""}>{row.errorMsg ? row.errorMsg.slice(0, 80) : "—"}</span>

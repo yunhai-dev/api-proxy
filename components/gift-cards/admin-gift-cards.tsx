@@ -6,6 +6,7 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
+import { formatShanghaiDateTime } from "@/lib/time";
 
 type GiftCard = {
   id: string;
@@ -185,9 +186,9 @@ export function AdminGiftCards() {
                 <td className="mono">{card.codePrefix}****{card.codeSuffix}</td>
                 <td className="mono">${card.amountUsd.toFixed(2)}</td>
                 <td>{card.status === "active" ? <span className="status ok"><span className="dot ok" />可核销</span> : <span className="status"><span className="dot" />已核销</span>}</td>
-                <td className="mono dim">{new Date(card.createdAt).toLocaleString()}</td>
+                <td className="mono dim">{formatShanghaiDateTime(card.createdAt)}</td>
                 <td className="mono dim">{card.redeemedBy || "—"}</td>
-                <td className="mono dim">{card.redeemedAt ? new Date(card.redeemedAt).toLocaleString() : "—"}</td>
+                <td className="mono dim">{card.redeemedAt ? formatShanghaiDateTime(card.redeemedAt) : "—"}</td>
               </tr>
             ))}
           </tbody>

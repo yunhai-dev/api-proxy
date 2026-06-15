@@ -31,9 +31,13 @@ type LogEntry = {
   cacheTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  hasDetail: boolean;
+  cost: number;
+};
+
+type LogDetail = Pick<LogEntry, "id" | "requestId" | "status" | "model" | "inboundModel" | "upstreamModel"> & {
   requestDetail: string | null;
   errorMsg: string | null;
-  cost: number;
 };
 
 const STATUSES = ["all", "2xx", "4xx", "5xx", "err"] as const;
@@ -63,7 +67,8 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const [total, setTotal] = useState(initial.length);
   const [loading, setLoading] = useState(false);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
-  const [selectedError, setSelectedError] = useState<LogEntry | null>(null);
+  const [selectedError, setSelectedError] = useState<LogDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const { sortedRows, sortButton, sort } = useSortableRows(rows, {
     ts: row => row.ts,
     requestId: row => row.requestId,
@@ -140,7 +145,22 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
 
-  function errorText(entry: LogEntry) {
+  async function openDetail(entry: LogEntry) {
+    if (!entry.hasDetail) return;
+    setSelectedError({ id: entry.id, requestId: entry.requestId, status: entry.status, model: entry.model, inboundModel: entry.inboundModel, upstreamModel: entry.upstreamModel, requestDetail: null, errorMsg: null });
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/logs/${entry.id}`);
+      if (!res.ok) throw new Error("加载失败");
+      setSelectedError(await res.json());
+    } catch {
+      setSelectedError({ id: entry.id, requestId: entry.requestId, status: entry.status, model: entry.model, inboundModel: entry.inboundModel, upstreamModel: entry.upstreamModel, requestDetail: null, errorMsg: "日志详情加载失败" });
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function errorText(entry: LogDetail) {
     const detail = entry.errorMsg ?? entry.requestDetail;
     if (!detail) return "";
     try {
@@ -215,12 +235,9 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           const isNew = newIds.has(r.id) || newIds.has(r.ts);
           return (
             <div
-              className={`log-row ${r.errorMsg || r.requestDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
+              className={`log-row ${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
               key={`${r.id}-${r.ts}`}
-              onClick={() => {
-                if (!r.errorMsg && !r.requestDetail) return;
-                setSelectedError(r);
-              }}
+              onClick={() => { void openDetail(r); }}
             >
               <span className="ts">{fmtClockStamp(r.ts)}</span>
               <span className="reqid" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</span>
@@ -229,7 +246,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               <span className="model" title={r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} -> ${r.upstreamModel}` : r.model}>
                 {r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} → ${r.upstreamModel}` : r.model}
               </span>
-              <span className={cls} style={{ textAlign: "right" }}>{statusLabel(r.status)}{r.errorMsg || r.requestDetail ? <span className="err-toggle"> 查看</span> : null}</span>
+              <span className={cls} style={{ textAlign: "right" }}>{statusLabel(r.status)}{r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</span>
               <span className={`lat ttft ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></span>
               <span className={`lat duration ${slow ? "slow" : ""}`}>{r.durationMs > 0 ? <>{r.durationMs}<span className="dim">ms</span></> : <span className="running">进行中</span>}</span>
               <span className="tokens">{tokenText(r.tokensIn)}</span>
@@ -256,7 +273,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
                 <span>状态: {statusLabel(selectedError.status)}</span>
                 <span>模型: {selectedError.inboundModel && selectedError.upstreamModel && selectedError.inboundModel !== selectedError.upstreamModel ? `${selectedError.inboundModel} -> ${selectedError.upstreamModel}` : selectedError.model}</span>
               </div>
-              <pre className="error-detail mono">{errorText(selectedError)}</pre>
+              <pre className="error-detail mono">{detailLoading ? "加载中..." : errorText(selectedError)}</pre>
             </div>
             <div className="modal-foot">
               <button className="btn" type="button" onClick={() => setSelectedError(null)}>关闭</button>

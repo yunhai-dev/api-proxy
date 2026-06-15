@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
+import { formatShanghaiDate } from "@/lib/time";
 
 type Mapping = {
   id: string;
   provider: "claude" | "openai";
+  targetProvider: "claude" | "openai";
   inboundModel: string;
   upstreamModel: string;
   channelIds: string[];
@@ -31,6 +33,7 @@ export function MappingsTable() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [open, setOpen] = useState(false);
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
+  const [targetProvider, setTargetProvider] = useState<"claude" | "openai">("claude");
   const [inboundModels, setInboundModels] = useState("");
   const [upstreamModel, setUpstreamModel] = useState("");
   const [channelIds, setChannelIds] = useState<string[]>([]);
@@ -45,6 +48,7 @@ export function MappingsTable() {
   const channelNames = new Map(channels.map(c => [c.id, c.name]));
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
+    targetProvider: row => row.targetProvider ?? row.provider,
     inboundModel: row => row.inboundModel,
     upstreamModel: row => row.upstreamModel,
     channels: row => row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部",
@@ -76,7 +80,7 @@ export function MappingsTable() {
   useEffect(() => { setPage(1); }, [query, providerFilter, channelFilter, sort.key, sort.dir]);
 
   const upstreamModels = [...new Set(channels
-    .filter(c => c.enabled && c.type === provider && (channelIds.length === 0 || channelIds.includes(c.id)))
+    .filter(c => c.enabled && c.type === targetProvider && (channelIds.length === 0 || channelIds.includes(c.id)))
     .flatMap(c => c.models)
     .filter(model => model && model !== "*"))]
     .sort();
@@ -88,18 +92,21 @@ export function MappingsTable() {
     setUpstreamModel("");
     setChannelIds([]);
     setEditing(null);
+    setTargetProvider("claude");
     setFailures([]);
   }
 
   function openCreate() {
     resetForm();
     setProvider("claude");
+    setTargetProvider("claude");
     setOpen(true);
   }
 
   function openEdit(row: Mapping) {
     setEditing(row);
     setProvider(row.provider);
+    setTargetProvider(row.targetProvider ?? row.provider);
     setInboundModels(row.inboundModel);
     setUpstreamModel(row.upstreamModel);
     setChannelIds(row.channelIds ?? []);
@@ -116,7 +123,7 @@ export function MappingsTable() {
       const r = await fetch(`/api/model-mappings/${editing.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ inboundModel: inboundList[0], upstreamModel, channelIds }),
+        body: JSON.stringify({ targetProvider, inboundModel: inboundList[0], upstreamModel, channelIds }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { toast(data.error || "更新失败"); return; }
@@ -130,7 +137,7 @@ export function MappingsTable() {
     const results = await Promise.all(inboundList.map(inboundModel => fetch("/api/model-mappings", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider, inboundModel, upstreamModel, channelIds }),
+      body: JSON.stringify({ provider, targetProvider, inboundModel, upstreamModel, channelIds }),
     }).then(async r => ({ inboundModel, ok: r.ok, data: await r.json().catch(() => ({})) }))));
 
     const ok = results.filter(r => r.ok).length;
@@ -182,7 +189,7 @@ export function MappingsTable() {
             </div>
             <div className="modal-body">
               <div className="field">
-                <label>服务商</label>
+                <label>入站服务商</label>
                 <Select
                   value={provider}
                   onChange={v => { setProvider(v as "claude" | "openai"); setUpstreamModel(""); setChannelIds([]); }}
@@ -192,9 +199,18 @@ export function MappingsTable() {
                 {editing && <div className="hint">编辑时不修改服务商；如需切换服务商，请删除后重新创建。</div>}
               </div>
               <div className="field">
+                <label>上游服务商</label>
+                <Select
+                  value={targetProvider}
+                  onChange={v => { setTargetProvider(v as "claude" | "openai"); setUpstreamModel(""); setChannelIds([]); }}
+                  options={[{ value: "claude", label: "claude" }, { value: "openai", label: "openai" }]}
+                />
+                <div className="hint">上游服务商不同于入站服务商时，会启用协议转换。</div>
+              </div>
+              <div className="field">
                 <label>绑定渠道</label>
                 <div className="mapping-channel-picker">
-                  {channels.filter(c => c.enabled && c.type === provider).map(c => (
+                  {channels.filter(c => c.enabled && c.type === targetProvider).map(c => (
                     <button
                       type="button"
                       key={c.id}
@@ -204,9 +220,9 @@ export function MappingsTable() {
                       {c.name}
                     </button>
                   ))}
-                  {channels.filter(c => c.enabled && c.type === provider).length === 0 && <span className="hint">没有启用渠道</span>}
+                  {channels.filter(c => c.enabled && c.type === targetProvider).length === 0 && <span className="hint">没有启用渠道</span>}
                 </div>
-                <div className="hint">不选表示该服务商全部启用渠道。</div>
+                <div className="hint">不选表示该上游服务商全部启用渠道。</div>
               </div>
               <div className="field">
                 <label>入站模型</label>
@@ -249,8 +265,9 @@ export function MappingsTable() {
       <table className="table">
         <thead>
           <tr>
-            {sortHeader("provider", "服务商")}
+            {sortHeader("provider", "入站服务商")}
             {sortHeader("inboundModel", "入站模型")}
+            {sortHeader("targetProvider", "上游服务商")}
             {sortHeader("upstreamModel", "上游模型")}
             {sortHeader("channels", "绑定渠道")}
             {sortHeader("createdAt", "创建时间")}
@@ -258,17 +275,18 @@ export function MappingsTable() {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><td colSpan={6} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={6} className="empty">暂无匹配映射</td></tr>}
+          {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配映射</td></tr>}
           {sortedRows.map(row => (
             <tr key={row.id}>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
               <td className="mono">{row.inboundModel}</td>
+              <td><span className={`type-pill ${row.targetProvider ?? row.provider}`}>{row.targetProvider ?? row.provider}</span></td>
               <td className="mono">{row.upstreamModel}</td>
               <td className="mono dim" title={row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部渠道"}>
                 {row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部"}
               </td>
-              <td className="mono dim">{new Date(row.createdAt).toISOString().slice(0, 10)}</td>
+              <td className="mono dim">{formatShanghaiDate(row.createdAt)}</td>
               <td className="right">
                 <button className="btn sm ghost" onClick={() => openEdit(row)}>编辑</button>{" "}
                 <button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button>

@@ -42,16 +42,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const row = (await pgDb.select().from(pgSchema.modelMappings).where(eq(pgSchema.modelMappings.id, id)).limit(1))[0];
     if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
     const body = await req.json().catch(() => ({}));
+    const targetProvider = body.targetProvider === "claude" || body.targetProvider === "openai" ? body.targetProvider as "claude" | "openai" : (row.targetProvider ?? row.provider) as "claude" | "openai";
     const inboundModel = typeof body.inboundModel === "string" ? body.inboundModel.trim() : "";
     const upstreamModel = typeof body.upstreamModel === "string" ? body.upstreamModel.trim() : "";
     if (!inboundModel) return NextResponse.json({ error: "请输入入站模型" }, { status: 400 });
     if (!upstreamModel) return NextResponse.json({ error: "请输入上游模型" }, { status: 400 });
-    const channelIds = await validatedChannelIdsAsync(body.channelIds, row.provider as "claude" | "openai");
+    const channelIds = await validatedChannelIdsAsync(body.channelIds, targetProvider);
     if (!channelIds.ok) return NextResponse.json({ error: channelIds.error }, { status: 400 });
     try {
-      await pgDb.update(pgSchema.modelMappings).set({ inboundModel, upstreamModel, channelIds: channelIds.ids }).where(eq(pgSchema.modelMappings.id, id));
-      await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `更新模型映射 ${row.provider}:${inboundModel} -> ${upstreamModel}`, actor: actor.username });
-      return NextResponse.json({ ...row, inboundModel, upstreamModel, channelIds: channelIds.ids });
+      await pgDb.update(pgSchema.modelMappings).set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids }).where(eq(pgSchema.modelMappings.id, id));
+      await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `更新模型映射 ${row.provider}:${inboundModel} -> ${targetProvider}:${upstreamModel}`, actor: actor.username });
+      return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("duplicate") || msg.includes("unique")) return NextResponse.json({ error: "映射已存在" }, { status: 409 });
@@ -62,24 +63,25 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
+  const targetProvider = body.targetProvider === "claude" || body.targetProvider === "openai" ? body.targetProvider as "claude" | "openai" : (row.targetProvider ?? row.provider) as "claude" | "openai";
   const inboundModel = typeof body.inboundModel === "string" ? body.inboundModel.trim() : "";
   const upstreamModel = typeof body.upstreamModel === "string" ? body.upstreamModel.trim() : "";
   if (!inboundModel) return NextResponse.json({ error: "请输入入站模型" }, { status: 400 });
   if (!upstreamModel) return NextResponse.json({ error: "请输入上游模型" }, { status: 400 });
-  const channelIds = validatedChannelIds(body.channelIds, row.provider);
+  const channelIds = validatedChannelIds(body.channelIds, targetProvider);
   if (!channelIds.ok) return NextResponse.json({ error: channelIds.error }, { status: 400 });
 
   try {
     db.update(schema.modelMappings)
-      .set({ inboundModel, upstreamModel, channelIds: channelIds.ids })
+      .set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids })
       .where(eq(schema.modelMappings.id, id))
       .run();
     db.insert(schema.activities).values({
       ts: Date.now(),
-      event: `更新模型映射 ${row.provider}:${inboundModel} -> ${upstreamModel}`,
+      event: `更新模型映射 ${row.provider}:${inboundModel} -> ${targetProvider}:${upstreamModel}`,
       actor: actor.username,
     }).run();
-    return NextResponse.json({ ...row, inboundModel, upstreamModel, channelIds: channelIds.ids });
+    return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("UNIQUE")) return NextResponse.json({ error: "映射已存在" }, { status: 409 });

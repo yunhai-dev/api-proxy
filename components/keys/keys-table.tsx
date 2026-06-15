@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { KeyForm } from "./key-form";
+import { formatShanghaiDate } from "@/lib/time";
 
 type Key = {
   id: string;
@@ -302,7 +303,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
                   </span>
                 </td>
                 {mode === "admin" && <td className="mono dim">{k.userId ? userNames.get(k.userId) ?? k.userId : "—"}</td>}
-                <td className="mono dim">{new Date(k.createdAt).toISOString().slice(0, 10)}</td>
+                <td className="mono dim">{formatShanghaiDate(k.createdAt)}</td>
                 <td className="mono dim">{fmtRelativeTime(k.lastUsedAt)}</td>
                 <td className="key-scope-cell">
                   <Select

@@ -30,18 +30,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function filterMappings<T extends { provider: string; inboundModel: string; upstreamModel: string; channelIds: string[] }>(rows: T[], q: string, provider: string, channelId: string) {
+function filterMappings<T extends { provider: string; targetProvider?: string; inboundModel: string; upstreamModel: string; channelIds: string[] }>(rows: T[], q: string, provider: string, channelId: string) {
   return rows.filter(row => {
-    const matchesQuery = !q || [row.inboundModel, row.upstreamModel, ...row.channelIds].some(value => value.toLowerCase().includes(q));
+    const matchesQuery = !q || [row.provider, row.targetProvider ?? row.provider, row.inboundModel, row.upstreamModel, ...row.channelIds].some(value => value.toLowerCase().includes(q));
     const matchesProvider = provider === "all" || row.provider === provider;
     const matchesChannel = channelId === "all" || (channelId === "__all_channels" ? !row.channelIds.length : row.channelIds.includes(channelId));
     return matchesQuery && matchesProvider && matchesChannel;
   });
 }
 
-function sortMappings<T extends { provider: string; inboundModel: string; upstreamModel: string; channelIds: string[]; createdAt: number }>(url: URL, rows: T[]) {
+function sortMappings<T extends { provider: string; targetProvider?: string; inboundModel: string; upstreamModel: string; channelIds: string[]; createdAt: number }>(url: URL, rows: T[]) {
   return sortRows(url, rows, {
     provider: row => row.provider,
+    targetProvider: row => row.targetProvider ?? row.provider,
     inboundModel: row => row.inboundModel,
     upstreamModel: row => row.upstreamModel,
     channels: row => row.channelIds.join(","),
@@ -86,16 +87,18 @@ export async function POST(req: NextRequest) {
   if (body.provider !== "claude" && body.provider !== "openai") {
     return NextResponse.json({ error: "请选择服务商" }, { status: 400 });
   }
+  const targetProvider = body.targetProvider === "claude" || body.targetProvider === "openai" ? body.targetProvider as "claude" | "openai" : body.provider as "claude" | "openai";
   const inboundModel = typeof body.inboundModel === "string" ? body.inboundModel.trim() : "";
   const upstreamModel = typeof body.upstreamModel === "string" ? body.upstreamModel.trim() : "";
   if (!inboundModel) return NextResponse.json({ error: "请输入入站模型" }, { status: 400 });
   if (!upstreamModel) return NextResponse.json({ error: "请输入上游模型" }, { status: 400 });
-  const channelIds = await validatedChannelIdsAsync(body.channelIds, body.provider);
+  const channelIds = await validatedChannelIdsAsync(body.channelIds, targetProvider);
   if (!channelIds.ok) return NextResponse.json({ error: channelIds.error }, { status: 400 });
 
   const row = {
     id: "mm_" + nanoid(8),
     provider: body.provider as "claude" | "openai",
+    targetProvider,
     inboundModel,
     upstreamModel,
     channelIds: channelIds.ids,
@@ -105,14 +108,14 @@ export async function POST(req: NextRequest) {
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       await pgDb.insert(pgSchema.modelMappings).values(row);
-      await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `添加模型映射 ${row.provider}:${row.inboundModel} -> ${row.upstreamModel}`, actor: actor.username });
+      await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `添加模型映射 ${row.provider}:${row.inboundModel} -> ${row.targetProvider}:${row.upstreamModel}`, actor: actor.username });
       return NextResponse.json(row, { status: 201 });
     }
 
     db.insert(schema.modelMappings).values(row).run();
     db.insert(schema.activities).values({
       ts: Date.now(),
-      event: `添加模型映射 ${row.provider}:${row.inboundModel} -> ${row.upstreamModel}`,
+      event: `添加模型映射 ${row.provider}:${row.inboundModel} -> ${row.targetProvider}:${row.upstreamModel}`,
       actor: actor.username,
     }).run();
     return NextResponse.json(row, { status: 201 });

@@ -8,6 +8,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      TZ: Asia/Shanghai
       PORT: 3000
       HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://api_proxy:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/api_proxy

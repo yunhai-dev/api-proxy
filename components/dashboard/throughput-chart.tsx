@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatShanghaiTime } from "@/lib/time";
 
 type Point = { ts: number; qps: number; tps: number };
 
@@ -21,8 +22,7 @@ function fmtRate(value: number) {
 }
 
 function fmtTime(ts: number) {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return formatShanghaiTime(ts);
 }
 
 export function ThroughputChart({ series }: { series: Point[] }) {

@@ -91,7 +91,7 @@
 | 15 | 后台任务进程拆分 | 完成 | 新增 worker 触发 API，可由外部 cron/worker 启动监控 |
 | 16 | 管理端账号密码用户功能 | 待规划 | 临时管理密码已移除，未来单独实现用户体系 |
 | 17 | 请求体隐私保护策略 | 完成 | 设置页配置 body preview 开关和最大长度 |
-| 18 | OpenAI/Claude 协议转换 | 待办 | 工具调用与流式事件转换，复杂度高 |
+| 18 | OpenAI/Claude 协议转换 | 进行中 | 详见 [`docs/plan/openai-claude-conversion.md`](./plan/openai-claude-conversion.md) |
 | 19 | 用户管理模块 | 完成 | 用户 CRUD，角色限定为超级管理员/管理员/用户；尚未接入登录鉴权 |
 
 ## 技术决策
@@ -143,3 +143,13 @@
 | 3 | 用户端核销 API | 完成 | 核销后增加 `user_quotas.quotaUsd` |
 | 4 | 管理端与用户端页面 | 完成 | |
 | 5 | 类型检查与本地验证 | 完成 | `npx tsc --noEmit` 通过；本地 PG schema 已 push |
+
+## OpenAI/Claude 协议转换
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 映射数据层增加目标服务商 | 完成 | 详见 [`docs/plan/openai-claude-conversion.md`](./plan/openai-claude-conversion.md) |
+| 2 | 映射 API 与管理页支持跨服务商目标 | 完成 | |
+| 3 | 请求与非流式响应转换 | 完成 | MVP 覆盖文本和 base64 图片输入 |
+| 4 | 代理按目标服务商选择渠道并转发 | 完成 | 保留同协议路径；跨协议流式暂时拒绝 |
+| 5 | 类型检查与代表性验证 | 完成 | `npx tsc --noEmit` 通过 |

@@ -10,6 +10,10 @@ export type LogEntry = RequestLog & {
   cost: number;
 };
 
+export type LogListEntry = Omit<LogEntry, "requestDetail" | "errorMsg"> & {
+  hasDetail: boolean;
+};
+
 export type ChannelWithTraffic = Channel & { requestsLast1h: number };
 
 export type KeyWithQuota = Key;

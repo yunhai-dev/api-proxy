@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
+import { formatShanghaiDate } from "@/lib/time";
 
 type Role = "super_admin" | "admin" | "user";
 type User = { id: string; username: string; displayName: string; email: string; role: Role; status: "pending" | "active" | "disabled"; createdAt: number; updatedAt: number; quotaUsd: number; usedUsd: number };
@@ -169,7 +170,7 @@ export function UsersTable() {
               <td className="mono nowrap users-balance-cell">{fmtUsd(userBalance(row))} <span className="dim">剩余</span></td>
               <td className="users-control-cell" onClick={e => e.stopPropagation()}><Select size="sm" value={row.role} onChange={v => patch(row, { role: v as Role })} options={roleOptions} /></td>
               <td className="users-control-cell users-status-cell" onClick={e => e.stopPropagation()}><button className={`toggle-label ${row.status === "active" ? "on" : "off"}`} onClick={() => patch(row, { status: row.status === "active" ? "disabled" : "active" })}><span className="dot" />{row.status === "pending" ? "待验证" : row.status === "active" ? "启用" : "停用"}</button></td>
-              <td className="mono dim">{new Date(row.createdAt).toISOString().slice(0, 10)}</td>
+              <td className="mono dim">{formatShanghaiDate(row.createdAt)}</td>
               <td className="right users-actions-cell" onClick={e => e.stopPropagation()}><span className="users-actions"><button className="btn sm ghost" onClick={() => openQuota(row)}>额度</button><button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button></span></td>
             </tr>
           ))}
