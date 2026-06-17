@@ -7,6 +7,8 @@ export type LogEntry = RequestLog & {
   keyPrefix: string;
   channelName: string;
   channelType: "claude" | "openai";
+  userName?: string;
+  username?: string;
   cost: number;
 };
 

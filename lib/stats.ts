@@ -629,9 +629,12 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
       keyPrefix: schema.keys.prefix,
       channelName: schema.channels.name,
       channelType: schema.channels.type,
+      userName: schema.users.displayName,
+      username: schema.users.username,
     })
     .from(schema.requestLogs)
     .leftJoin(schema.keys, eq(schema.keys.id, schema.requestLogs.keyId))
+    .leftJoin(schema.users, eq(schema.users.id, schema.keys.userId))
     .leftJoin(schema.channels, eq(schema.channels.id, schema.requestLogs.channelId))
     .$dynamic();
 
@@ -652,6 +655,8 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
     keyPrefix: row.keyPrefix ?? "—",
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
+    userName: row.userName ?? row.username ?? "未知用户",
+    username: row.username ?? "",
     cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
   })) as LogListEntry[];
 }
@@ -696,9 +701,12 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
       keyPrefix: pgSchema.keys.prefix,
       channelName: pgSchema.channels.name,
       channelType: pgSchema.channels.type,
+      userName: pgSchema.users.displayName,
+      username: pgSchema.users.username,
     })
     .from(pgSchema.requestLogs)
     .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
+    .leftJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.keys.userId))
     .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestLogs.channelId))
     .$dynamic();
   if (combinedWhere) query = query.where(combinedWhere);
@@ -712,6 +720,8 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
     keyPrefix: row.keyPrefix ?? "—",
     channelName: row.channelName ?? "未选择",
     channelType: row.channelType ?? "openai",
+    userName: row.userName ?? row.username ?? "未知用户",
+    username: row.username ?? "",
     cost: logCost(row.channelType === "claude" ? "claude" : "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
   })) as LogListEntry[];
 }

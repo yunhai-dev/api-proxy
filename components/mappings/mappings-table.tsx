@@ -115,7 +115,7 @@ export function MappingsTable() {
   }
 
   async function save() {
-    const inboundList = [...new Set(inboundModels.split(/\n+/).map(x => x.trim()).filter(Boolean))];
+    const inboundList = inboundModels.split(/\n+/).map(x => x.trim()).filter(Boolean);
     if (inboundList.length === 0) { toast("请输入入站模型"); return; }
     if (!upstreamModel) { toast("请选择上游模型"); return; }
 
@@ -233,7 +233,7 @@ export function MappingsTable() {
                   placeholder={"调用方使用的模型名，每行一个\n例如：claude-sonnet\n例如：sonnet-latest"}
                   rows={editing ? 2 : 5}
                 />
-                <div className="hint">{editing ? "编辑时只使用第一行。" : "每行创建一条映射，重复行会自动去重。"}</div>
+                <div className="hint">{editing ? "编辑时只使用第一行。" : "每行创建一条映射；同一模型可以重复添加，用于聚合多个渠道。"}</div>
               </div>
               <div className="field">
                 <label>上游模型</label>

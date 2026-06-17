@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("duplicate") || msg.includes("unique")) return NextResponse.json({ error: "映射已存在" }, { status: 409 });
+      if (msg.includes("duplicate") || msg.includes("unique")) return NextResponse.json({ error: "数据库仍存在旧唯一索引，请同步 schema 后重试" }, { status: 409 });
       return NextResponse.json({ error: msg }, { status: 500 });
     }
   }
@@ -84,7 +84,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("UNIQUE")) return NextResponse.json({ error: "映射已存在" }, { status: 409 });
+    if (msg.includes("UNIQUE")) return NextResponse.json({ error: "数据库仍存在旧唯一索引，请同步 schema 后重试" }, { status: 409 });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

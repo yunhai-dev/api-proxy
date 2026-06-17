@@ -82,7 +82,7 @@ export const modelMappings = pgTable("model_mappings", {
   upstreamModel: text("upstream_model").notNull(),
   channelIds: text("channel_ids").array().notNull().default([]),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
-}, table => [uniqueIndex("model_mappings_provider_inbound_unique").on(table.provider, table.inboundModel)]);
+});
 
 export const modelCatalog = pgTable("model_catalog", {
   id: text("id").primaryKey(),

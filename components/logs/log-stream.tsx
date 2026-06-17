@@ -18,10 +18,12 @@ type LogEntry = {
   channelName: string;
   channelType: "claude" | "openai";
   model: string;
-  inboundModel: string;
-  upstreamModel: string;
-  mappingId: string;
-  mappedChannelIds: string[];
+  inboundModel?: string;
+  upstreamModel?: string;
+  mappingId?: string;
+  mappedChannelIds?: string[];
+  userName?: string;
+  username?: string;
   status: number;
   latencyMs: number;
   ttftMs: number;
@@ -53,6 +55,17 @@ function tokenText(value: number | null | undefined) {
   return value == null ? "—" : value.toLocaleString();
 }
 
+function displayModel(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel">, isAdminMode: boolean) {
+  if (!isAdminMode) return row.inboundModel || row.model;
+  return row.inboundModel && row.upstreamModel && row.inboundModel !== row.upstreamModel
+    ? `${row.inboundModel} → ${row.upstreamModel}`
+    : row.model;
+}
+
+function displayModelTitle(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel">, isAdminMode: boolean) {
+  return displayModel(row, isAdminMode).replace(" → ", " -> ");
+}
+
 export function LogStream({ initial, mode = "user", users = [] }: { initial: LogEntry[]; mode?: "user" | "admin"; users?: UserOption[] }) {
   const isAdminMode = mode === "admin";
   const [rows, setRows] = useState<LogEntry[]>(initial);
@@ -73,6 +86,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
     ts: row => row.ts,
     requestId: row => row.requestId,
     keyName: row => row.keyName || row.keyPrefix,
+    userName: row => row.userName || row.username || "",
     channelName: row => isAdminMode ? row.channelName : row.channelType,
     model: row => row.inboundModel || row.model,
     status: row => row.status,
@@ -141,7 +155,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   }, [isAdminMode, selectedUserId, page, status, search, providerFilter, channelFilter, modelFilter]);
 
   const channelOptions = isAdminMode ? [...new Set(rows.map(r => r.channelName).filter(Boolean))].sort() : [];
-  const modelOptions = [...new Set(rows.flatMap(r => [r.inboundModel, r.model]).filter(Boolean))].sort();
+  const modelOptions = [...new Set(rows.flatMap(r => isAdminMode ? [r.inboundModel, r.upstreamModel || r.model] : [r.inboundModel || r.model]).filter((name): name is string => !!name))].sort();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
 
@@ -210,10 +224,11 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
       </div>
 
       <div className="log-wrap">
-        <div className="log-row head">
+        <div className={`log-row head ${isAdminMode ? "admin" : ""}`}>
           <span>{sortButton("ts", "时间")}</span>
           <span>{sortButton("requestId", "请求ID")}</span>
           <span>{sortButton("keyName", "密钥")}</span>
+          {isAdminMode && <span>{sortButton("userName", "用户昵称")}</span>}
           <span>{sortButton("channelName", isAdminMode ? "渠道" : "服务商")}</span>
           <span>{sortButton("model", "模型")}</span>
           <span style={{ textAlign: "right" }}>{sortButton("status", "状态")}</span>
@@ -235,16 +250,17 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           const isNew = newIds.has(r.id) || newIds.has(r.ts);
           return (
             <div
-              className={`log-row ${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
+              className={`log-row ${isAdminMode ? "admin" : ""} ${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
               key={`${r.id}-${r.ts}`}
               onClick={() => { void openDetail(r); }}
             >
               <span className="ts">{fmtClockStamp(r.ts)}</span>
               <span className="reqid" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</span>
               <span className="key">{r.keyPrefix}</span>
+              {isAdminMode && <span className="user" title={r.username ? `${r.userName || "未知用户"} (${r.username})` : r.userName || "未知用户"}>{r.userName || "未知用户"}</span>}
               <span className={`channel ${r.channelType}`}>{isAdminMode ? r.channelName : providerLabel(r.channelType)}</span>
-              <span className="model" title={r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} -> ${r.upstreamModel}` : r.model}>
-                {r.inboundModel && r.upstreamModel && r.inboundModel !== r.upstreamModel ? `${r.inboundModel} → ${r.upstreamModel}` : r.model}
+              <span className="model" title={displayModelTitle(r, isAdminMode)}>
+                {displayModel(r, isAdminMode)}
               </span>
               <span className={cls} style={{ textAlign: "right" }}>{statusLabel(r.status)}{r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</span>
               <span className={`lat ttft ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></span>
@@ -271,7 +287,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               <div className="error-meta mono">
                 <span>请求ID: {selectedError.requestId || "—"}</span>
                 <span>状态: {statusLabel(selectedError.status)}</span>
-                <span>模型: {selectedError.inboundModel && selectedError.upstreamModel && selectedError.inboundModel !== selectedError.upstreamModel ? `${selectedError.inboundModel} -> ${selectedError.upstreamModel}` : selectedError.model}</span>
+                <span>模型: {displayModel(selectedError, isAdminMode)}</span>
               </div>
               <pre className="error-detail mono">{detailLoading ? "加载中..." : errorText(selectedError)}</pre>
             </div>

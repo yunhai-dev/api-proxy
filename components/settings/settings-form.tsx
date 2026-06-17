@@ -10,6 +10,9 @@ type AppSettings = {
   proxyRetry429: boolean;
   proxyRetry5xx: boolean;
   proxyRetryNetwork: boolean;
+  fallbackEnabled: boolean;
+  fallbackChannelId: string;
+  fallbackModel: string;
   recordAllRequestDetails: boolean;
   maintenanceMode: boolean;
   maintenanceMessage: string;
@@ -34,6 +37,15 @@ type AppSettings = {
   smtpFromName: string;
 };
 
+type ChannelOption = {
+  id: string;
+  name: string;
+  type: "claude" | "openai";
+  enabled: boolean;
+  status: string;
+  models: string[];
+};
+
 const announcementModeOptions = [
   { value: "marquee", label: "轮播滚动" },
   { value: "modal", label: "弹窗" },
@@ -48,12 +60,14 @@ const smtpSecureOptions = [
 export function SettingsForm() {
   const toast = useToast();
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [importText, setImportText] = useState("");
   const [testEmail, setTestEmail] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(setSettings).catch(() => null);
+    fetch("/api/channels").then(r => r.json()).then(data => setChannels(Array.isArray(data) ? data : data.rows ?? [])).catch(() => null);
   }, []);
 
   async function save() {
@@ -94,6 +108,9 @@ export function SettingsForm() {
 
   if (!settings) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
+  const fallbackChannel = channels.find(channel => channel.id === settings.fallbackChannelId);
+  const fallbackModelOptions = fallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
+
   return (
     <div className="settings-panel">
       <div className="settings-grid">
@@ -112,6 +129,40 @@ export function SettingsForm() {
         <Toggle label="重试 429" hint="上游限流时尝试其他候选渠道。" checked={settings.proxyRetry429} onChange={proxyRetry429 => setSettings({ ...settings, proxyRetry429 })} />
         <Toggle label="重试 5xx" hint="上游服务端错误时尝试其他候选渠道。" checked={settings.proxyRetry5xx} onChange={proxyRetry5xx => setSettings({ ...settings, proxyRetry5xx })} />
         <Toggle label="重试网络错误" hint="连接失败、超时等网络错误时尝试其他候选渠道。" checked={settings.proxyRetryNetwork} onChange={proxyRetryNetwork => setSettings({ ...settings, proxyRetryNetwork })} />
+        </div>
+
+        <div className="settings-card">
+          <h2>Fallback 降级</h2>
+          <Toggle label="启用 Fallback" hint="常规渠道不可用或全部重试失败后，最后尝试指定渠道和模型。不是模型映射。" checked={settings.fallbackEnabled} onChange={fallbackEnabled => setSettings({ ...settings, fallbackEnabled })} />
+          <div className="field">
+            <label>Fallback 渠道</label>
+            <Select
+              className="fill-select"
+              value={settings.fallbackChannelId || "__none"}
+              onChange={fallbackChannelId => setSettings({ ...settings, fallbackChannelId: fallbackChannelId === "__none" ? "" : fallbackChannelId })}
+              options={[
+                { value: "__none", label: "不使用 Fallback" },
+                ...channels.map(channel => ({
+                  value: channel.id,
+                  label: `${channel.name} (${channel.type})`,
+                  hint: `${channel.enabled ? "启用" : "停用"} / ${channel.status}`,
+                })),
+              ]}
+            />
+            <div className="hint">请求会重新转换到该渠道协议；停用渠道不会被代理使用。</div>
+          </div>
+          <div className="field">
+            <label>Fallback 模型</label>
+            <Select
+              className="fill-select"
+              editable
+              value={settings.fallbackModel}
+              onChange={fallbackModel => setSettings({ ...settings, fallbackModel })}
+              options={fallbackModelOptions}
+              placeholder="例如 claude-sonnet-4-5 或 gpt-5-mini"
+            />
+            <div className="hint">允许手动输入。该模型仅在触发 fallback 时替换请求模型。</div>
+          </div>
         </div>
 
         <div className="settings-card">

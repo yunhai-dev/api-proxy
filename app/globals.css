@@ -2250,6 +2250,10 @@ section,
   color: var(--text-2);
   align-items: center;
 }
+.log-row.admin {
+  grid-template-columns: 90px 76px 90px 110px 90px minmax(150px, 1fr) 58px 72px 72px 70px 70px 70px 70px 86px;
+  min-width: 1180px;
+}
 .log-row.head {
   position: sticky; top: 0;
   background: var(--bg);
@@ -2268,6 +2272,7 @@ section,
 .log-row .ts { color: var(--text-3); }
 .log-row .reqid { color: var(--text-4); }
 .log-row .key { color: var(--text-2); }
+.log-row .user { color: var(--text-2); }
 .log-row .channel { color: var(--text-2); }
 .log-row .channel.claude { color: var(--claude); }
 .log-row .channel.openai { color: var(--openai); }
