@@ -339,11 +339,12 @@ function claudeMessageToOpenAiMessages(message: Json): Json[] {
   }
 
   const out: Json[] = [];
+  const toolResultBlocks = blocks.filter(block => block.type === "tool_result");
   const userBlocks = blocks.filter(block => block.type !== "tool_result");
-  if (userBlocks.length || !blocks.length) out.push({ role: "user", content: claudeContentToOpenAi(blocks.length ? userBlocks : message.content) });
-  for (const block of blocks.filter(block => block.type === "tool_result")) {
+  for (const block of toolResultBlocks) {
     out.push({ role: "tool", tool_call_id: String(block.tool_use_id ?? ""), content: textFromContent(block.content) });
   }
+  if (userBlocks.length || !blocks.length) out.push({ role: "user", content: claudeContentToOpenAi(blocks.length ? userBlocks : message.content) });
   return out;
 }
 
