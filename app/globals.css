@@ -1231,7 +1231,7 @@ main { padding: 28px 24px 64px; min-width: 0; }
 }
 .btn:hover { background: var(--bg-2); border-color: oklch(0.40 0.010 75); }
 .btn.primary {
-  background: var(--accent); color: oklch(0.18 0.04 65);
+  background: var(--accent); color: oklch(0.985 0.01 95);
   border-color: var(--accent);
   font-weight: 500;
 }
@@ -1473,9 +1473,9 @@ section,
 }
 .rank-tabs button:hover { color: var(--text); border-color: var(--line-2); }
 .rank-tabs button.active {
-  color: var(--accent);
-  border-color: oklch(0.52 0.08 75);
-  background: oklch(0.24 0.028 75 / 0.38);
+  color: oklch(0.32 0.075 65);
+  border-color: var(--accent);
+  background: var(--accent-2);
 }
 
 /* ---- bars (channel traffic) ---- */
@@ -1511,7 +1511,7 @@ section,
 .model-usage-chart {
   margin: 10px 0 16px;
   border: 1px solid var(--line);
-  background: oklch(0.16 0.012 260 / 0.44);
+  background: var(--bg-1);
   padding: 8px 12px;
   overflow-x: auto;
 }
@@ -1528,7 +1528,7 @@ section,
   position: relative;
   margin: 10px 0 16px;
   border: 1px solid var(--line);
-  background: oklch(0.16 0.012 260 / 0.44);
+  background: var(--bg-1);
   padding: 8px 12px;
   overflow-x: auto;
 }
@@ -1951,7 +1951,7 @@ section,
   box-shadow: 0 0 0 2px oklch(0.80 0.135 65 / 0.22);
 }
 .toggle-label.off .dot { background: var(--text-4); }
-.toggle-label.off { color: var(--text-3); }
+.toggle-label.off { color: var(--text); }
 
 /* ---- key cell ---- */
 .key-cell {
@@ -2267,7 +2267,7 @@ section,
 }
 .log-row.new { animation: slidein .35s ease-out; }
 .log-row.has-error { cursor: pointer; }
-.log-row.has-error:hover { background: oklch(0.22 0.014 75); }
+.log-row.has-error:hover { background: var(--bg-1); }
 @keyframes slidein {
   from { background: oklch(0.30 0.06 65 / 0.22); }
   to   { background: transparent; }
