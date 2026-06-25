@@ -49,10 +49,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!upstreamModel) return NextResponse.json({ error: "请输入上游模型" }, { status: 400 });
     const channelIds = await validatedChannelIdsAsync(body.channelIds, targetProvider);
     if (!channelIds.ok) return NextResponse.json({ error: channelIds.error }, { status: 400 });
+    const enabled = typeof body.enabled === "boolean" ? body.enabled : row.enabled;
     try {
-      await pgDb.update(pgSchema.modelMappings).set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids }).where(eq(pgSchema.modelMappings.id, id));
+      await pgDb.update(pgSchema.modelMappings).set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids, enabled }).where(eq(pgSchema.modelMappings.id, id));
       await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `更新模型映射 ${row.provider}:${inboundModel} -> ${targetProvider}:${upstreamModel}`, actor: actor.username });
-      return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
+      return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids, enabled });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("duplicate") || msg.includes("unique")) return NextResponse.json({ error: "数据库仍存在旧唯一索引，请同步 schema 后重试" }, { status: 409 });
@@ -70,10 +71,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!upstreamModel) return NextResponse.json({ error: "请输入上游模型" }, { status: 400 });
   const channelIds = validatedChannelIds(body.channelIds, targetProvider);
   if (!channelIds.ok) return NextResponse.json({ error: channelIds.error }, { status: 400 });
+  const enabled = typeof body.enabled === "boolean" ? body.enabled : row.enabled;
 
   try {
     db.update(schema.modelMappings)
-      .set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids })
+      .set({ targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids, enabled })
       .where(eq(schema.modelMappings.id, id))
       .run();
     db.insert(schema.activities).values({
@@ -81,7 +83,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       event: `更新模型映射 ${row.provider}:${inboundModel} -> ${targetProvider}:${upstreamModel}`,
       actor: actor.username,
     }).run();
-    return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids });
+    return NextResponse.json({ ...row, targetProvider, inboundModel, upstreamModel, channelIds: channelIds.ids, enabled });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("UNIQUE")) return NextResponse.json({ error: "数据库仍存在旧唯一索引，请同步 schema 后重试" }, { status: 409 });

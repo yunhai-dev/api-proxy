@@ -404,7 +404,7 @@ function modelMappings(provider: Provider, model: string): MappingCandidate[] {
   return db
     .select()
     .from(schema.modelMappings)
-    .where(and(eq(schema.modelMappings.provider, provider), eq(schema.modelMappings.inboundModel, model)))
+    .where(and(eq(schema.modelMappings.provider, provider), eq(schema.modelMappings.inboundModel, model), eq(schema.modelMappings.enabled, true)))
     .all() as MappingCandidate[];
 }
 
@@ -414,7 +414,7 @@ async function modelMappingsAsync(provider: Provider, model: string): Promise<Ma
   return await pgDb
     .select()
     .from(pgSchema.modelMappings)
-    .where(and(eq(pgSchema.modelMappings.provider, provider), eq(pgSchema.modelMappings.inboundModel, model)));
+    .where(and(eq(pgSchema.modelMappings.provider, provider), eq(pgSchema.modelMappings.inboundModel, model), eq(pgSchema.modelMappings.enabled, true)));
 }
 
 async function modelMappingCandidateAsync(provider: Provider, models: string[]) {
@@ -850,20 +850,7 @@ async function pipeStreamResponse(
           return;
         }
         // 解析 SSE 累计 token（不破坏原始字节，直接 enqueue）
-        if (!ttftMs) {
-          ttftMs = Date.now() - ctx.t0;
-          void (async () => logHub.updateAsync(initialLog.id, {
-            requestId: ctx.requestId,
-            ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
-            channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
-            model: ctx.model, status: upstreamStatus, latencyMs: ttftMs,
-            inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
-            ttftMs, durationMs: 0,
-            tokensIn, tokensOut, cacheTokens, cacheReadTokens, cacheCreationTokens,
-            requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status: upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, tokensIn, tokensOut, cacheReadTokens, cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
-            errorMsg: null,
-          }))().catch(() => { /* keep stream delivery independent from logging */ });
-        }
+        if (!ttftMs) ttftMs = Date.now() - ctx.t0;
         const text = dec.decode(value, { stream: true });
         buffer = appendCapped(buffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
         detailBuffer = appendCapped(detailBuffer, text, MAX_LOG_BODY_CHARS);

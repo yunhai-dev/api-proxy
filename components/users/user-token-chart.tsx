@@ -23,11 +23,11 @@ export function UserTokenChart({ data }: { data: Point[] }) {
     <div className="throughput-chart">
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 18, right: 18, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="ts" tickFormatter={value => fmtTime(Number(value), showDate)} stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <YAxis stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
+          <CartesianGrid stroke="oklch(0.88 0.010 75)" strokeDasharray="3 5" vertical={false} />
+          <XAxis dataKey="ts" tickFormatter={value => fmtTime(Number(value), showDate)} stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
           <Tooltip
-            contentStyle={{ background: "oklch(0.18 0.008 75)", border: "1px solid oklch(0.32 0.012 75)", borderRadius: 4, color: "oklch(0.84 0.02 75)", fontSize: 12 }}
+            contentStyle={{ background: "oklch(0.995 0.003 75)", border: "1px solid oklch(0.84 0.012 75)", borderRadius: 4, color: "oklch(0.24 0.012 75)", fontSize: 12 }}
             labelFormatter={value => fmtTime(Number(value), true)}
             formatter={(value, name) => [fmtToken(Number(value)), label(name as string)]}
           />

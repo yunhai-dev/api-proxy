@@ -4,6 +4,7 @@
 - Problem to solve: the proxy currently treats the inbound API protocol and upstream channel provider as the same value, so an OpenAI-compatible client can only call OpenAI-style upstreams and a Claude-compatible client can only call Claude-style upstreams.
 - Success criteria: model mappings can explicitly route an inbound provider/model to a different upstream provider/model, and non-stream text requests return responses in the caller's original protocol.
 - Success criteria: existing same-provider mappings and direct proxy calls continue to behave as before.
+- Current status: complete for non-stream and SSE streaming cross-provider conversion. The stream path uses `createSseResponseConverter` in `lib/protocol-conversion.ts` and is wired through `pipeStreamResponse` in `lib/proxy.ts`.
 
 ## High-Level Design
 - Add `targetProvider` to model mappings. `provider` remains the inbound/client protocol. `targetProvider` is the upstream channel protocol and defaults to `provider` for existing mappings.

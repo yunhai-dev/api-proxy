@@ -7,12 +7,12 @@ type UserLine = { id: string; name: string; totalTokens: number };
 type Point = { ts: number } & Record<string, number>;
 
 const COLORS = [
-  "oklch(0.78 0.13 75)",
-  "oklch(0.74 0.16 245)",
-  "oklch(0.70 0.13 150)",
-  "oklch(0.72 0.13 35)",
-  "oklch(0.68 0.12 310)",
-  "oklch(0.76 0.10 15)",
+  "oklch(0.64 0.12 65)",
+  "oklch(0.56 0.12 230)",
+  "oklch(0.56 0.12 150)",
+  "oklch(0.58 0.13 35)",
+  "oklch(0.60 0.10 310)",
+  "oklch(0.64 0.12 15)",
 ];
 
 function fmtTime(ts: number, showDate: boolean) {
@@ -46,11 +46,11 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
       <div className="throughput-chart">
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={chartData} margin={{ top: 18, right: 18, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" vertical={false} />
-            <XAxis dataKey="ts" tickFormatter={value => fmtTime(Number(value), showDate)} stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-            <YAxis stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
+            <CartesianGrid stroke="oklch(0.88 0.010 75)" strokeDasharray="3 5" vertical={false} />
+            <XAxis dataKey="ts" tickFormatter={value => fmtTime(Number(value), showDate)} stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+            <YAxis stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
             <Tooltip
-              contentStyle={{ background: "oklch(0.18 0.008 75)", border: "1px solid oklch(0.32 0.012 75)", borderRadius: 4, color: "oklch(0.84 0.02 75)", fontSize: 12 }}
+              contentStyle={{ background: "oklch(0.995 0.003 75)", border: "1px solid oklch(0.84 0.012 75)", borderRadius: 4, color: "oklch(0.24 0.012 75)", fontSize: 12 }}
               labelFormatter={value => fmtTime(Number(value), true)}
               formatter={(value, name) => [fmtToken(Number(value)), names.get(String(name)) ?? String(name)]}
             />

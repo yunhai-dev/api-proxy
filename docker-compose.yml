@@ -2,7 +2,7 @@ name: api-proxy
 
 services:
   api-proxy:
-    image: registry.cn-shanghai.aliyuncs.com/ai_studio/api-proxy:v0.0.4
+    image: ghcr.io/yunhai-dev/api-proxy:latest
     restart: unless-stopped
     ports:
       - "3000:3000"

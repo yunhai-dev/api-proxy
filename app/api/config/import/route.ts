@@ -39,7 +39,16 @@ export async function POST(req: NextRequest) {
 
   for (const row of Array.isArray(body.modelMappings) ? body.modelMappings : []) {
     if (!row?.id || !row.provider || !row.inboundModel || !row.upstreamModel) continue;
-    const value = { id: row.id, provider: row.provider, inboundModel: row.inboundModel, upstreamModel: row.upstreamModel, channelIds: Array.isArray(row.channelIds) ? row.channelIds : [], createdAt: Number(row.createdAt) || Date.now() };
+    const value = {
+      id: row.id,
+      provider: row.provider,
+      targetProvider: row.targetProvider === "claude" || row.targetProvider === "openai" ? row.targetProvider : row.provider,
+      inboundModel: row.inboundModel,
+      upstreamModel: row.upstreamModel,
+      channelIds: Array.isArray(row.channelIds) ? row.channelIds : [],
+      enabled: row.enabled !== false,
+      createdAt: Number(row.createdAt) || Date.now(),
+    };
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.modelMappings).where(eq(pg.pgSchema.modelMappings.id, row.id)).limit(1))[0]
       : db.select().from(schema.modelMappings).where(eq(schema.modelMappings.id, row.id)).get();

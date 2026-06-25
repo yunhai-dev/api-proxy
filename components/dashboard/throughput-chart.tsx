@@ -44,26 +44,26 @@ export function ThroughputChart({ series }: { series: Point[] }) {
           <AreaChart data={series} margin={{ top: 18, right: 18, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="qpsFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.78 0.13 75)" stopOpacity={0.34} />
-                <stop offset="100%" stopColor="oklch(0.78 0.13 75)" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="oklch(0.64 0.12 65)" stopOpacity={0.34} />
+                <stop offset="100%" stopColor="oklch(0.64 0.12 65)" stopOpacity={0.02} />
               </linearGradient>
               <linearGradient id="tpsFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.74 0.16 245)" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="oklch(0.74 0.16 245)" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="oklch(0.56 0.12 230)" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="oklch(0.56 0.12 230)" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" vertical={false} />
+            <CartesianGrid stroke="oklch(0.88 0.010 75)" strokeDasharray="3 5" vertical={false} />
             <XAxis
               dataKey="ts"
               tickFormatter={fmtTime}
-              stroke="oklch(0.58 0.015 75)"
+              stroke="oklch(0.46 0.012 75)"
               tick={{ fontSize: 11 }}
               tickLine={false}
               axisLine={false}
             />
             <YAxis
               yAxisId="qps"
-              stroke="oklch(0.58 0.015 75)"
+              stroke="oklch(0.46 0.012 75)"
               tick={{ fontSize: 11 }}
               tickFormatter={fmtRate}
               tickLine={false}
@@ -74,7 +74,7 @@ export function ThroughputChart({ series }: { series: Point[] }) {
             <YAxis
               yAxisId="tps"
               orientation="right"
-              stroke="oklch(0.58 0.015 75)"
+              stroke="oklch(0.46 0.012 75)"
               tick={{ fontSize: 11 }}
               tickFormatter={fmtRate}
               tickLine={false}
@@ -84,10 +84,10 @@ export function ThroughputChart({ series }: { series: Point[] }) {
             />
             <Tooltip
               contentStyle={{
-                background: "oklch(0.18 0.008 75)",
-                border: "1px solid oklch(0.32 0.012 75)",
+                background: "oklch(0.995 0.003 75)",
+                border: "1px solid oklch(0.84 0.012 75)",
                 borderRadius: 4,
-                color: "oklch(0.84 0.02 75)",
+                color: "oklch(0.24 0.012 75)",
                 fontSize: 12,
               }}
               labelFormatter={value => fmtTime(Number(value))}
@@ -99,9 +99,9 @@ export function ThroughputChart({ series }: { series: Point[] }) {
               dataKey="qps"
               name="QPS"
               fill="url(#qpsFill)"
-              stroke="oklch(0.78 0.13 75)"
+              stroke="oklch(0.64 0.12 65)"
               strokeWidth={2.4}
-              dot={p => p.value > 0 ? <circle cx={p.cx} cy={p.cy} r={3} fill="oklch(0.78 0.13 75)" /> : <g />}
+              dot={p => p.value > 0 ? <circle cx={p.cx} cy={p.cy} r={3} fill="oklch(0.64 0.12 65)" /> : <g />}
               activeDot={{ r: 5 }}
             />
             <Area
@@ -110,9 +110,9 @@ export function ThroughputChart({ series }: { series: Point[] }) {
               dataKey="tps"
               name="TPS"
               fill="url(#tpsFill)"
-              stroke="oklch(0.74 0.16 245)"
+              stroke="oklch(0.56 0.12 230)"
               strokeWidth={2.4}
-              dot={p => p.value > 0 ? <circle cx={p.cx} cy={p.cy} r={3} fill="oklch(0.74 0.16 245)" /> : <g />}
+              dot={p => p.value > 0 ? <circle cx={p.cx} cy={p.cy} r={3} fill="oklch(0.56 0.12 230)" /> : <g />}
               activeDot={{ r: 5 }}
             />
           </AreaChart>

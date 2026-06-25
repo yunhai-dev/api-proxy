@@ -39,13 +39,14 @@ function filterMappings<T extends { provider: string; targetProvider?: string; i
   });
 }
 
-function sortMappings<T extends { provider: string; targetProvider?: string; inboundModel: string; upstreamModel: string; channelIds: string[]; createdAt: number }>(url: URL, rows: T[]) {
+function sortMappings<T extends { provider: string; targetProvider?: string; inboundModel: string; upstreamModel: string; channelIds: string[]; enabled?: boolean; createdAt: number }>(url: URL, rows: T[]) {
   return sortRows(url, rows, {
     provider: row => row.provider,
     targetProvider: row => row.targetProvider ?? row.provider,
     inboundModel: row => row.inboundModel,
     upstreamModel: row => row.upstreamModel,
     channels: row => row.channelIds.join(","),
+    enabled: row => row.enabled ?? true,
     createdAt: row => row.createdAt,
   }, "createdAt", "desc");
 }
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
     inboundModel,
     upstreamModel,
     channelIds: channelIds.ids,
+    enabled: body.enabled !== false,
     createdAt: Date.now(),
   };
 

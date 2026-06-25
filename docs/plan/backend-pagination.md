@@ -2,7 +2,8 @@
 
 ## Background & Goals
 - Problem: list pages currently fetch full datasets and paginate in the browser, which does not scale for logs, audit data, users, keys, gift cards, channels, models, mappings, pricing, rankings, channel status, user detail tables, and model square.
-- Success criteria: every visible list pagination operates on server-selected rows; the browser only holds the current page plus filter metadata needed for controls.
+- Success criteria: every heavy API-backed visible list pagination operates on server-selected rows; the browser only holds the current page plus filter metadata needed for controls.
+- Current status: complete for primary heavy lists (users, keys, channels, logs, audit, models, mappings, pricing, gift cards). Derived dashboard/ranking arrays are intentionally bounded summaries and retain local pagination for responsive sorting/filtering.
 
 ## High-Level Design
 - API-backed lists accept `page`, `pageSize`, `query`, and filter query params, returning `{ rows, total, page, pageSize }`.

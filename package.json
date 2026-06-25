@@ -18,7 +18,8 @@
     "compose:dev:app": "docker compose -f docker-compose.dev.yml --profile app up -d app",
     "compose:dev:down": "docker compose -f docker-compose.dev.yml down",
     "compose:dev:logs": "docker compose -f docker-compose.dev.yml logs -f app",
-    "compose:dev:pg:push": "docker compose -f docker-compose.dev.yml exec app bun run db:pg:push"
+    "compose:dev:pg:push": "docker compose -f docker-compose.dev.yml exec app bun run db:pg:push",
+    "verify:multi-instance": "node scripts/verify-multi-instance.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.3",
