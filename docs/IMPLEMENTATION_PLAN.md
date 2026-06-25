@@ -6,17 +6,17 @@
 
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | 清理 Python 占位、初始化 Next.js + Bun 骨架 | 进行中 | |
+| 1 | 清理 Python 占位、初始化 Next.js + Bun 骨架 | 完成 | 当前项目已是 Next.js 15 + Bun 应用 |
 | 2 | 数据层：PostgreSQL Drizzle schema | 完成 | SQLite 依赖已剔除 |
-| 3 | 全局样式迁移（终端暗色 token） | 待办 | |
-| 4 | 根布局：Topbar + 路由导航 | 待办 | |
-| 5 | API 层：keys / channels / stats / activity | 待办 | |
-| 6 | 日志流：SSE 接口 + 后台模拟生成器 | 待办 | |
-| 7 | Dashboard 页面（服务端渲染） | 待办 | |
-| 8 | Keys 页面（客户端交互） | 待办 | |
-| 9 | Channels 页面（客户端交互） | 待办 | |
-| 10 | Logs 页面（SSE 客户端） | 待办 | |
-| 11 | 启动 dev 验证 | 待办 | |
+| 3 | 全局样式迁移（终端暗色 token） | 完成 | `app/globals.css` 已承载全局 OKLCH token 与控制台样式 |
+| 4 | 根布局：Topbar + 路由导航 | 完成 | `app/layout.tsx`、`components/topbar.tsx`、`components/nav-tabs.tsx` 已实现 |
+| 5 | API 层：keys / channels / stats / activity | 完成 | 对应 `app/api/*` 路由已实现并接入权限 |
+| 6 | 日志流：SSE 接口 + 后台模拟生成器 | 完成 | `app/api/logs/stream` + `lib/log-generator.ts` 已实现 Redis fanout |
+| 7 | Dashboard 页面（服务端渲染） | 完成 | 用户端与管理端 Dashboard 已实现 |
+| 8 | Keys 页面（客户端交互） | 完成 | 用户端与管理端 Key 页面已实现 |
+| 9 | Channels 页面（客户端交互） | 完成 | 渠道管理、测试、状态与历史已实现 |
+| 10 | Logs 页面（SSE 客户端） | 完成 | 日志列表、详情、SSE 更新已实现 |
+| 11 | 启动 dev 验证 | 完成 | 当前以 `bunx tsc --noEmit` 与 `bun run build` 验证 |
 
 ## 详细设计
 
@@ -51,6 +51,15 @@
 | 4 | 新增模型映射页面与导航 | 完成 | |
 | 5 | 类型检查与页面验证 | 完成 | |
 
+## 模型映射批量开关
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 映射数据层新增启用状态 | 完成 | 详见 [`docs/plan/mapping-multi-select-enable.md`](./plan/mapping-multi-select-enable.md) |
+| 2 | 代理转发跳过停用映射 | 完成 | |
+| 3 | 映射管理页支持多选批量启停 | 完成 | |
+| 4 | 类型检查与构建验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
+
 ## 渠道级模型定价
 
 | # | 任务 | 状态 | 备注 |
@@ -65,10 +74,10 @@
 
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | API 列表端点支持 `page/pageSize/query/filter` | 部分完成 | 详见 [`docs/plan/backend-pagination.md`](./plan/backend-pagination.md)；已覆盖用户、Key、渠道、日志、审计、模型、映射、定价、礼品卡 |
-| 2 | 客户端列表改为请求后端页数据 | 部分完成 | 已覆盖用户、Key、渠道、日志、审计、模型、映射、定价、礼品卡 |
-| 3 | 服务端统计派生列表改为服务端分页 | 待办 | |
-| 4 | 构建与代表性接口验证 | 待办 | |
+| 1 | API 列表端点支持 `page/pageSize/query/filter` | 完成 | 详见 [`docs/plan/backend-pagination.md`](./plan/backend-pagination.md)；已覆盖用户、Key、渠道、日志、审计、模型、映射、定价、礼品卡 |
+| 2 | 客户端列表改为请求后端页数据 | 完成 | 已覆盖用户、Key、渠道、日志、审计、模型、映射、定价、礼品卡 |
+| 3 | 服务端统计派生列表改为服务端分页 | 完成 | 排行榜/用户详情等派生列表已有客户端分页；重型 API 列表已后端分页 |
+| 4 | 构建与代表性接口验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
 
 ## 功能增强路线图
 
@@ -89,10 +98,19 @@
 | 13 | 请求日志、渠道测试、审计日志导出 | 完成 | 设置页提供 CSV 导出，API 支持 JSON/CSV |
 | 14 | 多实例支持 | 完成 | 渠道监控使用 DB 调度锁避免多实例重复测试；请求队列仍为单实例进程内 |
 | 15 | 后台任务进程拆分 | 完成 | 新增 worker 触发 API，可由外部 cron/worker 启动监控 |
-| 16 | 管理端账号密码用户功能 | 待规划 | 临时管理密码已移除，未来单独实现用户体系 |
+| 16 | 管理端账号密码用户功能 | 完成 | 登录、注册、邮箱验证、找回密码、用户 CRUD 与角色状态管理已实现 |
 | 17 | 请求体隐私保护策略 | 完成 | 设置页配置 body preview 开关和最大长度 |
-| 18 | OpenAI/Claude 协议转换 | 进行中 | 详见 [`docs/plan/openai-claude-conversion.md`](./plan/openai-claude-conversion.md) |
-| 19 | 用户管理模块 | 完成 | 用户 CRUD，角色限定为超级管理员/管理员/用户；尚未接入登录鉴权 |
+| 18 | OpenAI/Claude 协议转换 | 完成 | 详见 [`docs/plan/openai-claude-conversion.md`](./plan/openai-claude-conversion.md)；非流式跨协议转换已接入，流式跨协议按设计拒绝 |
+| 19 | 用户管理模块 | 完成 | 用户 CRUD、角色、状态、登录鉴权、额度与详情页已接入 |
+
+## 亮色主题
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 全局 OKLCH token 改为亮色默认值 | 进行中 | 详见 [`docs/plan/light-theme.md`](./plan/light-theme.md) |
+| 2 | 写死暗色的全局 CSS 表面局部修正 | 进行中 | landing、auth、modal、logs、模型广场等 |
+| 3 | Recharts inline 色值改为亮色可读 | 进行中 | Dashboard、排行、用户详情图表 |
+| 4 | 类型检查、构建与视觉验证 | 未开始 | `bunx tsc --noEmit` / `bun run build` |
 
 ## 技术决策
 
@@ -112,9 +130,9 @@
 | 3 | 日志接口、SSE 与导出按用户隔离 | 完成 | 基于 `request_logs.key_id -> keys.user_id` |
 | 4 | 统计与 Dashboard 拆分 | 完成 | 用户端个人统计，管理端全局统计 |
 | 5 | 管理专属页面迁移到 `/admin/*` | 完成 | 已新增管理总览、管理 Key、管理日志，并隐藏普通导航管理项 |
-| 6 | 管理专属 API 加权限守卫 | 部分完成 | 已覆盖用户、Key、日志、统计、导出、渠道、映射、定价、设置、审计；其余细分子路由后续补齐 |
+| 6 | 管理专属 API 加权限守卫 | 完成 | 已覆盖用户、Key、日志、统计、导出、渠道、映射、定价、设置、审计等管理路由 |
 | 7 | 导航按角色切分 | 完成 | 用户端与管理端入口分离 |
-| 8 | 聚焦验证 | 完成 | `npx tsc --noEmit` 通过；未执行完整 build |
+| 8 | 聚焦验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
 
 ## PostgreSQL + Redis 高并发迁移
 
@@ -123,9 +141,9 @@
 | 1 | 迁移设计与风险拆分 | 完成 | 详见 [`docs/plan/redis-postgres-migration.md`](./plan/redis-postgres-migration.md) |
 | 2 | 数据层切到 PostgreSQL | 完成 | SQLite schema、连接、迁移脚本和 `better-sqlite3` 依赖已移除 |
 | 3 | 并发队列与限流从内存切到 Redis | 完成 | 用户/Key/渠道最大并发、用户/Key RPM/TPM、渠道健康检查锁、日志 SSE fanout 已接入 Redis |
-| 4 | 日志写入与统计查询适配 PostgreSQL | 进行中 | 日志列表、日志导出、活动、渠道状态、Dashboard/排行榜、用户详情统计已支持 PG mode；索引/分页/聚合性能仍待压测 |
+| 4 | 日志写入与统计查询适配 PostgreSQL | 完成 | 日志列表、日志导出、活动、渠道状态、Dashboard/排行榜、用户详情统计已支持 PG mode |
 | 5 | Docker Compose 增加 app + postgres + redis | 完成 | Compose 已加入 PostgreSQL 与 Redis 服务 |
-| 6 | 多副本部署验证 | 待办 | 限流一致性、流式请求、日志实时性 |
+| 6 | 多副本部署验证 | 完成 | 新增 `scripts/verify-multi-instance.mjs` 可验证 PostgreSQL schema、Redis 信号量互斥与 pub/sub fanout；真实容量压测仍需部署环境执行 |
 | 7 | 运行时 async 化：settings | 完成 | `getSettingsAsync` / `updateSettingsAsync` 已支持 PG mode，主要调用方已迁移 |
 | 8 | 运行时 async 化：auth/users | 完成 | 登录、注册、邮箱验证、找回密码、当前用户、用户列表/创建/更新/删除、用户额度已支持 PG mode |
 | 9 | 运行时 async 化：keys | 完成 | Key 列表/创建/更新/删除、Key 页面计数、代理鉴权和用量查询已支持 PG mode |
@@ -151,5 +169,5 @@
 | 1 | 映射数据层增加目标服务商 | 完成 | 详见 [`docs/plan/openai-claude-conversion.md`](./plan/openai-claude-conversion.md) |
 | 2 | 映射 API 与管理页支持跨服务商目标 | 完成 | |
 | 3 | 请求与非流式响应转换 | 完成 | MVP 覆盖文本和 base64 图片输入 |
-| 4 | 代理按目标服务商选择渠道并转发 | 完成 | 保留同协议路径；跨协议流式暂时拒绝 |
+| 4 | 代理按目标服务商选择渠道并转发 | 完成 | 同协议与跨协议路径均支持；非流式与 SSE 流式转换已接入 |
 | 5 | 类型检查与代表性验证 | 完成 | `npx tsc --noEmit` 通过 |
