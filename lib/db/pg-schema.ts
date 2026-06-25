@@ -81,6 +81,7 @@ export const modelMappings = pgTable("model_mappings", {
   inboundModel: text("inbound_model").notNull(),
   upstreamModel: text("upstream_model").notNull(),
   channelIds: text("channel_ids").array().notNull().default([]),
+  enabled: boolean("enabled").notNull().default(true),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 

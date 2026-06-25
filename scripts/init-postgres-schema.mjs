@@ -130,9 +130,11 @@ const statements = [
     inbound_model text NOT NULL,
     upstream_model text NOT NULL,
     channel_ids text[] NOT NULL DEFAULT '{}',
+    enabled boolean NOT NULL DEFAULT true,
     created_at bigint NOT NULL
   )`,
   `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`,
+  `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`,
   `UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`,
   `CREATE TABLE IF NOT EXISTS model_catalog (
     id text PRIMARY KEY,
@@ -224,6 +226,7 @@ try {
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`);
+      await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`);
       await sql.unsafe(`UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_mappings_provider_inbound_unique`);
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);

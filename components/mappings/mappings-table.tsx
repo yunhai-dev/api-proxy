@@ -15,6 +15,7 @@ type Mapping = {
   inboundModel: string;
   upstreamModel: string;
   channelIds: string[];
+  enabled: boolean;
   createdAt: number;
 };
 
@@ -42,6 +43,7 @@ export function MappingsTable() {
   const [query, setQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
+  const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -52,6 +54,7 @@ export function MappingsTable() {
     inboundModel: row => row.inboundModel,
     upstreamModel: row => row.upstreamModel,
     channels: row => row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部",
+    enabled: row => row.enabled,
     createdAt: row => row.createdAt,
   }, "createdAt", "desc");
 
@@ -77,7 +80,7 @@ export function MappingsTable() {
 
   useEffect(() => { loadChannels(); }, []);
   useEffect(() => { load(); }, [page, query, providerFilter, channelFilter, sort.key, sort.dir]);
-  useEffect(() => { setPage(1); }, [query, providerFilter, channelFilter, sort.key, sort.dir]);
+  useEffect(() => { setPage(1); setSelected([]); }, [query, providerFilter, channelFilter, sort.key, sort.dir]);
 
   const upstreamModels = [...new Set(channels
     .filter(c => c.enabled && c.type === targetProvider && (channelIds.length === 0 || channelIds.includes(c.id)))
@@ -86,6 +89,8 @@ export function MappingsTable() {
     .sort();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
+  const selectedRows = rows.filter(row => selected.includes(row.id));
+  const allSelected = rows.length > 0 && rows.every(row => selected.includes(row.id));
 
   function resetForm() {
     setInboundModels("");
@@ -123,7 +128,7 @@ export function MappingsTable() {
       const r = await fetch(`/api/model-mappings/${editing.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetProvider, inboundModel: inboundList[0], upstreamModel, channelIds }),
+        body: JSON.stringify({ targetProvider, inboundModel: inboundList[0], upstreamModel, channelIds, enabled: editing.enabled }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { toast(data.error || "更新失败"); return; }
@@ -167,9 +172,42 @@ export function MappingsTable() {
     }
   }
 
+  async function updateMapping(row: Mapping, patch: Partial<Pick<Mapping, "enabled">>) {
+    const r = await fetch(`/api/model-mappings/${row.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targetProvider: row.targetProvider ?? row.provider, inboundModel: row.inboundModel, upstreamModel: row.upstreamModel, channelIds: row.channelIds ?? [], enabled: row.enabled, ...patch }),
+    });
+    const data = await r.json().catch(() => ({}));
+    return { ok: r.ok, error: data.error as string | undefined };
+  }
+
+  async function toggle(row: Mapping) {
+    const result = await updateMapping(row, { enabled: !row.enabled });
+    if (!result.ok) { toast(result.error || "更新失败"); return; }
+    load();
+  }
+
+  async function bulkUpdate(patch: Partial<Pick<Mapping, "enabled">>) {
+    if (selectedRows.length === 0) { toast("请选择映射"); return; }
+    const results = await Promise.all(selectedRows.map(row => updateMapping(row, patch)));
+    const failed = results.filter(result => !result.ok);
+    if (failed.length) { toast(failed[0].error || "批量更新失败"); return; }
+    toast(`已更新 ${results.length} 条映射`);
+    setSelected([]);
+    load();
+  }
+
+  function toggleSelected(row: Mapping) {
+    setSelected(prev => prev.includes(row.id) ? prev.filter(id => id !== row.id) : [...prev, row.id]);
+  }
+
   return (
     <>
       <div className="page-actions">
+        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: true })} disabled={selectedRows.length === 0}>启用</button>
+        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: false })} disabled={selectedRows.length === 0}>停用</button>
+        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 条</span>}
         <button className="btn primary" onClick={openCreate}>+ 添加映射</button>
       </div>
       <div className="list-toolbar">
@@ -265,20 +303,39 @@ export function MappingsTable() {
       <table className="table">
         <thead>
           <tr>
+            <th>
+              <button
+                type="button"
+                className={`check-control ${allSelected ? "checked" : ""}`}
+                aria-label="选择全部映射"
+                aria-pressed={allSelected}
+                onClick={() => setSelected(allSelected ? [] : rows.map(row => row.id))}
+              />
+            </th>
             {sortHeader("provider", "入站服务商")}
             {sortHeader("inboundModel", "入站模型")}
             {sortHeader("targetProvider", "上游服务商")}
             {sortHeader("upstreamModel", "上游模型")}
             {sortHeader("channels", "绑定渠道")}
+            {sortHeader("enabled", "状态")}
             {sortHeader("createdAt", "创建时间")}
             <th className="right">操作</th>
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配映射</td></tr>}
+          {loading && <tr><td colSpan={9} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配映射</td></tr>}
           {sortedRows.map(row => (
             <tr key={row.id}>
+              <td>
+                <button
+                  type="button"
+                  className={`check-control ${selected.includes(row.id) ? "checked" : ""}`}
+                  aria-label={`选择 ${row.inboundModel}`}
+                  aria-pressed={selected.includes(row.id)}
+                  onClick={() => toggleSelected(row)}
+                />
+              </td>
               <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
               <td className="mono">{row.inboundModel}</td>
               <td><span className={`type-pill ${row.targetProvider ?? row.provider}`}>{row.targetProvider ?? row.provider}</span></td>
@@ -286,6 +343,7 @@ export function MappingsTable() {
               <td className="mono dim" title={row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部渠道"}>
                 {row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部"}
               </td>
+              <td><button className={`toggle-label ${row.enabled ? "on" : "off"}`} onClick={() => toggle(row)}><span className="dot" />{row.enabled ? "启用" : "停用"}</button></td>
               <td className="mono dim">{formatShanghaiDate(row.createdAt)}</td>
               <td className="right">
                 <button className="btn sm ghost" onClick={() => openEdit(row)}>编辑</button>{" "}

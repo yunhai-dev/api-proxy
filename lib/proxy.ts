@@ -404,7 +404,7 @@ function modelMappings(provider: Provider, model: string): MappingCandidate[] {
   return db
     .select()
     .from(schema.modelMappings)
-    .where(and(eq(schema.modelMappings.provider, provider), eq(schema.modelMappings.inboundModel, model)))
+    .where(and(eq(schema.modelMappings.provider, provider), eq(schema.modelMappings.inboundModel, model), eq(schema.modelMappings.enabled, true)))
     .all() as MappingCandidate[];
 }
 
@@ -414,7 +414,7 @@ async function modelMappingsAsync(provider: Provider, model: string): Promise<Ma
   return await pgDb
     .select()
     .from(pgSchema.modelMappings)
-    .where(and(eq(pgSchema.modelMappings.provider, provider), eq(pgSchema.modelMappings.inboundModel, model)));
+    .where(and(eq(pgSchema.modelMappings.provider, provider), eq(pgSchema.modelMappings.inboundModel, model), eq(pgSchema.modelMappings.enabled, true)));
 }
 
 async function modelMappingCandidateAsync(provider: Provider, models: string[]) {

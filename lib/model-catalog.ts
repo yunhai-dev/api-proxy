@@ -187,7 +187,7 @@ function discoveredModels(provider: Provider) {
   const mappings = db
     .select({ inboundModel: schema.modelMappings.inboundModel, upstreamModel: schema.modelMappings.upstreamModel })
     .from(schema.modelMappings)
-    .where(eq(schema.modelMappings.provider, provider))
+    .where(and(eq(schema.modelMappings.provider, provider), eq(schema.modelMappings.enabled, true)))
     .all()
     .flatMap(row => [row.inboundModel, row.upstreamModel]);
   return [...new Set([...channels, ...mappings].filter(model => model && model !== "*"))];
@@ -203,7 +203,7 @@ async function discoveredModelsAsync(provider: Provider) {
   const mappings = (await pgDb
     .select({ inboundModel: pgSchema.modelMappings.inboundModel, upstreamModel: pgSchema.modelMappings.upstreamModel })
     .from(pgSchema.modelMappings)
-    .where(eq(pgSchema.modelMappings.provider, provider)))
+    .where(and(eq(pgSchema.modelMappings.provider, provider), eq(pgSchema.modelMappings.enabled, true))))
     .flatMap(row => [row.inboundModel, row.upstreamModel]);
   return [...new Set([...channels, ...mappings].filter(model => model && model !== "*"))];
 }
