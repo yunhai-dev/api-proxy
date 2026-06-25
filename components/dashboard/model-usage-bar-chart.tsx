@@ -11,8 +11,8 @@ type ModelUsageRow = {
 };
 
 const COLORS = {
-  claude: "oklch(0.78 0.13 75)",
-  openai: "oklch(0.74 0.16 245)",
+  claude: "oklch(0.64 0.12 65)",
+  openai: "oklch(0.56 0.12 230)",
 } as const;
 
 function trimNumber(value: number, digits: number) {
@@ -39,12 +39,12 @@ export function ModelUsageBarChart({ rows }: { rows: ModelUsageRow[] }) {
     <div className="model-usage-chart">
       <ResponsiveContainer width="100%" height={Math.max(260, data.length * 40 + 36)}>
         <BarChart data={data} layout="vertical" margin={{ top: 12, right: 24, bottom: 8, left: 16 }} barCategoryGap={12}>
-          <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" horizontal={false} />
-          <XAxis type="number" stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} />
-          <YAxis type="category" dataKey="label" width={180} stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <CartesianGrid stroke="oklch(0.88 0.010 75)" strokeDasharray="3 5" horizontal={false} />
+          <XAxis type="number" stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} />
+          <YAxis type="category" dataKey="label" width={180} stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip
-            cursor={{ fill: "oklch(0.28 0.014 75 / 0.28)" }}
-            contentStyle={{ background: "oklch(0.18 0.008 75)", border: "1px solid oklch(0.32 0.012 75)", borderRadius: 4, color: "oklch(0.84 0.02 75)", fontSize: 12 }}
+            cursor={{ fill: "oklch(0.92 0.010 75 / 0.60)" }}
+            contentStyle={{ background: "oklch(0.995 0.003 75)", border: "1px solid oklch(0.84 0.012 75)", borderRadius: 4, color: "oklch(0.24 0.012 75)", fontSize: 12 }}
             labelFormatter={(_value, payload) => payload?.[0]?.payload?.model ?? "模型"}
             formatter={(value, _name, item) => {
               const row = item.payload as ModelUsageRow;

@@ -5,11 +5,11 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 type ChannelTraffic = { id: string; name: string; type: "claude" | "openai"; n: number };
 
 const COLORS = [
-  "oklch(0.78 0.13 75)",
-  "oklch(0.74 0.16 245)",
-  "oklch(0.70 0.13 150)",
-  "oklch(0.72 0.13 35)",
-  "oklch(0.68 0.12 310)",
+  "oklch(0.64 0.12 65)",
+  "oklch(0.56 0.12 230)",
+  "oklch(0.56 0.12 150)",
+  "oklch(0.58 0.13 35)",
+  "oklch(0.60 0.10 310)",
 ];
 
 export function ChannelTrafficChart({ data }: { data: ChannelTraffic[] }) {
@@ -28,7 +28,7 @@ export function ChannelTrafficChart({ data }: { data: ChannelTraffic[] }) {
               innerRadius="58%"
               outerRadius="86%"
               paddingAngle={2}
-              stroke="oklch(0.15 0.008 75)"
+              stroke="oklch(0.88 0.010 75)"
               strokeWidth={2}
             >
               {data.map((row, i) => <Cell key={row.id} fill={COLORS[i % COLORS.length]} />)}
@@ -36,10 +36,10 @@ export function ChannelTrafficChart({ data }: { data: ChannelTraffic[] }) {
             <Tooltip
               wrapperStyle={{ zIndex: 50 }}
               contentStyle={{
-                background: "oklch(0.18 0.008 75)",
-                border: "1px solid oklch(0.32 0.012 75)",
+                background: "oklch(0.995 0.003 75)",
+                border: "1px solid oklch(0.84 0.012 75)",
                 borderRadius: 4,
-                color: "oklch(0.84 0.02 75)",
+                color: "oklch(0.24 0.012 75)",
                 fontSize: 12,
               }}
               formatter={(value, _name, item) => {

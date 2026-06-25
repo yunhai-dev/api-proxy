@@ -14,10 +14,10 @@ type RankingChartRow = {
 };
 
 const COLORS: Record<RankingTone, string> = {
-  key: "oklch(0.78 0.13 75)",
-  user: "oklch(0.70 0.13 150)",
-  claude: "oklch(0.78 0.13 75)",
-  openai: "oklch(0.74 0.16 245)",
+  key: "oklch(0.64 0.12 65)",
+  user: "oklch(0.56 0.12 150)",
+  claude: "oklch(0.64 0.12 65)",
+  openai: "oklch(0.56 0.12 230)",
 };
 
 function trimNumber(value: number, digits: number) {
@@ -44,12 +44,12 @@ export function TopRankingBarChart({ rows, emptyText }: { rows: RankingChartRow[
     <div className="ranking-bar-chart">
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={data} margin={{ top: 18, right: 18, bottom: 38, left: 8 }} barCategoryGap={16}>
-          <CartesianGrid stroke="oklch(0.30 0.008 75)" strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="shortLabel" stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} angle={-24} textAnchor="end" height={52} />
-          <YAxis stroke="oklch(0.58 0.015 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
+          <CartesianGrid stroke="oklch(0.88 0.010 75)" strokeDasharray="3 5" vertical={false} />
+          <XAxis dataKey="shortLabel" stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} angle={-24} textAnchor="end" height={52} />
+          <YAxis stroke="oklch(0.46 0.012 75)" tick={{ fontSize: 11 }} tickFormatter={fmtToken} tickLine={false} axisLine={false} width={54} />
           <Tooltip
-            cursor={{ fill: "oklch(0.28 0.014 75 / 0.28)" }}
-            contentStyle={{ background: "oklch(0.18 0.008 75)", border: "1px solid oklch(0.32 0.012 75)", borderRadius: 4, color: "oklch(0.84 0.02 75)", fontSize: 12 }}
+            cursor={{ fill: "oklch(0.92 0.010 75 / 0.60)" }}
+            contentStyle={{ background: "oklch(0.995 0.003 75)", border: "1px solid oklch(0.84 0.012 75)", borderRadius: 4, color: "oklch(0.24 0.012 75)", fontSize: 12 }}
             labelFormatter={(_value, payload) => payload?.[0]?.payload?.label ?? "排行"}
             formatter={(value, _name, item) => {
               const row = item.payload as RankingChartRow;
