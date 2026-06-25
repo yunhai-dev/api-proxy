@@ -558,7 +558,19 @@ export function getChannelHealth(period?: { since: number; until: number }) {
     .orderBy(schema.channels.name)
     .all();
 
-  if (!period) return channels.map(c => ({ ...c, testLogs: [] }));
+  const recentLogs = new Map<string, (typeof schema.channelTestLogs.$inferSelect)[]>();
+  for (const channel of channels) {
+    recentLogs.set(channel.id, db
+      .select()
+      .from(schema.channelTestLogs)
+      .where(eq(schema.channelTestLogs.channelId, channel.id))
+      .orderBy(desc(schema.channelTestLogs.ts))
+      .limit(36)
+      .all()
+      .reverse());
+  }
+
+  if (!period) return channels.map(c => ({ ...c, testLogs: [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
 
   const logs = db
     .select()
@@ -572,14 +584,18 @@ export function getChannelHealth(period?: { since: number; until: number }) {
     list.push(log);
     byChannel.set(log.channelId, list);
   }
-  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [] }));
+  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
 }
 
 export async function getChannelHealthAsync(period?: { since: number; until: number }) {
   if (!usePostgres()) return getChannelHealth(period);
   const { pgDb, pgSchema } = await import("./db/pg");
   const channels = await pgDb.select().from(pgSchema.channels).where(and(eq(pgSchema.channels.enabled, true), gte(pgSchema.channels.monitorIntervalSec, 1))).orderBy(pgSchema.channels.name);
-  if (!period) return channels.map(c => ({ ...c, testLogs: [] }));
+  const recentLogs = new Map<string, (typeof pgSchema.channelTestLogs.$inferSelect)[]>();
+  for (const channel of channels) {
+    recentLogs.set(channel.id, (await pgDb.select().from(pgSchema.channelTestLogs).where(eq(pgSchema.channelTestLogs.channelId, channel.id)).orderBy(desc(pgSchema.channelTestLogs.ts)).limit(36)).reverse());
+  }
+  if (!period) return channels.map(c => ({ ...c, testLogs: [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
   const logs = await pgDb.select().from(pgSchema.channelTestLogs).where(and(gte(pgSchema.channelTestLogs.ts, period.since), lt(pgSchema.channelTestLogs.ts, period.until))).orderBy(pgSchema.channelTestLogs.ts);
   const byChannel = new Map<string, typeof logs>();
   for (const log of logs) {
@@ -587,7 +603,7 @@ export async function getChannelHealthAsync(period?: { since: number; until: num
     list.push(log);
     byChannel.set(log.channelId, list);
   }
-  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [] }));
+  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
 }
 
 export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): LogListEntry[] {
