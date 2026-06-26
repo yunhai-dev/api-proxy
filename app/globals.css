@@ -1796,7 +1796,7 @@ section,
 }
 .table tr:hover td { background: var(--bg-1); }
 .table tr.clickable-row { cursor: pointer; }
-.table tr.clickable-row:hover td { background: oklch(0.22 0.012 75); }
+.table tr.clickable-row:hover td { background: var(--bg-2); }
 .table td.right, .table th.right { text-align: right; }
 .table td.right, .table td.nowrap { white-space: nowrap; }
 .table td .sub { color: var(--text-3); font-size: 11.5px; }
@@ -1942,9 +1942,9 @@ section,
   box-shadow: none;
 }
 .toggle-label.on {
-  border-color: oklch(0.78 0.13 75 / 0.5);
-  background: oklch(0.78 0.13 75 / 0.10);
-  color: oklch(0.92 0.10 85);
+  border-color: oklch(0.70 0.12 75 / 0.55);
+  background: oklch(0.93 0.055 75);
+  color: oklch(0.36 0.075 70);
 }
 .toggle-label.on .dot {
   background: var(--accent);
