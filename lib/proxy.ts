@@ -473,8 +473,8 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
   if (settings.maintenanceMode) {
     const message = settings.maintenanceMessage.trim() || "系统维护中，请稍后再试。";
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 503, error: message, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
-    return { kind: "upstream_error", requestId, status: 503, error: message, attempts: [] };
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: message, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
+    return { kind: "client_error", requestId, status: 403, error: message };
   }
 
   // 1) 解析 key
