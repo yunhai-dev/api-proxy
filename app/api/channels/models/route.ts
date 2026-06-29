@@ -76,14 +76,14 @@ export async function POST(req: NextRequest) {
     });
     const text = await res.text();
     if (!res.ok) {
-      return NextResponse.json({ error: text.slice(0, 240) || `HTTP ${res.status}` }, { status: res.status });
+      return NextResponse.json({ error: "获取模型列表失败，请检查渠道配置后重试" }, { status: res.status });
     }
     const data = JSON.parse(text);
     const models = extractModels(data);
     return NextResponse.json({ models });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg.includes("abort") ? "请求超时" : msg.slice(0, 120) }, { status: 502 });
+    return NextResponse.json({ error: msg.includes("abort") ? "请求超时" : "获取模型列表失败，请检查渠道配置后重试" }, { status: 502 });
   } finally {
     clearTimeout(timer);
   }

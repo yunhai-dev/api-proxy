@@ -480,7 +480,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   // 1) 解析 key
   const resolved = await resolveApiKeyAsync(req.rawAuth);
   if (!resolved.ok) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
+    if (resolved.status !== 401) {
+      await recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
+    }
     return { kind: "client_error", requestId, status: resolved.status, error: resolved.error };
   }
   const key = resolved.key;
