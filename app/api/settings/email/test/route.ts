@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg.slice(0, 240) }, { status: 502 });
+    return NextResponse.json({ error: "邮件发送失败，请检查 SMTP 配置后重试" }, { status: 502 });
   }
 }

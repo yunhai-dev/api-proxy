@@ -107,6 +107,6 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "操作失败，请稍后重试" }, { status: 500 });
   }
 }

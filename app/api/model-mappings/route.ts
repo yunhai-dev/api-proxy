@@ -125,6 +125,6 @@ export async function POST(req: NextRequest) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("UNIQUE")) return NextResponse.json({ error: "数据库仍存在旧唯一索引，请同步 schema 后重试" }, { status: 409 });
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "操作失败，请稍后重试" }, { status: 500 });
   }
 }
