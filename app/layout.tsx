@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <ToastProvider>
           {children}
         </ToastProvider>

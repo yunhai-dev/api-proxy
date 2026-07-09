@@ -22,20 +22,28 @@
     "verify:multi-instance": "node scripts/verify-multi-instance.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.3",
+    "lucide-react": "^1.23.0",
     "nanoid": "^5.0.9",
     "next": "15.1.3",
     "postgres": "^3.4.9",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "recharts": "^3.8.1",
-    "redis": "^6.0.0"
+    "redis": "^6.0.0",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "autoprefixer": "^10.5.2",
     "drizzle-kit": "^0.30.1",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

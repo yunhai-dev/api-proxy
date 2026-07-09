@@ -14,15 +14,19 @@ export async function Topbar() {
   const announcement = announcementFromSettings(settings);
   return (
     <>
-      <header className="topbar">
-        <Link href="/" className="brand" aria-label={`${settings.siteName} 首页`}>
-          <SiteLogo logoUrl={settings.siteLogoUrl} alt={settings.siteName} />
-          <span>{settings.siteName}</span>
-        </Link>
-        <NavTabs isAdmin={user ? isAdmin(user) : false} />
-        <div className="topbar-right">
-          <Clock />
-          <UserMenu label={user?.displayName || user?.username || "未登录"} />
+      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+        <div className="flex min-h-14 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:px-8">
+          <Link href="/" className="inline-flex min-w-0 items-center gap-2 font-mono text-sm font-medium" aria-label={`${settings.siteName} 首页`}>
+            <SiteLogo logoUrl={settings.siteLogoUrl} alt={settings.siteName} />
+            <span className="truncate">{settings.siteName}</span>
+          </Link>
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <NavTabs isAdmin={user ? isAdmin(user) : false} />
+          </div>
+          <div className="flex shrink-0 items-center gap-3 text-sm text-muted-foreground">
+            <Clock />
+            <UserMenu label={user?.displayName || user?.username || "未登录"} />
+          </div>
         </div>
       </header>
       <AnnouncementSurface announcement={announcement} scope="app" />

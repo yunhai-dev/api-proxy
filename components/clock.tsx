@@ -11,5 +11,5 @@ export function Clock() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
-  return <span className="clock">{t}</span>;
+  return <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{t}</span>;
 }
