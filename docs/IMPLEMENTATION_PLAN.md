@@ -112,6 +112,16 @@
 | 3 | Recharts inline 色值改为亮色可读 | 进行中 | Dashboard、排行、用户详情图表 |
 | 4 | 类型检查、构建与视觉验证 | 未开始 | `bunx tsc --noEmit` / `bun run build` |
 
+## Shadcn UI 迁移
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 迁移设计与阶段拆分 | 完成 | 详见 [`docs/plan/shadcn-ui-migration.md`](./plan/shadcn-ui-migration.md) |
+| 2 | Tailwind 与 shadcn 基础设施 | 未开始 | 初始化配置、`components.json`、`lib/utils.ts` 与基础组件 |
+| 3 | 全局样式基线替换 | 未开始 | 删除旧视觉系统，仅保留临时兼容层 |
+| 4 | Shell / Topbar / 导航迁移 | 未开始 | 保留路由拆分与服务端数据加载 |
+| 5 | 类型检查、构建与页面烟测 | 未开始 | `bunx tsc --noEmit` / `bun run build` / 浏览器验证 |
+
 ## 技术决策
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
