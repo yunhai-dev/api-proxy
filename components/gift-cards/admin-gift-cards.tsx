@@ -174,13 +174,13 @@ export function AdminGiftCards() {
         <h2 className="mb-3 text-sm font-semibold tracking-tight">礼品卡记录</h2>
         <div className="table-wrap">
         <table className="table">
-          <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th>{sortHeader("code", "卡号")}{sortHeader("amountUsd", "金额")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}{sortHeader("redeemedBy", "核销用户")}{sortHeader("redeemedAt", "核销时间")}</tr></thead>
+          <thead><tr><th className="check-cell"><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th>{sortHeader("code", "卡号")}{sortHeader("amountUsd", "金额")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}{sortHeader("redeemedBy", "核销用户")}{sortHeader("redeemedAt", "核销时间")}</tr></thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
             {!loading && cards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡 <span className="mono dim">// no rows</span></td></tr>}
             {sortedRows.map(card => (
               <tr key={card.id}>
-                <td><button type="button" className={`check-control ${selected.has(card.id) ? "checked" : ""}`} onClick={() => toggleOne(card.id)} aria-label={`选择礼品卡 ${card.codePrefix}${card.codeSuffix}`} aria-pressed={selected.has(card.id)} /></td>
+                <td className="check-cell"><button type="button" className={`check-control ${selected.has(card.id) ? "checked" : ""}`} onClick={() => toggleOne(card.id)} aria-label={`选择礼品卡 ${card.codePrefix}${card.codeSuffix}`} aria-pressed={selected.has(card.id)} /></td>
                 <td className="mono">{card.codePrefix}****{card.codeSuffix}</td>
                 <td className="mono">${card.amountUsd.toFixed(2)}</td>
                 <td>{card.status === "active" ? <span className="status ok"><span className="dot ok" />可核销</span> : <span className="status"><span className="dot" />已核销</span>}</td>

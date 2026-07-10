@@ -275,7 +275,7 @@ export function ModelsTable() {
       <table className="table">
         <thead>
           <tr>
-            <th>
+            <th className="check-cell">
               <button
                 type="button"
                 className={`check-control ${allSelected ? "checked" : ""}`}
@@ -297,7 +297,7 @@ export function ModelsTable() {
           {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr key={`${row.provider}:${row.id}`}>
-              <td>
+              <td className="check-cell">
                 <button
                   type="button"
                   className={`check-control ${selected.includes(rowKey(row)) ? "checked" : ""}`}

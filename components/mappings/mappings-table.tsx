@@ -332,7 +332,7 @@ export function MappingsTable() {
       <table className="table">
         <thead>
           <tr>
-            <th>
+            <th className="check-cell">
               <button
                 type="button"
                 className={`check-control ${allSelected ? "checked" : ""}`}
@@ -356,7 +356,7 @@ export function MappingsTable() {
           {!loading && rows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配映射 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr key={row.id}>
-              <td>
+              <td className="check-cell">
                 <button
                   type="button"
                   className={`check-control ${selected.includes(row.id) ? "checked" : ""}`}

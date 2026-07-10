@@ -174,7 +174,7 @@
   .delta-down { color: hsl(var(--err)); }
 
   .table-wrap { @apply w-full overflow-x-auto rounded-xl border bg-card shadow-sm; }
-  .table { @apply min-w-full table-fixed text-sm; }
+  .table { @apply min-w-full table-auto text-sm; }
   .table th,
   .table td { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
   .table th { @apply border-b bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground; }
@@ -216,11 +216,10 @@
   .users-status-cell,
   .users-actions-cell,
   .channel-test-model-cell { @apply whitespace-nowrap; }
-  .users-table th:nth-child(5),
-  .users-table td:nth-child(5) { @apply w-36; }
-  .key-stats-table,
-  .model-stats-table { @apply table-fixed min-w-[920px]; }
-  .check-control { @apply inline-flex h-8 w-8 shrink-0 items-center justify-center; }
+  .check-control { @apply inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border border-input bg-background text-primary-foreground transition-colors hover:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50; }
+  .check-control.checked { @apply border-primary bg-primary; }
+  .check-control.checked::before { content: "✓"; @apply text-[10px] font-bold leading-none; }
+  .check-cell { @apply w-[40px] px-2 text-center; }
   .key-cell { @apply inline-flex min-w-0 items-center gap-1; }
   .copy { @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground; }
   .quota-num { @apply font-mono tabular-nums; }
@@ -234,18 +233,8 @@
   .confirm-modal { @apply max-w-md; }
   .confirm-text { @apply text-sm text-foreground; }
   .confirm-sub { @apply mt-1 text-xs text-muted-foreground; }
-  .logs-table { @apply table-fixed min-w-[1270px]; }
-  .channels-table { @apply table-fixed min-w-[1360px]; }
-  .channels-table .channel-base-col,
-  .channels-table .channel-base-cell { @apply w-[280px]; }
-  .channels-table .channel-models-col { @apply w-[190px]; }
+  .logs-table { @apply min-w-full; }
   .channels-table .models { @apply cursor-help; }
-  .channels-table th:nth-child(1),
-  .channels-table td:nth-child(1) { @apply sticky left-0 z-10 w-[140px] bg-background; }
-  .channels-table thead th:nth-child(1) { @apply z-20 border-r bg-background; }
-  .channels-table tbody tr:hover td:nth-child(1) { @apply bg-muted; }
-  .channels-table td:nth-child(10),
-  .channels-table th:nth-child(10) { @apply w-[100px] overflow-visible; }
   .channels-table td:last-child { @apply overflow-visible; }
   .row-actions-menu { @apply relative inline-flex justify-end; }
   .row-actions-popover { @apply z-30 grid min-w-24 overflow-hidden rounded-md border bg-popover p-1 text-left text-sm text-popover-foreground shadow-lg; }
@@ -272,31 +261,6 @@
   .channel-history-row .latency { @apply font-semibold tabular-nums; }
   .channel-history-row .error { @apply max-h-32 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground; }
 
-  .logs-table.admin { @apply min-w-[1430px]; }
-  .logs-table th:nth-child(1),
-  .logs-table td:nth-child(1) { @apply w-[180px]; }
-  .logs-table th:nth-child(2),
-  .logs-table td:nth-child(2) { @apply w-[76px]; }
-  .logs-table th:nth-child(3),
-  .logs-table td:nth-child(3) { @apply w-[90px]; }
-  .logs-table.admin th:nth-child(4),
-  .logs-table.admin td:nth-child(4) { @apply w-[112px]; }
-  .logs-table th:nth-last-child(1),
-  .logs-table td:nth-last-child(1),
-  .logs-table th:nth-last-child(2),
-  .logs-table td:nth-last-child(2),
-  .logs-table th:nth-last-child(3),
-  .logs-table td:nth-last-child(3),
-  .logs-table th:nth-last-child(4),
-  .logs-table td:nth-last-child(4),
-  .logs-table th:nth-last-child(5),
-  .logs-table td:nth-last-child(5),
-  .logs-table th:nth-last-child(6),
-  .logs-table td:nth-last-child(6),
-  .logs-table th:nth-last-child(7),
-  .logs-table td:nth-last-child(7),
-  .logs-table th:nth-last-child(8),
-  .logs-table td:nth-last-child(8) { @apply w-[72px]; }
   .logs-table tbody tr { @apply cursor-pointer; }
   .logs-table tr.new td { @apply bg-primary/5; }
   .logs-table tr.has-error td { @apply bg-destructive/5; }
