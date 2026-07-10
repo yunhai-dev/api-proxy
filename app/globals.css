@@ -193,7 +193,7 @@
   .truncate { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
   .truncate-cell { @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap; }
   .filterbar { @apply mb-3 flex flex-wrap items-end gap-2; }
-  .list-section { @apply rounded-xl border bg-card p-4 shadow-sm; }
+  .list-section { @apply min-w-0 rounded-xl border bg-card p-4 shadow-sm; }
   .section + .list-section,
   .list-section + .section,
   .list-section + .list-section,
@@ -225,7 +225,6 @@
   .copy { @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground; }
   .quota-num { @apply font-mono tabular-nums; }
   .track { @apply relative h-1.5 w-full overflow-hidden rounded-full bg-muted; }
-  .gift-card-layout { @apply grid gap-4 lg:grid-cols-[1fr_360px]; }
   .gift-card-form-grid { @apply grid gap-3 sm:grid-cols-2; }
   .gift-card-create { @apply grid gap-3; }
   .gift-card-created-head { @apply text-sm font-medium text-foreground; }
@@ -235,7 +234,7 @@
   .confirm-modal { @apply max-w-md; }
   .confirm-text { @apply text-sm text-foreground; }
   .confirm-sub { @apply mt-1 text-xs text-muted-foreground; }
-  .logs-table { @apply table-fixed min-w-[1180px]; }
+  .logs-table { @apply table-fixed min-w-[1270px]; }
   .channels-table { @apply table-fixed min-w-[1360px]; }
   .channels-table .channel-base-col,
   .channels-table .channel-base-cell { @apply w-[280px]; }
@@ -273,9 +272,9 @@
   .channel-history-row .latency { @apply font-semibold tabular-nums; }
   .channel-history-row .error { @apply max-h-32 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground; }
 
-  .logs-table.admin { @apply min-w-[1320px]; }
+  .logs-table.admin { @apply min-w-[1430px]; }
   .logs-table th:nth-child(1),
-  .logs-table td:nth-child(1) { @apply w-[88px]; }
+  .logs-table td:nth-child(1) { @apply w-[180px]; }
   .logs-table th:nth-child(2),
   .logs-table td:nth-child(2) { @apply w-[76px]; }
   .logs-table th:nth-child(3),

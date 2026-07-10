@@ -126,7 +126,7 @@ export function AdminGiftCards() {
   }
 
   return (
-    <div className="gift-card-layout">
+    <div className="grid gap-4">
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索卡号 / 创建人 / 核销用户" />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "active", label: "可核销" }, { value: "redeemed", label: "已核销" }]} />
@@ -170,8 +170,8 @@ export function AdminGiftCards() {
         </div>
       )}
 
-      <section className="list-section">
-        <h2>礼品卡记录</h2>
+      <section className="min-w-0">
+        <h2 className="mb-3 text-sm font-semibold tracking-tight">礼品卡记录</h2>
         <div className="table-wrap">
         <table className="table">
           <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th>{sortHeader("code", "卡号")}{sortHeader("amountUsd", "金额")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}{sortHeader("redeemedBy", "核销用户")}{sortHeader("redeemedAt", "核销时间")}</tr></thead>
