@@ -35,28 +35,18 @@ export default async function ModelSquarePage() {
             <Link className="btn" href="/docs">查看接入文档</Link>
           </section>
         ) : (
-          <div className="model-square-sections">
-            <ModelGroup title="Claude" caption="Anthropic-compatible models" models={claude} />
-            <ModelGroup title="OpenAI" caption="OpenAI-compatible models" models={openai} />
-          </div>
+          <section className="model-square-group">
+            <div className="model-square-group-head">
+              <div>
+                <span className="landing-kicker mono">available models</span>
+                <h2>可用模型</h2>
+              </div>
+              <span className="model-square-count">{models.length} 个模型</span>
+            </div>
+            <ModelSquareList models={models} />
+          </section>
         )}
       </main>
     </div>
-  );
-}
-
-function ModelGroup({ title, caption, models }: { title: string; caption: string; models: Awaited<ReturnType<typeof publicModelsAsync>> }) {
-  if (models.length === 0) return null;
-  return (
-    <section className="model-square-group">
-      <div className="model-square-group-head">
-        <div>
-          <span className="landing-kicker mono">{caption}</span>
-          <h2>{title}</h2>
-        </div>
-        <span className="mono model-square-count">{models.length}</span>
-      </div>
-      <ModelSquareList models={models} />
-    </section>
   );
 }

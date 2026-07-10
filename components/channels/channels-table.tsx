@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ type Channel = {
 
 type EditTarget = "add" | { kind: "edit"; channel: Channel } | null;
 type TestLog = { id: number; channelId: string; ts: number; ok: boolean; latencyMs: number; errorMsg: string | null };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 export function ChannelsTable() {
   const toast = useToast();
@@ -42,8 +43,10 @@ export function ChannelsTable() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [enabledFilter, setEnabledFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [openActions, setOpenActions] = useState<{ id: string; top: number; right: number } | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(channels, {
     name: row => row.name,
     type: row => row.type,
@@ -71,11 +74,20 @@ export function ChannelsTable() {
       }
     } finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [page, query, typeFilter, statusFilter, enabledFilter, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, query, typeFilter, statusFilter, enabledFilter, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [query, typeFilter, statusFilter, enabledFilter, sort.key, sort.dir]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
+
+  function toggleActions(c: Channel, event: React.MouseEvent<HTMLButtonElement>) {
+    if (openActions?.id === c.id) {
+      setOpenActions(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setOpenActions({ id: c.id, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+  }
 
   async function testAll() {
     if (testing) return;
@@ -140,21 +152,18 @@ export function ChannelsTable() {
 
   return (
     <>
-      <div className="page-actions">
-        <button className="btn" onClick={testAll} disabled={testing}>
-          {testing ? "测试中…" : "全部测试"}
-        </button>
-        <button className="btn primary" onClick={() => setTarget("add")}>
-          + 添加渠道 <span className="mono kbd">N</span>
-        </button>
-      </div>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称 / 地址 / 模型" />
         <Select value={typeFilter} onChange={setTypeFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "ok", label: "正常" }, { value: "warn", label: "限流" }, { value: "err", label: "降级" }]} />
         <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} channels`}</span>
+        <button className="btn" onClick={testAll} disabled={testing}>
+          {testing ? "测试中…" : "全部测试"}
+        </button>
+        <button className="btn primary" onClick={() => setTarget("add")}>
+          + 添加渠道 <span className="mono kbd">N</span>
+        </button>
       </div>
 
       <ChannelForm trigger={target} onSaved={() => { setTarget(null); load(); }} />
@@ -188,16 +197,40 @@ export function ChannelsTable() {
             <div className="modal-body">
               {historyRows.length === 0 && <div className="empty">暂无测试记录</div>}
               {historyRows.length > 0 && (
-                <div className="channel-history-list mono">
-                  {historyRows.map(row => (
-                    <div className="channel-history-row" key={row.id}>
-                      <span>{formatShanghaiDateTime(row.ts)}</span>
-                      <span className={row.ok ? "ok" : "err"}>{row.ok ? "成功" : "失败"}</span>
-                      <span>{row.latencyMs || "—"}ms</span>
-                      <span title={row.errorMsg ?? ""}>{row.errorMsg ? row.errorMsg.slice(0, 80) : "—"}</span>
+                <>
+                  <div className="channel-history-summary">
+                    <div className="channel-history-stat">
+                      <span className="label">总数</span>
+                      <strong className="mono">{historyRows.length}</strong>
                     </div>
-                  ))}
-                </div>
+                    <div className="channel-history-stat ok">
+                      <span className="label">成功</span>
+                      <strong className="mono">{historyRows.filter(r => r.ok).length}</strong>
+                    </div>
+                    <div className="channel-history-stat err">
+                      <span className="label">失败</span>
+                      <strong className="mono">{historyRows.filter(r => !r.ok).length}</strong>
+                    </div>
+                    <div className="channel-history-stat">
+                      <span className="label">平均延迟</span>
+                      <strong className="mono">{averageLatencyMs(historyRows)}<small>ms</small></strong>
+                    </div>
+                  </div>
+                  <div className="channel-history-list">
+                    {historyRows.map(row => (
+                      <div className={`channel-history-row ${row.ok ? "ok" : "err"}`} key={row.id}>
+                        <div className="meta">
+                          <span className="badge">{row.ok ? "成功" : "失败"}</span>
+                          <span className="time mono">{formatShanghaiDateTime(row.ts)}</span>
+                          <span className="latency mono">{row.latencyMs || "—"}<small>ms</small></span>
+                        </div>
+                        <div className="error mono" title={row.errorMsg ?? ""}>
+                          {row.errorMsg ? row.errorMsg : row.ok ? "—" : "未知错误"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
             <div className="modal-foot">
@@ -208,7 +241,7 @@ export function ChannelsTable() {
       )}
 
       <div className="table-wrap">
-      <table className="table">
+      <table className="table channels-table">
         <thead>
           <tr>
             {sortHeader("name", "名称")}
@@ -227,18 +260,18 @@ export function ChannelsTable() {
         <tbody>
           {loading && <tr><td colSpan={11} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
           {!loading && channels.length === 0 && (
-            <tr><td colSpan={11} className="empty">暂无渠道</td></tr>
+            <tr><td colSpan={11} className="empty">暂无渠道 <span className="mono dim">// no rows</span></td></tr>
           )}
           {sortedRows.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
-                <td><span className={`type-pill ${c.type}`}>{c.type}</span></td>
+                <td><span className={`type-pill ${c.type}`}>{c.type === "claude" ? "Claude" : "OpenAI"}</span></td>
                 <td className="mono dim channel-base-cell">{c.baseUrl}</td>
                 <td>
-                  <div className="models">
+                  <div className="models" title={c.models.length ? c.models.join("\n") : "未配置"}>
                     {c.models.slice(0, 2).map(m => <span className="model" key={m}>{m}</span>)}
                     {c.models.length > 2 && <span className="model dim">+{c.models.length - 2}</span>}
-                    {!c.models.length && <span className="dim mono" style={{ fontSize: 11 }}>未配置</span>}
+                    {!c.models.length && <span className="dim mono text-[11px]">未配置</span>}
                   </div>
                 </td>
                 <td className="mono">{c.weight}</td>
@@ -263,17 +296,36 @@ export function ChannelsTable() {
                   </span>
                 </td>
                 <td className="right nowrap">
-                  <button className="btn sm ghost" onClick={() => test(c)}>测试</button>
-                  <button className="btn sm ghost" onClick={() => openHistory(c)}>历史</button>
-                  <button className="btn sm ghost" onClick={() => setTarget({ kind: "edit", channel: c })}>编辑</button>
-                  <button className="btn sm ghost danger" onClick={() => setDeleteTarget(c)}>删除</button>
+                  <button
+                    className="btn sm ghost icon-btn"
+                    onClick={event => toggleActions(c, event)}
+                    aria-label={`${c.name} 操作`}
+                    aria-expanded={openActions?.id === c.id}
+                  >
+                    <MoreHorizontal />
+                  </button>
+                  {openActions?.id === c.id && (
+                    <div className="row-actions-popover fixed-menu" style={{ position: "fixed", top: openActions.top, right: openActions.right }}>
+                      <button onClick={() => { setOpenActions(null); test(c); }}>测试</button>
+                      <button onClick={() => { setOpenActions(null); openHistory(c); }}>历史</button>
+                      <button onClick={() => { setOpenActions(null); setTarget({ kind: "edit", channel: c }); }}>编辑</button>
+                      <button className="danger" onClick={() => { setOpenActions(null); setDeleteTarget(c); }}>删除</button>
+                    </div>
+                  )}
                 </td>
               </tr>
           ))}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
+}
+
+function averageLatencyMs(rows: TestLog[]) {
+  const samples = rows.filter(row => row.ok && row.latencyMs > 0);
+  if (samples.length === 0) return "—";
+  const total = samples.reduce((sum, row) => sum + row.latencyMs, 0);
+  return Math.round(total / samples.length).toString();
 }

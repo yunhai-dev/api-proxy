@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/select";
@@ -20,7 +21,7 @@ const roleOptions = [
   { value: "user", label: "用户" },
 ];
 
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 function fmtUsd(value: number) {
   return `$${value.toFixed(4)}`;
@@ -38,6 +39,7 @@ export function UsersTable() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("user");
   const [quotaTarget, setQuotaTarget] = useState<User | null>(null);
   const [quota, setQuota] = useState<UserQuota | null>(null);
@@ -47,8 +49,12 @@ export function UsersTable() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     username: row => row.username,
     displayName: row => row.displayName,
@@ -78,11 +84,11 @@ export function UsersTable() {
   }
 
   async function create() {
-    const r = await fetch("/api/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, displayName, email, role }) });
+    const r = await fetch("/api/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, displayName, email, password, role }) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) { toast(data.error || "创建失败"); return; }
     toast("用户已创建");
-    setUsername(""); setDisplayName(""); setEmail(""); setRole("user"); setOpen(false); load();
+    setUsername(""); setDisplayName(""); setEmail(""); setPassword(""); setRole("user"); setOpen(false); load();
   }
 
   async function patch(row: User, body: Partial<User>) {
@@ -92,7 +98,8 @@ export function UsersTable() {
 
   async function remove(row: User) {
     const r = await fetch(`/api/users/${row.id}`, { method: "DELETE" });
-    if (r.ok) { toast("用户已删除"); load(); }
+    if (r.ok) { toast("用户已删除"); setDeleteTarget(null); load(); }
+    else { const data = await r.json().catch(() => ({})); toast(data.error || "删除失败"); }
   }
 
   async function openQuota(row: User) {
@@ -117,13 +124,12 @@ export function UsersTable() {
 
   return (
     <>
-      <div className="page-actions"><button className="btn primary" onClick={() => setOpen(true)}>+ 新建用户</button></div>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索用户名 / 显示名 / 邮箱" />
         <Select value={roleFilter} onChange={setRoleFilter} options={[{ value: "all", label: "全部角色" }, ...roleOptions]} />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "pending", label: "待验证" }, { value: "active", label: "启用" }, { value: "disabled", label: "停用" }]} />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} users`}</span>
+        <button className="btn primary" onClick={() => setOpen(true)}>+ 新建用户</button>
       </div>
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
@@ -133,6 +139,11 @@ export function UsersTable() {
               <div className="field"><label>用户名</label><input className="mono" value={username} onChange={e => setUsername(e.target.value)} /></div>
               <div className="field"><label>显示名称</label><input value={displayName} onChange={e => setDisplayName(e.target.value)} /></div>
               <div className="field"><label>邮箱</label><input className="mono" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" /></div>
+              <div className="field">
+                <label>初始密码</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="至少 8 个字符，留空则需走邮件验证" />
+                <div className="hint">设置后用户可立即用此密码登录。</div>
+              </div>
               <div className="field"><label>角色</label><Select className="fill-select" value={role} onChange={v => setRole(v as Role)} options={roleOptions} /></div>
             </div>
             <div className="modal-foot"><button className="btn ghost" onClick={() => setOpen(false)}>取消</button><button className="btn primary" onClick={create}>创建</button></div>
@@ -156,12 +167,31 @@ export function UsersTable() {
         </div>
       )}
 
+      {deleteTarget && (
+        <div className="modal-backdrop" onClick={() => setDeleteTarget(null)}>
+          <div className="modal confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>删除用户</h2>
+              <button className="modal-close" onClick={() => setDeleteTarget(null)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <p className="confirm-text">确认删除用户 <span className="mono">{deleteTarget.username}</span>？</p>
+              <p className="confirm-sub">删除后该用户将无法登录，所有相关数据保留。</p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setDeleteTarget(null)}>取消</button>
+              <button className="btn danger" onClick={() => remove(deleteTarget)}>删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="table-wrap">
       <table className="table users-table">
         <thead><tr>{sortHeader("username", "用户名")}{sortHeader("displayName", "显示名称")}{sortHeader("email", "邮箱")}{sortHeader("balance", "余额")}{sortHeader("role", "角色")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}<th className="right">操作</th></tr></thead>
         <tbody>
           {loading && <tr><td colSpan={8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配用户</td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配用户 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr className="clickable-row" key={row.id} onClick={() => router.push(`/users/${row.id}`)}>
               <td className="mono"><Link href={`/users/${row.id}`}>{row.username}</Link></td>
@@ -171,13 +201,36 @@ export function UsersTable() {
               <td className="users-control-cell" onClick={e => e.stopPropagation()}><Select size="sm" value={row.role} onChange={v => patch(row, { role: v as Role })} options={roleOptions} /></td>
               <td className="users-control-cell users-status-cell" onClick={e => e.stopPropagation()}><button className={`toggle-label ${row.status === "active" ? "on" : "off"}`} onClick={() => patch(row, { status: row.status === "active" ? "disabled" : "active" })}><span className="dot" />{row.status === "pending" ? "待验证" : row.status === "active" ? "启用" : "停用"}</button></td>
               <td className="mono dim">{formatShanghaiDate(row.createdAt)}</td>
-              <td className="right users-actions-cell" onClick={e => e.stopPropagation()}><span className="users-actions"><button className="btn sm ghost" onClick={() => openQuota(row)}>额度</button><button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button></span></td>
+              <td className="right nowrap users-actions-cell" onClick={e => e.stopPropagation()}>
+                <button
+                  className="btn sm ghost icon-btn"
+                  onClick={event => {
+                    if (openActionsId === row.id) {
+                      setOpenActionsId(null);
+                      return;
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setOpenActionsId(row.id);
+                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                  }}
+                  aria-label={`${row.username} 操作`}
+                  aria-expanded={openActionsId === row.id}
+                >
+                  <MoreHorizontal />
+                </button>
+                {openActionsId === row.id && openActionsRect && (
+                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                    <button onClick={() => { setOpenActionsId(null); openQuota(row); }}>额度</button>
+                    <button className="danger" onClick={() => { setOpenActionsId(null); setDeleteTarget(row); }}>删除</button>
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }

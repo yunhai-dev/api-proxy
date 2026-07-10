@@ -336,7 +336,7 @@ function ModelMultiSelect({
   return (
     <fieldset className="model-picker">
       <legend>
-        模型列表 <span className="dim mono" style={{ fontSize: 10, fontWeight: 400 }}>已选 {value.length}</span>
+        模型列表 <span className="dim mono text-[10px] font-normal">已选 {value.length}</span>
       </legend>
 
       <div className="model-tools">

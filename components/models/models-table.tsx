@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -21,7 +22,7 @@ type ModelRow = {
 
 type Channel = { type: Provider; enabled: boolean; models: string[] };
 type Mapping = { provider: Provider; inboundModel: string; upstreamModel: string };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 export function ModelsTable() {
   const toast = useToast();
@@ -41,8 +42,12 @@ export function ModelsTable() {
   const [enabledFilter, setEnabledFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
+  const [providerCounts, setProviderCounts] = useState<{ claude: number; openai: number }>({ claude: 0, openai: 0 });
   const [loading, setLoading] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
     id: row => row.id,
@@ -53,7 +58,7 @@ export function ModelsTable() {
   }, "id");
 
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { load(); }, [page, provider, query, visibleFilter, enabledFilter, sourceFilter, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, provider, query, visibleFilter, enabledFilter, sourceFilter, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [provider, query, visibleFilter, enabledFilter, sourceFilter, sort.key, sort.dir]);
 
   async function load() {
@@ -68,6 +73,12 @@ export function ModelsTable() {
         setRows(data.rows ?? []);
         setTotal(data.total ?? 0);
       }
+      const allParams = new URLSearchParams({ page: "1", pageSize: "1", query });
+      const claudeRes = await fetch(`/api/models?provider=claude&${allParams}`);
+      const openaiRes = await fetch(`/api/models?provider=openai&${allParams}`);
+      const claudeData = claudeRes.ok ? await claudeRes.json() : { total: 0 };
+      const openaiData = openaiRes.ok ? await openaiRes.json() : { total: 0 };
+      setProviderCounts({ claude: claudeData.total ?? 0, openai: openaiData.total ?? 0 });
     } finally { setLoading(false); }
   }
 
@@ -186,19 +197,13 @@ export function ModelsTable() {
           <span className="pricing-provider-label">服务商</span>
           <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => switchProvider("claude")} type="button">
             <span>Claude</span>
-            <small className="mono">{provider === "claude" ? total : ""} models</small>
+            <small className="mono">共 {providerCounts.claude} 个模型</small>
           </button>
           <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => switchProvider("openai")} type="button">
             <span>OpenAI</span>
-            <small className="mono">{provider === "openai" ? total : ""} models</small>
+            <small className="mono">共 {providerCounts.openai} 个模型</small>
           </button>
         </div>
-        <button className="btn ghost" onClick={() => bulkUpdate({ visible: true })} disabled={selectedRows.length === 0}>展示</button>
-        <button className="btn ghost" onClick={() => bulkUpdate({ visible: false })} disabled={selectedRows.length === 0}>隐藏</button>
-        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: true })} disabled={selectedRows.length === 0}>启用</button>
-        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: false })} disabled={selectedRows.length === 0}>停用</button>
-        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 个</span>}
-        <button className="btn primary" onClick={openCreate}>+ 添加模型</button>
       </div>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型 / 展示名 / 映射来源" />
@@ -206,7 +211,26 @@ export function ModelsTable() {
         <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
         <Select value={sourceFilter} onChange={setSourceFilter} options={[{ value: "all", label: "全部来源" }, { value: "configured", label: "手动配置" }, { value: "discovered", label: "自动发现" }]} />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} models`}</span>
+        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 个</span>}
+        <Select
+          value=""
+          onChange={value => {
+            if (!value) return;
+            if (value === "show") bulkUpdate({ visible: true });
+            if (value === "hide") bulkUpdate({ visible: false });
+            if (value === "enable") bulkUpdate({ enabled: true });
+            if (value === "disable") bulkUpdate({ enabled: false });
+          }}
+          disabled={selectedRows.length === 0}
+          placeholder="批量操作"
+          options={[
+            { value: "show", label: "展示" },
+            { value: "hide", label: "隐藏" },
+            { value: "enable", label: "启用" },
+            { value: "disable", label: "停用" },
+          ]}
+        />
+        <button className="btn primary" onClick={openCreate}>+ 添加模型</button>
       </div>
 
       {open && (
@@ -270,7 +294,7 @@ export function ModelsTable() {
         </thead>
         <tbody>
           {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型</td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配模型 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr key={`${row.provider}:${row.id}`}>
               <td>
@@ -282,23 +306,43 @@ export function ModelsTable() {
                   onClick={() => toggleSelected(row)}
                 />
               </td>
-              <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
+              <td><span className={`type-pill ${row.provider}`}>{row.provider === "claude" ? "Claude" : "OpenAI"}</span></td>
               <td className="mono">
                 <ModelName row={row} sources={mappedSources.get(row.id) ?? []} />
               </td>
               <td>{row.displayName}</td>
               <td><button className={`toggle-label ${row.visible ? "on" : "off"}`} onClick={() => toggle(row, { visible: !row.visible })}><span className="dot" />{row.visible ? "展示" : "隐藏"}</button></td>
               <td><button className={`toggle-label ${row.enabled ? "on" : "off"}`} onClick={() => toggle(row, { enabled: !row.enabled })}><span className="dot" />{row.enabled ? "启用" : "停用"}</button></td>
-              <td className="right">
-                <button className="btn sm ghost" onClick={() => openEdit(row)}>编辑</button>{" "}
-                <button className="btn sm ghost" onClick={() => deleteRow(row)} disabled={!row.catalogId}>删除</button>
+              <td className="right nowrap">
+                <button
+                  className="btn sm ghost icon-btn"
+                  onClick={event => {
+                    if (openActionsId === `${row.provider}:${row.id}`) {
+                      setOpenActionsId(null);
+                      return;
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setOpenActionsId(`${row.provider}:${row.id}`);
+                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                  }}
+                  aria-label="操作"
+                  aria-expanded={openActionsId === `${row.provider}:${row.id}`}
+                >
+                  <MoreHorizontal />
+                </button>
+                {openActionsId === `${row.provider}:${row.id}` && openActionsRect && (
+                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                    <button onClick={() => { setOpenActionsId(null); openEdit(row); }}>编辑</button>
+                    <button className="danger" onClick={() => { setOpenActionsId(null); deleteRow(row); }} disabled={!row.catalogId}>删除</button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }

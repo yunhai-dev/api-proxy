@@ -12,7 +12,7 @@ type Props = {
 };
 
 const API_KEY = "sk-relay-XXXX-xxxxxxxxxxxxxxxx";
-const pageSize = 12;
+const DEFAULT_PAGE_SIZE = 12;
 
 function fmtPrice(value: number | null) {
   return value === null ? "未定价" : `$${value}/M`;
@@ -33,9 +33,11 @@ export function ModelSquareList({ models }: Props) {
   const [baseUrl, setBaseUrl] = useState("");
   const [copied, setCopied] = useState("");
   const [query, setQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
   const [priceFilter, setPriceFilter] = useState("all");
   const [upstreamFilter, setUpstreamFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     setBaseUrl(window.location.origin);
@@ -49,14 +51,15 @@ export function ModelSquareList({ models }: Props) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selected]);
-  useEffect(() => { setPage(1); }, [query, priceFilter, upstreamFilter, models]);
+  useEffect(() => { setPage(1); }, [query, providerFilter, priceFilter, upstreamFilter, models]);
 
   const filteredModels = models.filter(model => {
     const q = query.trim().toLowerCase();
     const matchesQuery = !q || [model.displayName, model.model, model.upstreamModel].some(value => value.toLowerCase().includes(q));
+    const matchesProvider = providerFilter === "all" || model.provider === providerFilter;
     const matchesPrice = priceFilter === "all" || (priceFilter === "priced" ? hasPrice(model) : !hasPrice(model));
     const matchesUpstream = upstreamFilter === "all" || (upstreamFilter === "mapped" ? model.upstreamModel !== model.model : model.upstreamModel === model.model);
-    return matchesQuery && matchesPrice && matchesUpstream;
+    return matchesQuery && matchesProvider && matchesPrice && matchesUpstream;
   });
   const totalPages = Math.max(1, Math.ceil(filteredModels.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -70,52 +73,45 @@ export function ModelSquareList({ models }: Props) {
 
   return (
     <>
-      <div className="list-toolbar model-square-toolbar">
+      <div className="model-square-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型 / 上游模型" />
+        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
         <Select value={priceFilter} onChange={setPriceFilter} options={[{ value: "all", label: "全部定价" }, { value: "priced", label: "已定价" }, { value: "unpriced", label: "未定价" }]} />
         <Select value={upstreamFilter} onChange={setUpstreamFilter} options={[{ value: "all", label: "全部上游" }, { value: "direct", label: "直接上游" }, { value: "mapped", label: "映射上游" }]} />
-        <span className="spacer" />
-        <span className="mono dim">{filteredModels.length} models</span>
+        <span className="model-square-toolbar-count">{filteredModels.length} 个模型</span>
       </div>
       <div className="model-square-grid">
-        {pageModels.length === 0 && <div className="empty">暂无匹配模型</div>}
+        {pageModels.length === 0 && <div className="empty">暂无匹配模型 <span className="mono dim">// no rows</span></div>}
         {pageModels.map(model => (
           <button className={`model-square-card ${model.provider}`} key={model.id} onClick={() => setSelected(model)} type="button">
             <div className="model-square-card-top">
-              <span className={`type-pill ${model.provider}`}>{model.provider}</span>
-              <span className="model-square-status mono"><span />ready</span>
+              <span className={`type-pill ${model.provider}`}>{model.provider === "claude" ? "Claude" : "OpenAI"}</span>
+              <span className="model-square-status"><span />可用</span>
             </div>
             <div className="model-square-card-body">
               <h3>{model.displayName}</h3>
-              <div className="model-square-id mono" aria-label={`模型 ${model.model}`}>
-                {model.model.split("-").map((part, index) => (
-                  <span key={`${model.id}-${index}`}>{part}</span>
-                ))}
-              </div>
+              <div className="model-square-id" aria-label={`模型 ${model.model}`}>{model.model}</div>
+              <p>{model.upstreamModel !== model.model ? `映射到 ${model.upstreamModel}` : "直接连接上游模型"}</p>
             </div>
-            <div className="model-square-card-foot mono">
-              <span>public</span>
-              <span>{model.upstreamModel !== model.model ? "mapped upstream" : "direct upstream"}</span>
-            </div>
-            <div className="model-square-price mono">
+            <div className="model-square-price">
               <div><span>输入</span><strong>{fmtPrice(model.inputPricePerMTok)}</strong></div>
               <div><span>输出</span><strong>{fmtPrice(model.outputPricePerMTok)}</strong></div>
             </div>
-            <div className="model-square-meta mono">
-              <span>pricing</span>
-              <strong>{priceSummary(model)}</strong>
+            <div className="model-square-card-foot">
+              <span>{priceSummary(model)}</span>
+              <strong>查看详情 →</strong>
             </div>
           </button>
         ))}
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={filteredModels.length} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={filteredModels.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
 
       {selected && (
         <div className="model-detail-backdrop" onClick={() => setSelected(null)}>
           <section className={`model-detail-panel ${selected.provider}`} onClick={event => event.stopPropagation()} aria-modal="true" role="dialog" aria-labelledby="model-detail-title">
             <div className="model-detail-head">
               <div>
-                <span className={`type-pill ${selected.provider}`}>{selected.provider}</span>
+                <span className={`type-pill ${selected.provider}`}>{selected.provider === "claude" ? "Claude" : "OpenAI"}</span>
                 <h2 id="model-detail-title">{selected.displayName}</h2>
               </div>
               <button className="model-detail-close" onClick={() => setSelected(null)} type="button" aria-label="关闭模型详情">×</button>

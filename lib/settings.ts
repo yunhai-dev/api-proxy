@@ -9,6 +9,7 @@ export type AppSettings = {
   proxyRetry429: boolean;
   proxyRetry5xx: boolean;
   proxyRetryNetwork: boolean;
+  proxyTreatEmptyOutputAsFailure: boolean;
   fallbackEnabled: boolean;
   fallbackChannelId: string;
   fallbackModel: string;
@@ -42,6 +43,7 @@ const defaults: AppSettings = {
   proxyRetry429: true,
   proxyRetry5xx: true,
   proxyRetryNetwork: true,
+  proxyTreatEmptyOutputAsFailure: false,
   fallbackEnabled: false,
   fallbackChannelId: "",
   fallbackModel: "",
@@ -78,6 +80,7 @@ export function getSettings(): AppSettings {
     proxyRetry429: bool(values.get("proxyRetry429"), defaults.proxyRetry429),
     proxyRetry5xx: bool(values.get("proxyRetry5xx"), defaults.proxyRetry5xx),
     proxyRetryNetwork: bool(values.get("proxyRetryNetwork"), defaults.proxyRetryNetwork),
+    proxyTreatEmptyOutputAsFailure: bool(values.get("proxyTreatEmptyOutputAsFailure"), defaults.proxyTreatEmptyOutputAsFailure),
     fallbackEnabled: bool(values.get("fallbackEnabled"), defaults.fallbackEnabled),
     fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
     fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
@@ -121,6 +124,7 @@ export function updateSettings(input: Partial<AppSettings>) {
     proxyRetry429: input.proxyRetry429 ?? current.proxyRetry429,
     proxyRetry5xx: input.proxyRetry5xx ?? current.proxyRetry5xx,
     proxyRetryNetwork: input.proxyRetryNetwork ?? current.proxyRetryNetwork,
+    proxyTreatEmptyOutputAsFailure: input.proxyTreatEmptyOutputAsFailure ?? current.proxyTreatEmptyOutputAsFailure,
     fallbackEnabled: input.fallbackEnabled ?? current.fallbackEnabled,
     fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
     fallbackModel: input.fallbackModel ?? current.fallbackModel,
@@ -185,6 +189,7 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     proxyRetry429: bool(values.get("proxyRetry429"), defaults.proxyRetry429),
     proxyRetry5xx: bool(values.get("proxyRetry5xx"), defaults.proxyRetry5xx),
     proxyRetryNetwork: bool(values.get("proxyRetryNetwork"), defaults.proxyRetryNetwork),
+    proxyTreatEmptyOutputAsFailure: bool(values.get("proxyTreatEmptyOutputAsFailure"), defaults.proxyTreatEmptyOutputAsFailure),
     fallbackEnabled: bool(values.get("fallbackEnabled"), defaults.fallbackEnabled),
     fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
     fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
@@ -220,6 +225,7 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     proxyRetry429: input.proxyRetry429 ?? current.proxyRetry429,
     proxyRetry5xx: input.proxyRetry5xx ?? current.proxyRetry5xx,
     proxyRetryNetwork: input.proxyRetryNetwork ?? current.proxyRetryNetwork,
+    proxyTreatEmptyOutputAsFailure: input.proxyTreatEmptyOutputAsFailure ?? current.proxyTreatEmptyOutputAsFailure,
     fallbackEnabled: input.fallbackEnabled ?? current.fallbackEnabled,
     fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
     fallbackModel: input.fallbackModel ?? current.fallbackModel,

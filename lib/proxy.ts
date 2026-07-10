@@ -20,6 +20,7 @@ import { convertRequestBody, convertResponseBody, createSseResponseConverter } f
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
 const USER_UPSTREAM_ERROR = "平台暂时无法处理请求，请稍后重试";
+const ZERO_OUTPUT_TOKEN_ERROR = "上游返回 200 但输出 Token 为 0";
 
 export type ResolveKey =
   | { ok: true; key: typeof schema.keys.$inferSelect }
@@ -584,17 +585,73 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     });
 
     if (result.ok) {
-      await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
       if (req.stream) {
-        const logged = await pipeStreamResponse(result, {
+        const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
+        const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
           key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
-        });
-        return { kind: "success", requestId, response: logged.response, logged: { ...logged.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
+        }, canRetryEmpty);
+
+        if (!prepared.ok && prepared.reason === "empty") {
+          releaseSlot();
+          releaseAllKeySlots();
+          await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: "warn" });
+          const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
+          await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+          return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+        }
+        if (!prepared.ok) {
+          releaseSlot();
+          releaseAllKeySlots();
+          const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
+          await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+          return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+        }
+        await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
+        return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
       }
-      const logged = await collectResponse(result, {
-        key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason,
-      }).finally(() => { releaseSlot(); releaseAllKeySlots(); });
-      return { kind: "success", requestId, response: logged.response, logged: { ...logged.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
+      const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
+      let processed: ResponseProcessResult;
+      try {
+        processed = await collectResponse(result, {
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason,
+        }, canRetryEmpty);
+      } catch (e: unknown) {
+        const error = e instanceof Error ? e.message : String(e);
+        const attempts = [...previousAttempts, { channel: fallbackChannel.name, error, status: 502 }];
+        await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error }, { failureStatus: "err" });
+        await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+        return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+      } finally {
+        releaseSlot();
+        releaseAllKeySlots();
+      }
+
+      if (!processed.ok && processed.reason === "empty") {
+        await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error: processed.message }, { failureStatus: "warn" });
+        const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: processed.message, status: result.status }];
+        await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${processed.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+        return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+      }
+
+      const response = processed.ok ? processed.response : new Response(processed.info.responseBody ?? "", {
+        status: processed.info.status,
+        headers: (() => {
+          const h = new Headers();
+          h.set("content-type", processed.info.responseContentType ?? "application/json");
+          h.set("x-proxy-channel-id", fallbackChannel.id);
+          h.set("x-proxy-model", fallbackChannel.name);
+          h.set("x-request-id", requestId);
+          return h;
+        })(),
+      });
+      const errorMsg = processed.ok ? null : (processed.message ?? null);
+      await recordChannelObservation(fallbackChannel, { ok: processed.ok, latencyMs: Date.now() - attemptStart, error: errorMsg ?? undefined }, { failureStatus: processed.ok ? undefined : "warn" });
+      await recordSuccessOrAcceptedEmpty(
+        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason },
+        processed.info,
+        errorMsg,
+      );
+      return { kind: "success", requestId, response, logged: { ...processed.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
     }
 
     releaseSlot();
@@ -665,17 +722,80 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     });
 
     if (result.ok) {
-      await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
       if (req.stream) {
-        const logged = await pipeStreamResponse(result, {
+        const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
+        const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
           key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
-        });
-        return { kind: "success", requestId, response: logged.response, logged: { ...logged.info, channelId: route.channel.id, channelName: route.channel.name } };
+        }, canRetryEmpty);
+
+        if (!prepared.ok && prepared.reason === "empty") {
+          releaseSlot();
+          await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: "warn" });
+          attempts.push({ channel: route.channel.name, error: prepared.message, status: result.status });
+          lastError = `${route.channel.name}: ${prepared.message}`;
+          lastStatus = result.status;
+          const keyForRoute = routeKey(route);
+          const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
+          attemptCounts.set(keyForRoute, count);
+          if (count < 2 && i + 1 < settings.proxyMaxRetries) {
+            retryRoute = route;
+          } else {
+            tried.add(keyForRoute);
+          }
+          continue;
+        }
+
+        if (!prepared.ok) continue;
+
+        await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
+        return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: route.channel.id, channelName: route.channel.name } };
       }
-      const logged = await collectResponse(result, {
-        key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders,
-      }).finally(() => { releaseSlot(); releaseAllKeySlots(); });
-      return { kind: "success", requestId, response: logged.response, logged: { ...logged.info, channelId: route.channel.id, channelName: route.channel.name } };
+      const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
+      let processed: ResponseProcessResult;
+      try {
+        processed = await collectResponse(result, {
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders,
+        }, canRetryEmpty);
+      } catch (e: unknown) {
+        const error = e instanceof Error ? e.message : String(e);
+        await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error }, { failureStatus: "err" });
+        attempts.push({ channel: route.channel.name, error, status: 502 });
+        lastError = `${route.channel.name}: ${error}`;
+        lastStatus = 502;
+        tried.add(routeKey(route));
+        continue;
+      } finally {
+        releaseSlot();
+      }
+
+      if (!processed.ok && processed.reason === "empty") {
+        await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error: processed.message }, { failureStatus: "warn" });
+        attempts.push({ channel: route.channel.name, error: processed.message, status: result.status });
+        lastError = `${route.channel.name}: ${processed.message}`;
+        lastStatus = result.status;
+        const keyForRoute = routeKey(route);
+        const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
+        attemptCounts.set(keyForRoute, count);
+        if (count < 2 && i + 1 < settings.proxyMaxRetries) {
+          retryRoute = route;
+        } else {
+          tried.add(keyForRoute);
+        }
+        continue;
+      }
+
+      if (!processed.ok) continue;
+
+      const response = processed.response;
+      const errorMsg = null;
+      await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
+      await recordSuccessOrAcceptedEmpty(
+        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders },
+        processed.info,
+        errorMsg,
+      );
+      releaseAllKeySlots();
+      return { kind: "success", requestId, response, logged: { ...processed.info, channelId: route.channel.id, channelName: route.channel.name } };
     }
 
     releaseSlot();
@@ -740,10 +860,308 @@ type Ctx = {
   fallbackReason?: string;
 };
 
+type ProxyResponseInfo = {
+  status: number;
+  latencyMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  cacheTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  responseBody?: string;
+  responseContentType?: string;
+};
+
+type ResponseProcessResult =
+  | { ok: true; response: Response; info: ProxyResponseInfo }
+  | { ok: false; reason: "empty"; message: string; info: ProxyResponseInfo; fallbackResponse?: Response };
+
+type StreamPrelude = {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  enc: TextEncoder;
+  dec: TextDecoder;
+  streamConverter: ReturnType<typeof createSseResponseConverter>;
+  initialChunks: Uint8Array[];
+  usageBuffer: string;
+  detailBuffer: string;
+  tokensIn: number;
+  tokensOut: number;
+  cacheTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  ttftMs: number;
+  upstreamStatus: number;
+  contentType: string;
+};
+
+/**
+ * 在响应承诺给客户端前，只预读到"首次可见输出"或上游关闭。
+ * 有可见输出后立即交给 commit 继续从同一个 reader 流式透传。
+ */
+async function prepareStreamResponse(
+  upstream: UpstreamOk,
+  ctx: Ctx,
+  canTreatEmptyAsFailure: boolean,
+): Promise<ResponseProcessResult> {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const reader = upstream.body.getReader();
+  const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, model: ctx.inboundModel });
+  const initialChunks: Uint8Array[] = [];
+  let usageBuffer = "";
+  let detailBuffer = "";
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheTokens = 0;
+  let ttftMs = 0;
+  let usageSeen = false;
+  let visibleSeen = false;
+  let doneSeen = false;
+
+  try {
+    while (!visibleSeen) {
+      const { value, done } = await reader.read();
+      if (done) {
+        doneSeen = true;
+        if (streamConverter) {
+          const finalText = streamConverter(dec.decode(), true);
+          if (finalText) {
+            initialChunks.push(enc.encode(finalText));
+            visibleSeen = hasVisibleStreamChunk(finalText, ctx.type);
+          }
+        }
+        break;
+      }
+      if (!ttftMs) ttftMs = Date.now() - ctx.t0;
+      const text = dec.decode(value, { stream: true });
+      usageBuffer = appendCapped(usageBuffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
+      detailBuffer = appendCapped(detailBuffer, text, MAX_LOG_BODY_CHARS);
+      const parsed = parseSseUsage(usageBuffer, ctx.targetType);
+      if (parsed) {
+        usageSeen = true;
+        tokensIn = parsed.in;
+        tokensOut = parsed.out;
+        cacheReadTokens = parsed.cacheRead;
+        cacheCreationTokens = parsed.cacheCreation;
+        cacheTokens = parsed.cacheRead + parsed.cacheCreation;
+      }
+      if (streamConverter) {
+        const converted = streamConverter(text);
+        if (converted) {
+          initialChunks.push(enc.encode(converted));
+          visibleSeen = hasVisibleStreamChunk(converted, ctx.type);
+        }
+      } else {
+        initialChunks.push(value);
+        visibleSeen = hasVisibleStreamChunk(text, ctx.type);
+      }
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const lower = msg.toLowerCase();
+    const errorMsg = lower.includes("terminated") || lower.includes("socket") || lower.includes("econnreset") || lower.includes("other side closed")
+      ? `上游流式响应中断：${msg}`
+      : msg;
+    if (errorMsg.startsWith("上游流式响应中断")) {
+      await recordChannelObservation(ctx.channel, { ok: false, latencyMs: Date.now() - ctx.t0, error: errorMsg }, { failureStatus: "err" });
+    }
+    return { ok: false, reason: "empty", message: errorMsg, info: emptyStreamInfo(upstream.status, ctx) };
+  }
+
+  const usage = usageSeen ? { in: tokensIn, out: tokensOut, cacheRead: cacheReadTokens, cacheCreation: cacheCreationTokens } : null;
+  const empty = doneSeen && !visibleSeen && usage && usage.out === 0;
+  const info: ProxyResponseInfo = {
+    status: upstream.status,
+    latencyMs: Date.now() - ctx.t0,
+    tokensIn, tokensOut, cacheTokens, cacheReadTokens, cacheCreationTokens,
+    responseBody: detailBuffer,
+    responseContentType: streamConverter ? "text/event-stream" : upstream.contentType,
+  };
+  if (empty && canTreatEmptyAsFailure) {
+    return { ok: false, reason: "empty", message: ZERO_OUTPUT_TOKEN_ERROR, info };
+  }
+
+  const prelude: StreamPrelude = {
+    reader, enc, dec, streamConverter, initialChunks, usageBuffer, detailBuffer,
+    tokensIn, tokensOut, cacheTokens, cacheReadTokens, cacheCreationTokens,
+    ttftMs, upstreamStatus: upstream.status, contentType: upstream.contentType,
+  };
+  return { ok: true, response: makeStreamResponseFromPrelude(prelude, ctx), info };
+}
+
+function hasVisibleStreamChunk(text: string, provider: Provider) {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    try {
+      const event = JSON.parse(data) as Record<string, unknown>;
+      if (provider === "claude") {
+        if (event.type === "content_block_start" && event.content_block && typeof event.content_block === "object") {
+          const block = event.content_block as Record<string, unknown>;
+          if (block.type === "tool_use") return true;
+        }
+        if (event.type === "content_block_delta" && event.delta && typeof event.delta === "object") {
+          const delta = event.delta as Record<string, unknown>;
+          if (delta.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) return true;
+          if (delta.type === "input_json_delta" && typeof delta.partial_json === "string" && delta.partial_json.length > 0) return true;
+        }
+        continue;
+      }
+      const choices = Array.isArray(event.choices) ? event.choices : [];
+      for (const choice of choices) {
+        if (!choice || typeof choice !== "object") continue;
+        const delta = (choice as Record<string, unknown>).delta;
+        if (!delta || typeof delta !== "object") continue;
+        const d = delta as Record<string, unknown>;
+        if (typeof d.content === "string" && d.content.length > 0) return true;
+        if (typeof d.refusal === "string" && d.refusal.length > 0) return true;
+        if (Array.isArray(d.tool_calls) && d.tool_calls.length > 0) return true;
+      }
+    } catch { /* ignore malformed chunk */ }
+  }
+  return false;
+}
+
+function emptyStreamInfo(status: number, ctx: Ctx): ProxyResponseInfo {
+  return { status, latencyMs: Date.now() - ctx.t0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, responseBody: "", responseContentType: "application/json" };
+}
+
+async function recordStreamFinal(logId: number, ctx: Ctx, status: number, latency: number, prelude: StreamPrelude, errorMsg: string | null) {
+  const detail = errorMsg
+    ? failureDetail({ requestId: ctx.requestId, type: ctx.type, status, error: errorMsg, model: ctx.model, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, keyPrefix: ctx.key.prefix, channelName: ctx.channel.name, body: ctx.body })
+    : null;
+  await logHub.updateAsync(logId, {
+    requestId: ctx.requestId,
+    ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
+    channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
+    model: ctx.model, status, latencyMs: latency,
+    inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
+    ttftMs: prelude.ttftMs || latency, durationMs: latency,
+    tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
+    cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
+    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: prelude.detailBuffer, tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
+    errorMsg: detail,
+  });
+}
+
+function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Response {
+  const outHeaders = new Headers();
+  outHeaders.set("content-type", prelude.streamConverter ? "text/event-stream" : prelude.contentType);
+  outHeaders.set("cache-control", "no-cache");
+  outHeaders.set("x-accel-buffering", "no");
+  outHeaders.set("x-proxy-channel-id", ctx.channel.id);
+  outHeaders.set("x-proxy-model", ctx.model);
+  outHeaders.set("x-request-id", ctx.requestId);
+
+  const queue = prelude.initialChunks.slice();
+  let cancelled = false;
+  let logged = false;
+  let released = false;
+  let logId: number | null = null;
+
+  async function ensureInitialLog() {
+    if (logId !== null) return logId;
+    const row = await logHub.recordAsync({
+      requestId: ctx.requestId,
+      ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
+      channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
+      model: ctx.model, status: prelude.upstreamStatus, latencyMs: Date.now() - ctx.t0,
+      inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
+      ttftMs: prelude.ttftMs, durationMs: 0,
+      tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
+      cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
+      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status: prelude.upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, fallbackReason: ctx.fallbackReason }),
+      errorMsg: null,
+    });
+    logId = row.id;
+    return logId;
+  }
+
+  function releaseSlot() {
+    if (released) return;
+    released = true;
+    ctx.releaseSlot?.();
+  }
+
+  async function record(status: number, errorMsg: string | null) {
+    if (logged) return;
+    logged = true;
+    const id = await ensureInitialLog();
+    await recordStreamFinal(id, ctx, status, Date.now() - ctx.t0, prelude, errorMsg);
+    releaseSlot();
+  }
+
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        await ensureInitialLog();
+        const queued = queue.shift();
+        if (queued) {
+          controller.enqueue(queued);
+          return;
+        }
+        const { value, done } = await prelude.reader.read();
+        if (done) {
+          if (prelude.streamConverter) {
+            const finalText = prelude.streamConverter(prelude.dec.decode(), true);
+            if (finalText) controller.enqueue(prelude.enc.encode(finalText));
+          }
+          try { controller.close(); } catch { /* client already closed */ }
+          if (!cancelled) await record(prelude.upstreamStatus, null);
+          return;
+        }
+        const text = prelude.dec.decode(value, { stream: true });
+        prelude.usageBuffer = appendCapped(prelude.usageBuffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
+        prelude.detailBuffer = appendCapped(prelude.detailBuffer, text, MAX_LOG_BODY_CHARS);
+        const parsed = parseSseUsage(prelude.usageBuffer, ctx.targetType);
+        if (parsed) {
+          prelude.tokensIn = parsed.in;
+          prelude.tokensOut = parsed.out;
+          prelude.cacheReadTokens = parsed.cacheRead;
+          prelude.cacheCreationTokens = parsed.cacheCreation;
+          prelude.cacheTokens = parsed.cacheRead + parsed.cacheCreation;
+        }
+        if (prelude.streamConverter) {
+          const converted = prelude.streamConverter(text);
+          if (converted) controller.enqueue(prelude.enc.encode(converted));
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const lower = msg.toLowerCase();
+        if (cancelled || lower.includes("abort") || lower.includes("cancel") || lower.includes("invalid state")) {
+          await record(499, cancelled ? "客户端取消/连接中断" : `客户端取消/连接中断：${msg}`);
+          return;
+        }
+        const errorMsg = lower.includes("terminated") || lower.includes("socket") || lower.includes("econnreset") || lower.includes("other side closed")
+          ? `上游流式响应中断：${msg}`
+          : msg;
+        if (errorMsg.startsWith("上游流式响应中断")) {
+          await recordChannelObservation(ctx.channel, { ok: false, latencyMs: Date.now() - ctx.t0, error: errorMsg }, { failureStatus: "err" });
+        }
+        await record(errorMsg.startsWith("上游流式响应中断") ? 502 : 0, errorMsg);
+        try { controller.error(e); } catch { /* client already closed */ }
+      }
+    },
+    cancel() {
+      cancelled = true;
+      try { prelude.reader.cancel(); } catch { /* */ }
+      void record(499, "客户端取消/连接中断");
+    },
+  });
+  return new Response(stream, { status: prelude.upstreamStatus, headers: outHeaders });
+}
+
+/** 兼容旧入口：直接把上游交给客户端（不预读）。当前主路径已迁移到 prepare/commit，仅保留类型兼容。 */
 async function pipeStreamResponse(
   upstream: UpstreamOk,
   ctx: Ctx,
-): Promise<{ response: Response; info: { status: number; latencyMs: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number } }> {
+): Promise<{ response: Response; info: ProxyResponseInfo }> {
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const reader = upstream.body.getReader();
@@ -784,11 +1202,7 @@ async function pipeStreamResponse(
   }
 
   async function recordUpstreamDisconnect(latency: number, errorMsg: string) {
-    await recordChannelObservation(ctx.channel, {
-      ok: false,
-      latencyMs: latency,
-      error: errorMsg,
-    }, { failureStatus: "err" });
+    await recordChannelObservation(ctx.channel, { ok: false, latencyMs: latency, error: errorMsg }, { failureStatus: "err" });
   }
 
   async function record(status: number, latency: number, errorMsg: string | null) {
@@ -828,7 +1242,6 @@ async function pipeStreamResponse(
     ctx.releaseSlot?.();
   }
 
-  // 透传响应头（去 hop-by-hop）
   const outHeaders = new Headers();
   outHeaders.set("content-type", streamConverter ? "text/event-stream" : upstream.contentType);
   outHeaders.set("cache-control", "no-cache");
@@ -851,7 +1264,6 @@ async function pipeStreamResponse(
           if (!cancelled) await record(upstreamStatus, latency, null);
           return;
         }
-        // 解析 SSE 累计 token（不破坏原始字节，直接 enqueue）
         if (!ttftMs) ttftMs = Date.now() - ctx.t0;
         const text = dec.decode(value, { stream: true });
         buffer = appendCapped(buffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
@@ -904,7 +1316,8 @@ async function pipeStreamResponse(
 async function collectResponse(
   upstream: UpstreamOk,
   ctx: Ctx,
-): Promise<{ response: Response; info: { status: number; latencyMs: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number } }> {
+  canTreatEmptyAsFailure: boolean,
+): Promise<ResponseProcessResult> {
   const text = await streamToString(upstream.body);
   const latency = Date.now() - ctx.t0;
   const usage = extractUsage(text, ctx.targetType);
@@ -914,20 +1327,25 @@ async function collectResponse(
     responseText = convertResponseBody({ sourceType: ctx.type, targetType: ctx.targetType, body: text, model: ctx.inboundModel });
     responseContentType = "application/json";
   }
-  await logHub.recordAsync({
-    requestId: ctx.requestId,
-    ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
-    channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
-    model: ctx.model, status: upstream.status, latencyMs: latency,
-    inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
-    ttftMs: latency, durationMs: latency,
-    tokensIn: usage.in, tokensOut: usage.out,
-    cacheTokens: usage.cacheRead + usage.cacheCreation,
-    cacheReadTokens: usage.cacheRead,
-    cacheCreationTokens: usage.cacheCreation,
-    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status: upstream.status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: responseText, tokensIn: usage.in, tokensOut: usage.out, cacheReadTokens: usage.cacheRead, cacheCreationTokens: usage.cacheCreation }),
-    errorMsg: null,
-  });
+  const tokensIn = usage?.in ?? 0;
+  const tokensOut = usage?.out ?? 0;
+  const cacheRead = usage?.cacheRead ?? 0;
+  const cacheCreation = usage?.cacheCreation ?? 0;
+  const info: ProxyResponseInfo = {
+    status: upstream.status,
+    latencyMs: latency,
+    tokensIn, tokensOut,
+    cacheTokens: cacheRead + cacheCreation,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: cacheCreation,
+    responseBody: responseText,
+    responseContentType,
+  };
+
+  const verdict = isEmptyUpstreamOutput(text, usage, ctx.targetType);
+  if (verdict.empty && canTreatEmptyAsFailure) {
+    return { ok: false, reason: "empty", message: verdict.message, info };
+  }
 
   const outHeaders = new Headers();
   outHeaders.set("content-type", responseContentType);
@@ -936,9 +1354,36 @@ async function collectResponse(
   outHeaders.set("x-request-id", ctx.requestId);
 
   return {
+    ok: true,
     response: new Response(responseText, { status: upstream.status, headers: outHeaders }),
-    info: { status: upstream.status, latencyMs: latency, tokensIn: usage.in, tokensOut: usage.out, cacheTokens: usage.cacheRead + usage.cacheCreation, cacheReadTokens: usage.cacheRead, cacheCreationTokens: usage.cacheCreation },
+    info,
   };
+}
+
+/** 把非流式响应结果写成最终日志（成功 / 放行空输出 都走这里）。 */
+async function recordSuccessOrAcceptedEmpty(ctx: Ctx, info: ProxyResponseInfo, errorMsg: string | null) {
+  await logHub.recordAsync({
+    requestId: ctx.requestId,
+    ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
+    channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
+    model: ctx.model, status: info.status, latencyMs: info.latencyMs,
+    inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
+    ttftMs: info.latencyMs, durationMs: info.latencyMs,
+    tokensIn: info.tokensIn, tokensOut: info.tokensOut,
+    cacheTokens: info.cacheTokens,
+    cacheReadTokens: info.cacheReadTokens,
+    cacheCreationTokens: info.cacheCreationTokens,
+    requestDetail: await requestDetail({
+      requestId: ctx.requestId, type: ctx.type, status: info.status,
+      inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel,
+      channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders,
+      requestBody: ctx.body, responseBody: info.responseBody,
+      tokensIn: info.tokensIn, tokensOut: info.tokensOut,
+      cacheReadTokens: info.cacheReadTokens, cacheCreationTokens: info.cacheCreationTokens,
+      fallbackReason: ctx.fallbackReason,
+    }),
+    errorMsg,
+  });
 }
 
 /* ============================================================
@@ -995,7 +1440,7 @@ function parseSseUsage(buffer: string, type: Provider): UsageTokens | null {
   return found ? { in: input, out: output, cacheRead, cacheCreation: 0 } : null;
 }
 
-function extractUsage(body: string, type: Provider): UsageTokens {
+function extractUsage(body: string, type: Provider): UsageTokens | null {
   try {
     const d = JSON.parse(body);
     if (type === "claude") {
@@ -1006,7 +1451,58 @@ function extractUsage(body: string, type: Provider): UsageTokens {
       if (u) return { in: openAiInputTokens(u), out: openAiOutputTokens(u), cacheRead: openAiCacheReadTokens(u), cacheCreation: 0 };
     }
   } catch { /* */ }
-  return { in: 0, out: 0, cacheRead: 0, cacheCreation: 0 };
+  // 缺失 usage：可能是第三方聚合器或协议转换没带 usage；不要因此当作"空输出"。
+  return null;
+}
+
+type EmptyOutputVerdict =
+  | { empty: false }
+  | { empty: true; reason: "empty_text_and_zero_usage"; message: string };
+
+/**
+ * 判定"上游 200 但几乎没产生可消费输出"。
+ * 保守规则（必须同时满足才判空）：
+ *   - usage 存在（缺失即放过，避免误伤无 usage 的聚合器）
+ *   - usage.out === 0
+ *   - 响应中没有任何可见 assistant 内容（Anthropic content[].text / OpenAI message.content / output_text 都为空）
+ */
+function isEmptyUpstreamOutput(text: string, usage: UsageTokens | null, provider: Provider): EmptyOutputVerdict {
+  if (!usage) return { empty: false };
+  if (usage.out > 0) return { empty: false };
+  const visible = extractOutputText(text, provider).trim();
+  if (visible.length > 0) return { empty: false };
+  return { empty: true, reason: "empty_text_and_zero_usage", message: ZERO_OUTPUT_TOKEN_ERROR };
+}
+
+/** 从非流式响应体抽取 assistant 可见文本。仅作空输出判定用途，不用于回显。 */
+function extractOutputText(text: string, provider: Provider): string {
+  try {
+    const d = JSON.parse(text);
+    if (provider === "claude") {
+      const content = Array.isArray(d.content) ? d.content : [];
+      return content
+        .map((block: Record<string, unknown>) => (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") ? block.text : "")
+        .join("");
+    }
+    const choices = Array.isArray(d.choices) ? d.choices : [];
+    const parts: string[] = [];
+    for (const choice of choices) {
+      if (!choice || typeof choice !== "object") continue;
+      const c = choice as Record<string, unknown>;
+      const message = c.message && typeof c.message === "object" ? c.message as Record<string, unknown> : null;
+      if (message) {
+        if (typeof message.content === "string") parts.push(message.content);
+        const refusal = typeof message.refusal === "string" ? message.refusal : "";
+        if (refusal) parts.push(refusal);
+      }
+      if (typeof c.text === "string") parts.push(c.text);
+      if (Array.isArray(c.output_text)) parts.push(c.output_text.filter((s: unknown): s is string => typeof s === "string").join(""));
+      if (typeof c.output_text === "string") parts.push(c.output_text);
+    }
+    return parts.join("");
+  } catch {
+    return "";
+  }
 }
 
 function num(value: unknown, fallback = 0) {

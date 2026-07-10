@@ -1,23 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Announcement } from "@/lib/announcement";
 
 export function AnnouncementSurface({ announcement, scope = "app" }: { announcement: Announcement | null; scope?: string }) {
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!announcement || announcement.mode !== "modal") return;
     const key = `announcement:${scope}:${announcement.id}:closed`;
     if (sessionStorage.getItem(key)) return;
     setOpen(true);
-  }, [announcement]);
+  }, [announcement, scope]);
 
   if (!announcement) return null;
+  if (scope === "app" && !mounted) return null;
+
+  const render = (node: ReactNode) => (scope === "app" ? createPortal(node, document.body) : node);
 
   if (announcement.mode === "marquee") {
-    return (
-      <div className="announcement-bar" role="status">
+    return render(
+      <div className={`announcement-bar announcement-${scope}`} role="status">
         <div className="announcement-bar-label">{announcement.title}</div>
         <div className="announcement-marquee">
           <div className="announcement-marquee-track" dangerouslySetInnerHTML={{ __html: announcement.html }} />
@@ -31,7 +38,7 @@ export function AnnouncementSurface({ announcement, scope = "app" }: { announcem
     setOpen(false);
   }
 
-  return open ? (
+  return open ? render(
     <div className="modal-backdrop" onClick={close}>
       <div className="modal announcement-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head">

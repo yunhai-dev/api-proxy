@@ -59,7 +59,7 @@ export function ChannelTrafficChart({ data }: { data: ChannelTraffic[] }) {
           <div className="traffic-legend-row" key={row.id}>
             <i style={{ background: COLORS[i % COLORS.length] }} />
             <span className="name">{row.name}</span>
-            <span className={`type-pill ${row.type}`}>{row.type}</span>
+            <span className={`type-pill ${row.type}`}>{row.type === "claude" ? "Claude" : "OpenAI"}</span>
             <span className="mono pct">{(row.n / total * 100).toFixed(1)}%</span>
             <span className="mono count">{row.n.toLocaleString()}</span>
           </div>

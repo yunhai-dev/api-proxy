@@ -62,33 +62,33 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
         </div>
       </section>
 
-      <section className="section" style={{ marginTop: 32 }}>
+      <section className="section section-stack">
         <div className="section-head-inline"><h2>渠道流量</h2><span className="mono dim">按请求量占比</span></div>
         <ChannelTrafficChart data={stats.trafficByChannel} />
       </section>
 
-      <section className="section" style={{ marginTop: 32 }}>
+      <section className="section section-stack">
         <h2>用户消耗榜</h2>
         <div className="table-wrap">
         <table className="table">
           <thead><tr><th>用户</th><th>用户名</th><th>请求</th><th>Token</th><th>费用</th><th>最后使用</th></tr></thead>
           <tbody>
-            {stats.topUsers.length === 0 && <tr><td colSpan={6} className="empty">暂无用户使用数据</td></tr>}
+            {stats.topUsers.length === 0 && <tr><td colSpan={6} className="empty">暂无用户使用数据 <span className="mono dim">// no rows</span></td></tr>}
             {stats.topUsers.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="mono">{u.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="mono">${u.cost.toFixed(4)}</td><td className="mono dim">{u.last ? formatShanghaiDateTime(u.last) : "—"}</td></tr>)}
           </tbody>
         </table>
         </div>
       </section>
 
-      <section className="section" style={{ marginTop: 32 }}>
+      <section className="section section-stack">
         <h2>模型消耗排行</h2>
         <ModelUsageBarChart rows={stats.modelStats} />
         <div className="table-wrap">
         <table className="table model-stats-table">
           <thead><tr><th>模型</th><th>服务商</th><th>请求</th><th>Token</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>
           <tbody>
-            {stats.modelStats.length === 0 && <tr><td colSpan={7} className="empty">暂无模型使用数据</td></tr>}
-            {stats.modelStats.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider}</span></td><td className="mono">{m.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="mono">${m.cost.toFixed(4)}</td></tr>)}
+            {stats.modelStats.length === 0 && <tr><td colSpan={7} className="empty">暂无模型使用数据 <span className="mono dim">// no rows</span></td></tr>}
+            {stats.modelStats.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider === "claude" ? "Claude" : "OpenAI"}</span></td><td className="mono">{m.requests.toLocaleString()}</td><td className="mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="mono dim">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="mono">${m.cost.toFixed(4)}</td></tr>)}
           </tbody>
         </table>
         </div>

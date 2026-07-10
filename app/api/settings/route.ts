@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest) {
     proxyRetry429: typeof body.proxyRetry429 === "boolean" ? body.proxyRetry429 : undefined,
     proxyRetry5xx: typeof body.proxyRetry5xx === "boolean" ? body.proxyRetry5xx : undefined,
     proxyRetryNetwork: typeof body.proxyRetryNetwork === "boolean" ? body.proxyRetryNetwork : undefined,
+    proxyTreatEmptyOutputAsFailure: typeof body.proxyTreatEmptyOutputAsFailure === "boolean" ? body.proxyTreatEmptyOutputAsFailure : undefined,
     fallbackEnabled: typeof body.fallbackEnabled === "boolean" ? body.fallbackEnabled : undefined,
     fallbackChannelId: typeof body.fallbackChannelId === "string" ? body.fallbackChannelId.trim() : undefined,
     fallbackModel: typeof body.fallbackModel === "string" ? body.fallbackModel.trim() : undefined,

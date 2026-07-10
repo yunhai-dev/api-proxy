@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { fmtRelativeTime, maskKey, quotaCls, quotaPct } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
@@ -25,7 +26,7 @@ type Key = {
 };
 type User = { id: string; username: string; displayName: string };
 type CcSwitchApp = "claude" | "codex";
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 function ccSwitchUsageScript(app: CcSwitchApp) {
   return `({
@@ -75,7 +76,10 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Key | null>(null);
   const [ccSwitchTarget, setCcSwitchTarget] = useState<Key | null>(null);
+  const [scopeTarget, setScopeTarget] = useState<Key | null>(null);
+  const [openActions, setOpenActions] = useState<{ id: string; top: number; right: number } | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const userNames = useMemo(() => new Map(users.map(u => [u.id, `${u.displayName} (${u.username})`])), [users]);
@@ -111,7 +115,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
       }
     } finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [mode, selectedUserId, filter, search, page, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [mode, selectedUserId, filter, search, page, pageSize, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [selectedUserId, filter, search, sort.key, sort.dir]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -157,6 +161,15 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
     setCcSwitchTarget(k);
   }
 
+  function toggleActions(k: Key, event: React.MouseEvent<HTMLButtonElement>) {
+    if (openActions?.id === k.id) {
+      setOpenActions(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setOpenActions({ id: k.id, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+  }
+
   function importToCcSwitch(k: Key, app: CcSwitchApp) {
     const baseUrl = window.location.origin.replace(/\/$/, "");
     const params = new URLSearchParams({
@@ -189,8 +202,6 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
 
   return (
     <>
-      <KeyForm allowUserSelect={mode === "admin"} onCreated={() => load()} />
-
       {deleteTarget && (
         <div className="modal-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="modal confirm-modal" onClick={e => e.stopPropagation()}>
@@ -230,6 +241,42 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
         </div>
       )}
 
+      {scopeTarget && (
+        <div className="modal-backdrop" onClick={() => setScopeTarget(null)}>
+          <div className="modal confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>切换渠道范围</h2>
+              <button className="modal-close" onClick={() => setScopeTarget(null)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <p className="confirm-text">为密钥 <span className="mono">{scopeTarget.name}</span> 选择新的渠道范围。</p>
+              <p className="confirm-sub">调整后该密钥请求会被路由到所选的服务商。</p>
+              <div className="field">
+                <label>渠道范围</label>
+                <Select
+                  className="fill-select"
+                  value={scopeTarget.channelScope ?? "all"}
+                  onChange={value => setScopeTarget({ ...scopeTarget, channelScope: value as Key["channelScope"] })}
+                  options={[
+                    { value: "all", label: "全部渠道" },
+                    { value: "claude", label: "仅 Claude" },
+                    { value: "openai", label: "仅 OpenAI" },
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setScopeTarget(null)}>取消</button>
+              <button className="btn primary" onClick={async () => {
+                const next = scopeTarget.channelScope;
+                await updateScope(scopeTarget, next);
+                setScopeTarget(null);
+              }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="filterbar">
         <Input
           tone="search"
@@ -245,22 +292,18 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
             options={[{ value: "all", label: "全部用户" }, ...users.map(u => ({ value: u.id, label: `${u.displayName} (${u.username})` }))]}
           />
         )}
-        <div className="chips">
-          <button className={`chip ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
-            全部
-          </button>
-          <button className={`chip ${filter === "active" ? "active" : ""}`} onClick={() => setFilter("active")}>
-            活跃
-          </button>
-          <button className={`chip ${filter === "disabled" ? "active" : ""}`} onClick={() => setFilter("disabled")}>
-            已停用
-          </button>
-          <button className={`chip ${filter === "exceeded" ? "active" : ""}`} onClick={() => setFilter("exceeded")}>
-            配额超限
-          </button>
-        </div>
+        <Select
+          value={filter}
+          onChange={value => setFilter(value as typeof filter)}
+          options={[
+            { value: "all", label: "全部状态" },
+            { value: "active", label: "活跃" },
+            { value: "disabled", label: "已停用" },
+            { value: "exceeded", label: "配额超限" },
+          ]}
+        />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} keys`}</span>
+        {mode === "admin" && <KeyForm allowUserSelect onCreated={() => load()} inline />}
       </div>
 
       <div className="table-wrap">
@@ -281,7 +324,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
         <tbody>
           {loading && <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
           {!loading && keys.length === 0 && (
-            <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty">无匹配密钥 <span className="mono">// no results</span></td></tr>
+            <tr><td colSpan={mode === "admin" ? 9 : 8} className="empty">无匹配密钥 <span className="mono dim">// no rows</span></td></tr>
           )}
           {sortedRows.map(k => {
             const pct = quotaPct(k.used, k.quota);
@@ -290,9 +333,6 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
               <tr key={k.id}>
                 <td>
                   <div>{k.name}</div>
-                  {k.status === "disabled" && k.lastUsedAt && (
-                    <div className="sub">已于 {fmtRelativeTime(k.lastUsedAt)} 停用</div>
-                  )}
                 </td>
                 <td>
                   <span className="key-cell">
@@ -306,17 +346,9 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
                 <td className="mono dim">{formatShanghaiDate(k.createdAt)}</td>
                 <td className="mono dim">{fmtRelativeTime(k.lastUsedAt)}</td>
                 <td className="key-scope-cell">
-                  <Select
-                    size="sm"
-                    className="key-scope-select"
-                    value={k.channelScope ?? "all"}
-                    onChange={v => updateScope(k, v)}
-                    options={[
-                      { value: "all", label: "全部" },
-                      { value: "claude", label: "Claude" },
-                      { value: "openai", label: "OpenAI" },
-                    ]}
-                  />
+                  <span className="key-scope-readonly">
+                    {k.channelScope === "claude" ? "Claude" : k.channelScope === "openai" ? "OpenAI" : "全部"}
+                  </span>
                 </td>
                 <td>
                   <div className="quota">
@@ -334,11 +366,22 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
                     : <span className="status"><span className="dot off" /><span className="label dim">已停用</span></span>}
                 </td>
                 <td className="right nowrap">
-                  <button className="btn sm ghost" onClick={() => openCcSwitchImport(k)}>导入 CCS</button>
-                  <button className="btn sm ghost" onClick={() => toggle(k)}>
-                    {k.status === "active" ? "停用" : "启用"}
+                  <button
+                    className="btn sm ghost icon-btn"
+                    onClick={event => toggleActions(k, event)}
+                    aria-label={`${k.name} 操作`}
+                    aria-expanded={openActions?.id === k.id}
+                  >
+                    <MoreHorizontal />
                   </button>
-                  <button className="btn sm ghost danger" onClick={() => setDeleteTarget(k)}>删除</button>
+                  {openActions?.id === k.id && (
+                    <div className="row-actions-popover" style={{ position: "fixed", top: openActions.top, right: openActions.right }}>
+                      <button onClick={() => { setOpenActions(null); setScopeTarget(k); }}>切换渠道范围</button>
+                      <button onClick={() => { setOpenActions(null); toggle(k); }}>{k.status === "active" ? "停用" : "启用"}</button>
+                      <button onClick={() => { setOpenActions(null); openCcSwitchImport(k); }}>导入 CCS</button>
+                      <button className="danger" onClick={() => { setOpenActions(null); setDeleteTarget(k); }}>删除</button>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -346,7 +389,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }
