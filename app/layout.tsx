@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/toast";
 import { getSettingsAsync } from "@/lib/settings";
+import { AppShell } from "@/components/app-shell";
+import { Topbar } from "@/components/topbar";
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSettingsAsync().catch(() => ({ siteName: "api-proxy", siteLogoUrl: "" }));
@@ -17,7 +19,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="zh-CN">
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <ToastProvider>
-          {children}
+          <AppShell topbar={<Topbar />}>
+            {children}
+          </AppShell>
         </ToastProvider>
       </body>
     </html>

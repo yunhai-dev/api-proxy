@@ -7,6 +7,7 @@ import { RangeForm } from "@/components/dashboard/range-form";
 import type { DashboardRange } from "@/lib/types";
 import { requireAdmin } from "@/lib/auth";
 import { parseShanghaiDateTimeLocal, startOfShanghaiDay, toShanghaiDateTimeLocal } from "@/lib/time";
+import { PageHead } from "@/components/page-head";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +32,12 @@ export default async function UserDetailPage({ params, searchParams }: { params:
   if (!data) notFound();
   const { user, quota, keys, stats } = data;
   return (
-    <section>
-      <div className="section-title">
-        <h1>{user.displayName}</h1>
-        <p className="mono">{user.username} · {user.email || "无邮箱"}</p>
-      </div>
-      <div className="page-actions"><Link className="btn" href="/users">返回用户列表</Link></div>
+    <div className="container data-container">
+      <PageHead
+        title={user.displayName}
+        sub={<><span>{user.username}</span><span className="sep">/</span><span>{user.email || "无邮箱"}</span></>}
+        actions={<Link className="btn" href="/users">返回用户列表</Link>}
+      />
       <RangeForm action={`/users/${id}`} from={toShanghaiDateTimeLocal(since)} to={toShanghaiDateTimeLocal(until)} />
 
       <div className="stat-strip">
@@ -53,7 +54,7 @@ export default async function UserDetailPage({ params, searchParams }: { params:
       </section>
 
       <UserDetailTables keys={keys} models={stats.models} recentLogs={stats.recentLogs} />
-    </section>
+    </div>
   );
 }
 

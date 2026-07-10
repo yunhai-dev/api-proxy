@@ -49,6 +49,10 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      gridTemplateColumns: {
+        30: "repeat(30, minmax(0, 1fr))",
+        32: "repeat(32, minmax(0, 1fr))",
+      },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "PingFang SC", "Microsoft YaHei", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "SF Mono", "monospace"],

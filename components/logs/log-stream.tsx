@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Pause, Play, Trash2 } from "lucide-react";
 import { fmtClockStamp, statusClass, statusLabel } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -45,7 +46,7 @@ type LogDetail = Pick<LogEntry, "id" | "requestId" | "status" | "model" | "inbou
 const STATUSES = ["all", "2xx", "4xx", "5xx", "err"] as const;
 type StatusFilter = (typeof STATUSES)[number];
 type UserOption = { id: string; username: string; displayName: string };
-const pageSize = 50;
+const DEFAULT_PAGE_SIZE = 50;
 
 function providerLabel(provider: LogEntry["channelType"]) {
   return provider === "claude" ? "Claude" : "OpenAI";
@@ -62,8 +63,71 @@ function displayModel(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamMo
     : row.model;
 }
 
+
 function displayModelTitle(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel">, isAdminMode: boolean) {
   return displayModel(row, isAdminMode).replace(" → ", " -> ");
+}
+
+function DetailViewer({ value, fallback }: { value: unknown; fallback: string }) {
+  if (value === null) return <pre className="error-detail mono">{fallback || "无详情"}</pre>;
+  return <JsonNode value={value} depth={0} />;
+}
+
+function JsonNode({ value, depth }: { value: unknown; depth: number }) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="json-empty mono">[]</span>;
+    return (
+      <div className={depth === 0 ? "json-node mono" : "json-children"}>
+        {value.map((item, index) => <JsonRow key={index} name={`[${index}]`} value={item} depth={depth} />)}
+      </div>
+    );
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return <span className="json-empty mono">{"{}"}</span>;
+    return (
+      <div className={depth === 0 ? "json-node mono" : "json-children"}>
+        {entries.map(([key, item]) => <JsonRow key={key} name={key} value={item} depth={depth} />)}
+      </div>
+    );
+  }
+  return <JsonValue value={value} />;
+}
+
+function JsonRow({ name, value, depth }: { name: string; value: unknown; depth: number }) {
+  const nested = !isPlainValue(value);
+  const [open, setOpen] = useState(depth < 2);
+  const count = nested ? childCount(value) : 0;
+  return (
+    <div className="json-row" style={{ paddingLeft: depth * 14 }}>
+      <div className="json-line">
+        <button className="json-toggle" type="button" onClick={() => nested && setOpen(v => !v)} disabled={!nested} aria-label={open ? "折叠" : "展开"}>
+          {nested ? (open ? "▾" : "▸") : ""}
+        </button>
+        <span className="json-key" title={name}>{JSON.stringify(name)}</span>
+        <span className="json-colon">:</span>
+        {nested ? (
+          <button className="json-summary" type="button" onClick={() => setOpen(v => !v)}>
+            {Array.isArray(value) ? `Array(${count})` : `Object(${count})`}
+          </button>
+        ) : <JsonValue value={value} />}
+      </div>
+      {nested && open && <JsonNode value={value} depth={depth + 1} />}
+    </div>
+  );
+}
+
+function JsonValue({ value }: { value: unknown }) {
+  const type = value === null ? "null" : typeof value;
+  return <span className={`json-value ${type}`}>{typeof value === "string" ? JSON.stringify(value) : String(value)}</span>;
+}
+
+function childCount(value: unknown) {
+  return Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0;
+}
+
+function isPlainValue(value: unknown) {
+  return value === null || typeof value !== "object";
 }
 
 export function LogStream({ initial, mode = "user", users = [] }: { initial: LogEntry[]; mode?: "user" | "admin"; users?: UserOption[] }) {
@@ -77,6 +141,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const [channelFilter, setChannelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(initial.length);
   const [loading, setLoading] = useState(false);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
@@ -117,7 +182,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [mode, selectedUserId, status, search, providerFilter, channelFilter, modelFilter, page, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [mode, selectedUserId, status, search, providerFilter, channelFilter, modelFilter, page, pageSize, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [selectedUserId, status, search, providerFilter, channelFilter, modelFilter, sort.key, sort.dir]);
 
   useEffect(() => {
@@ -174,33 +239,23 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
     }
   }
 
-  function errorText(entry: LogDetail) {
-    const detail = entry.errorMsg ?? entry.requestDetail;
-    if (!detail) return "";
+  function detailText(entry: LogDetail) {
+    return entry.errorMsg ?? entry.requestDetail ?? "";
+  }
+
+  function parsedDetail(entry: LogDetail) {
+    const detail = detailText(entry);
+    if (!detail) return null;
     try {
-      return JSON.stringify(JSON.parse(detail), null, 2);
+      return JSON.parse(detail) as unknown;
     } catch {
-      return detail;
+      return null;
     }
   }
 
   return (
     <>
       <div className="log-toolbar">
-        <span className="live-pill">
-          <span className="dot live" /> 实时
-        </span>
-        <div>
-          {STATUSES.map(s => (
-            <button
-              key={s}
-              className={`seg-btn ${status === s ? "active" : ""}`}
-              onClick={() => setStatus(s)}
-            >
-              {s === "err" ? "网络错误" : s === "all" ? "全部" : s}
-            </button>
-          ))}
-        </div>
         <Input
           className="log-search"
           tone="search"
@@ -219,62 +274,78 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
         <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
         {isAdminMode && <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, ...channelOptions.map(name => ({ value: name, label: name }))]} />}
         <Select value={modelFilter} onChange={setModelFilter} options={[{ value: "all", label: "全部模型" }, ...modelOptions.map(name => ({ value: name, label: name }))]} />
+        <Select
+          value={status}
+          onChange={value => setStatus(value as StatusFilter)}
+          options={STATUSES.map(s => ({
+            value: s,
+            label: s === "err" ? "网络错误" : s === "all" ? "全部状态" : s,
+          }))}
+        />
+        <button className="btn sm ghost icon-btn" onClick={() => setPaused(p => !p)} title={paused ? "继续" : "暂停"} aria-label={paused ? "继续" : "暂停"}>
+          {paused ? <Play size={14} /> : <Pause size={14} />}
+        </button>
+        <button className="btn sm ghost icon-btn" onClick={() => { setRows([]); setNewIds(new Set()); }} title="清空" aria-label="清空">
+          <Trash2 size={14} />
+        </button>
         <div className="spacer" />
-        <span className="dim mono" style={{ fontSize: 11.5 }}>{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} logs`}</span>
+        {loading && <span className="loading-spinner" aria-label="加载中" />}
       </div>
 
-      <div className="log-wrap">
-        <div className={`log-row head ${isAdminMode ? "admin" : ""}`}>
-          <span>{sortButton("ts", "时间")}</span>
-          <span>{sortButton("requestId", "请求ID")}</span>
-          <span>{sortButton("keyName", "密钥")}</span>
-          {isAdminMode && <span>{sortButton("userName", "用户昵称")}</span>}
-          <span>{sortButton("channelName", isAdminMode ? "渠道" : "服务商")}</span>
-          <span>{sortButton("model", "模型")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("status", "状态")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("ttftMs", "首字")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("durationMs", "完成")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("tokensIn", "输入")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("tokensOut", "输出")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("cacheReadTokens", "命中")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("cacheCreationTokens", "创建")}</span>
-          <span style={{ textAlign: "right" }}>{sortButton("cost", "消费")}</span>
-        </div>
-        {loading && <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>}
-        {!loading && rows.length === 0 && (
-          <div className="empty">无日志 <span className="mono">// no rows</span></div>
-        )}
-        {sortedRows.map((r, i) => {
-          const cls = statusClass(r.status);
-          const slow = r.latencyMs > 3000;
-          const isNew = newIds.has(r.id) || newIds.has(r.ts);
-          return (
-            <div
-              className={`log-row ${isAdminMode ? "admin" : ""} ${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
-              key={`${r.id}-${r.ts}`}
-              onClick={() => { void openDetail(r); }}
-            >
-              <span className="ts">{fmtClockStamp(r.ts)}</span>
-              <span className="reqid" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</span>
-              <span className="key">{r.keyPrefix}</span>
-              {isAdminMode && <span className="user" title={r.username ? `${r.userName || "未知用户"} (${r.username})` : r.userName || "未知用户"}>{r.userName || "未知用户"}</span>}
-              <span className={`channel ${r.channelType}`}>{isAdminMode ? r.channelName : providerLabel(r.channelType)}</span>
-              <span className="model" title={displayModelTitle(r, isAdminMode)}>
-                {displayModel(r, isAdminMode)}
-              </span>
-              <span className={cls} style={{ textAlign: "right" }}>{statusLabel(r.status)}{r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</span>
-              <span className={`lat ttft ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></span>
-              <span className={`lat duration ${slow ? "slow" : ""}`}>{r.durationMs > 0 ? <>{r.durationMs}<span className="dim">ms</span></> : <span className="running">进行中</span>}</span>
-              <span className="tokens">{tokenText(r.tokensIn)}</span>
-              <span className="tokens">{tokenText(r.tokensOut)}</span>
-              <span className="tokens cache-token">{tokenText(r.cacheReadTokens)}</span>
-              <span className="tokens cache-token create-token">{tokenText(r.cacheCreationTokens)}</span>
-              <span className="tokens">{r.cost > 0 ? `$${r.cost.toFixed(6)}` : "—"}</span>
-            </div>
-          );
-        })}
+      <div className="table-wrap">
+        <table className={`table logs-table ${isAdminMode ? "admin" : ""}`}>
+          <thead>
+            <tr>
+              <th>{sortButton("ts", "时间")}</th>
+              <th>{sortButton("requestId", "请求ID")}</th>
+              <th>{sortButton("keyName", "密钥")}</th>
+              {isAdminMode && <th>{sortButton("userName", "用户昵称")}</th>}
+              <th>{sortButton("channelName", isAdminMode ? "渠道" : "服务商")}</th>
+              <th>{sortButton("model", "模型")}</th>
+              <th className="right">{sortButton("status", "状态")}</th>
+              <th className="right">{sortButton("ttftMs", "首字")}</th>
+              <th className="right">{sortButton("durationMs", "完成")}</th>
+              <th className="right">{sortButton("tokensIn", "输入")}</th>
+              <th className="right">{sortButton("tokensOut", "输出")}</th>
+              <th className="right">{sortButton("cacheReadTokens", "命中")}</th>
+              <th className="right">{sortButton("cacheCreationTokens", "创建")}</th>
+              <th className="right">{sortButton("cost", "消费")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={isAdminMode ? 14 : 13} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={isAdminMode ? 14 : 13} className="empty">无日志 <span className="mono">// no rows</span></td></tr>}
+            {sortedRows.map((r, i) => {
+              const cls = statusClass(r.status);
+              const slow = r.latencyMs > 3000;
+              const isNew = newIds.has(r.id) || newIds.has(r.ts);
+              return (
+                <tr
+                  className={`${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
+                  key={`${r.id}-${r.ts}`}
+                  onClick={() => { void openDetail(r); }}
+                >
+                  <td className="mono dim nowrap">{fmtClockStamp(r.ts)}</td>
+                  <td className="mono truncate-cell" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</td>
+                  <td className="mono truncate-cell" title={r.keyPrefix}>{r.keyPrefix}</td>
+                  {isAdminMode && <td className="truncate-cell" title={r.username ? `${r.userName || "未知用户"} (${r.username})` : r.userName || "未知用户"}>{r.userName || "未知用户"}</td>}
+                  <td className={`channel truncate-cell ${r.channelType}`} title={isAdminMode ? r.channelName : providerLabel(r.channelType)}>{isAdminMode ? r.channelName : providerLabel(r.channelType)}</td>
+                  <td className="mono truncate-cell" title={displayModelTitle(r, isAdminMode)}>{displayModel(r, isAdminMode)}</td>
+                  <td className={`right nowrap ${cls}`}>{statusLabel(r.status)}{r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</td>
+                  <td className={`right mono nowrap ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></td>
+                  <td className={`right mono nowrap ${slow ? "slow" : ""}`}>{r.durationMs > 0 ? <>{r.durationMs}<span className="dim">ms</span></> : <span className="running">进行中</span>}</td>
+                  <td className="right mono nowrap">{tokenText(r.tokensIn)}</td>
+                  <td className="right mono nowrap">{tokenText(r.tokensOut)}</td>
+                  <td className="right mono nowrap cache-token">{tokenText(r.cacheReadTokens)}</td>
+                  <td className="right mono nowrap cache-token create-token">{tokenText(r.cacheCreationTokens)}</td>
+                  <td className="right mono nowrap">{r.cost > 0 ? `$${r.cost.toFixed(6)}` : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
 
       {selectedError && (
         <div className="modal-backdrop" onClick={() => setSelectedError(null)}>
@@ -283,13 +354,17 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               <h2>{selectedError.errorMsg ? "错误详情" : "请求详情"}</h2>
               <button className="modal-close" type="button" onClick={() => setSelectedError(null)}>×</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body log-error-body">
               <div className="error-meta mono">
                 <span>请求ID: {selectedError.requestId || "—"}</span>
                 <span>状态: {statusLabel(selectedError.status)}</span>
                 <span>模型: {displayModel(selectedError, isAdminMode)}</span>
               </div>
-              <pre className="error-detail mono">{detailLoading ? "加载中..." : errorText(selectedError)}</pre>
+              {detailLoading ? (
+                <div className="error-detail-loading"><span className="loading-spinner" aria-label="加载中" /> 加载中...</div>
+              ) : (
+                <DetailViewer value={parsedDetail(selectedError)} fallback={detailText(selectedError)} />
+              )}
             </div>
             <div className="modal-foot">
               <button className="btn" type="button" onClick={() => setSelectedError(null)}>关闭</button>
@@ -297,15 +372,6 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
           </div>
         </div>
       )}
-
-      <div className="page-actions" style={{ marginTop: 16 }}>
-        <button className="btn ghost" onClick={() => setPaused(p => !p)}>
-          {paused ? "继续" : "暂停"}
-        </button>
-        <button className="btn" onClick={() => { setRows([]); setNewIds(new Set()); }}>
-          清空
-        </button>
-      </div>
     </>
   );
 }

@@ -41,7 +41,7 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
     <section className="section user-token-trend-section">
       <div className="section-head-inline">
         <h2>用户 Token 趋势</h2>
-        <span className="mono dim">{users.length || 0} users with usage</span>
+        <span className="mono dim">{users.length || 0} 位用户有用量</span>
       </div>
       <div className="throughput-chart">
         <ResponsiveContainer width="100%" height={280}>

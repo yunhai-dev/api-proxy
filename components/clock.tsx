@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fmtClockWithZone } from "@/lib/utils";
 
-export function Clock() {
+export function Clock({ collapsed = false }: { collapsed?: boolean }) {
   const [t, setT] = useState("--:--:--");
   useEffect(() => {
     const tick = () => setT(fmtClockWithZone());
@@ -11,5 +11,5 @@ export function Clock() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
-  return <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{t}</span>;
+  return <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{collapsed ? t.slice(0, 5) : t}</span>;
 }

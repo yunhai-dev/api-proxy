@@ -9,7 +9,7 @@ export default async function RankingsPage({ searchParams }: { searchParams: Pro
   await requireAdmin();
   const sp = await searchParams;
   const tab = sp.tab === "users" || sp.tab === "models" ? sp.tab : "keys";
-  const stats = await getDashboardStatsAsync("24h");
+  const stats = await getDashboardStatsAsync("today");
 
   return (
     <div className="container data-container">
@@ -17,7 +17,7 @@ export default async function RankingsPage({ searchParams }: { searchParams: Pro
         title="排行榜"
         sub={
           <>
-            <span>最近 24 小时</span>
+            <span>今日</span>
             <span className="sep">/</span>
             <span>密钥、用户与模型消耗</span>
           </>

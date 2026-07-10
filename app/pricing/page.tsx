@@ -1,15 +1,22 @@
+import { PageHead } from "@/components/page-head";
 import { PricingTable } from "@/components/pricing/pricing-table";
 import { requireAdmin } from "@/lib/auth";
 
 export default async function PricingPage() {
   await requireAdmin();
   return (
-    <section>
-      <div className="section-title">
-        <h1>模型定价</h1>
-        <p>按渠道和模型配置输入/输出 Token 单价，未选择渠道时作为该服务商模型默认价。</p>
-      </div>
+    <div className="container data-container">
+      <PageHead
+        title="模型定价"
+        sub={
+          <>
+            <span>渠道价格</span>
+            <span className="sep">/</span>
+            <span>默认模型价格</span>
+          </>
+        }
+      />
       <PricingTable />
-    </section>
+    </div>
   );
 }

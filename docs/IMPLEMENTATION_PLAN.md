@@ -119,8 +119,29 @@
 | 1 | 迁移设计与阶段拆分 | 完成 | 详见 [`docs/plan/shadcn-ui-migration.md`](./plan/shadcn-ui-migration.md) |
 | 2 | Tailwind 与 shadcn 基础设施 | 完成 | 初始化配置、`components.json`、`lib/utils.ts` 与基础组件 |
 | 3 | 全局样式基线替换 | 完成 | 删除旧视觉系统，仅保留临时兼容层 |
-| 4 | Shell / Topbar / 导航迁移 | 完成 | 保留路由拆分与服务端数据加载 |
+| 4 | Shell / 侧边栏导航迁移 | 完成 | 保留路由拆分与服务端数据加载 |
 | 5 | 类型检查、构建与页面烟测 | 完成 | `bunx tsc --noEmit` / `bun run build` / 浏览器验证通过 |
+| 6 | App Shell 改为可折叠侧边菜单栏 | 进行中 | 菜单项使用图标，保留 shadcn/Tailwind 基线与路由拆分 |
+
+## Shadcn 全页面视觉美化
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 视觉美化设计与阶段拆分 | 完成 | 详见 [`docs/plan/shadcn-page-polish.md`](./plan/shadcn-page-polish.md) |
+| 2 | 全局控件与基础表面美化 | 完成 | 按 shadcn 风格统一按钮、输入、select、表格、modal、card |
+| 3 | 日期范围控件专项修复 | 完成 | 使用 `react-day-picker` 日历 + 时间输入，保留原查询格式 |
+| 4 | 表单、表格、Dashboard 与 Public 页面分组收尾 | 完成 | 不改业务逻辑 |
+| 5 | 类型检查、构建与浏览器烟测 | 完成 | `bunx tsc --noEmit` / `bun run build` / 浏览器烟测通过 |
+
+## Shadcn 后台页面紧凑重设计
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 后台重设计计划与范围确认 | 完成 | 详见 [`docs/plan/shadcn-console-redesign.md`](./plan/shadcn-console-redesign.md) |
+| 2 | 全局后台紧凑设计系统 | 完成 | 统一按钮、输入、select、表格、modal、状态、指标卡尺寸 |
+| 3 | Dashboard / 管理总览 / 状态页版式整理 | 完成 | 不改数据与图表逻辑 |
+| 4 | 后台表格、筛选、分页、表单、弹窗收尾 | 完成 | 以共享 class 为主 |
+| 5 | 类型检查、构建与浏览器烟测 | 完成 | `bunx tsc --noEmit` / `bun run build` |
 
 ## 技术决策
 

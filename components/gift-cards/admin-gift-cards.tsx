@@ -21,7 +21,7 @@ type GiftCard = {
 };
 
 type CreatedCard = GiftCard & { code: string };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 export function AdminGiftCards() {
   const toast = useToast();
@@ -35,6 +35,7 @@ export function AdminGiftCards() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const { sortedRows, sortHeader, sort } = useSortableRows(cards, {
@@ -61,7 +62,7 @@ export function AdminGiftCards() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [page, query, statusFilter, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, query, statusFilter, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [query, statusFilter, sort.key, sort.dir]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -126,15 +127,12 @@ export function AdminGiftCards() {
 
   return (
     <div className="gift-card-layout">
-      <div className="page-actions">
-        <button className="btn primary" onClick={() => { setCreated([]); setOpen(true); }}>+ 生成礼品卡 <span className="mono kbd">G</span></button>
-        {selected.size > 0 && <button className="btn danger" onClick={deleteSelected}>删除选中 <span className="mono kbd">{selected.size}</span></button>}
-      </div>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索卡号 / 创建人 / 核销用户" />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "active", label: "可核销" }, { value: "redeemed", label: "已核销" }]} />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} gift cards`}</span>
+        {selected.size > 0 && <button className="btn danger" onClick={deleteSelected}>删除选中 <span className="mono kbd">{selected.size}</span></button>}
+        <button className="btn primary" onClick={() => { setCreated([]); setOpen(true); }}>+ 生成礼品卡 <span className="mono kbd">G</span></button>
       </div>
 
       {open && (
@@ -172,14 +170,14 @@ export function AdminGiftCards() {
         </div>
       )}
 
-      <section className="section">
+      <section className="list-section">
         <h2>礼品卡记录</h2>
         <div className="table-wrap">
         <table className="table">
           <thead><tr><th><button type="button" className={`check-control ${allSelected ? "checked" : ""}`} onClick={toggleAll} aria-label="全选礼品卡" aria-pressed={allSelected} /></th>{sortHeader("code", "卡号")}{sortHeader("amountUsd", "金额")}{sortHeader("status", "状态")}{sortHeader("createdAt", "创建时间")}{sortHeader("redeemedBy", "核销用户")}{sortHeader("redeemedAt", "核销时间")}</tr></thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-            {!loading && cards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡</td></tr>}
+            {!loading && cards.length === 0 && <tr><td colSpan={7} className="empty">暂无匹配礼品卡 <span className="mono dim">// no rows</span></td></tr>}
             {sortedRows.map(card => (
               <tr key={card.id}>
                 <td><button type="button" className={`check-control ${selected.has(card.id) ? "checked" : ""}`} onClick={() => toggleOne(card.id)} aria-label={`选择礼品卡 ${card.codePrefix}${card.codeSuffix}`} aria-pressed={selected.has(card.id)} /></td>
@@ -194,7 +192,7 @@ export function AdminGiftCards() {
           </tbody>
         </table>
         </div>
-        <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+        <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
       </section>
     </div>
   );

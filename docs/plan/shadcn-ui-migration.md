@@ -19,8 +19,8 @@ Modules involved:
 - `app/globals.css`: replace old visual system with Tailwind/shadcn tokens plus small temporary compatibility CSS.
 - `app/layout.tsx`: keep provider/layout structure and attach new base styling.
 - `components/app-shell.tsx`: preserve route-based shell split and migrate layout classes.
-- `components/topbar.tsx`: preserve server-side settings/user loading and migrate topbar markup styling.
-- `components/nav-tabs.tsx`: preserve nav definitions and active route behavior while switching to utility classes.
+- `components/topbar.tsx`: preserve server-side settings/user loading and render the authenticated app sidebar.
+- `components/nav-tabs.tsx`: preserve nav definitions and active route behavior while switching to vertical sidebar links.
 - `components/page-head.tsx`: preserve API and migrate markup classes.
 - `components/site-logo.tsx`, `components/clock.tsx`, `components/user-menu.tsx`, `components/announcement.tsx`: adjust only if old class removal requires it.
 
@@ -63,8 +63,10 @@ Modules involved:
 - **Specific logic**:
   - Preserve route split behavior in `AppShell`.
   - Keep `Topbar` server-side and preserve settings/user/announcement loading.
+  - Render app navigation as a collapsible left sidebar instead of a horizontal topbar.
+  - Use icons for sidebar menu items and hide labels while collapsed.
   - Use `cn()` for active/inactive nav classes.
-  - Keep native `<details>` for the More menu in this MVP.
+  - Inline secondary admin links vertically instead of using a horizontal More dropdown.
   - Remove dependencies on deleted old shell classes.
 - **Validation**:
   - Run `bunx tsc --noEmit`.
@@ -77,7 +79,7 @@ Modules involved:
   - Run the dev server and check representative routes.
 - **Validation**:
   - Visit `/`, `/login`, `/dashboard`, `/keys`, `/console/docs`.
-  - Confirm topbar visibility, nav active state, user menu behavior, announcement rendering, and lack of obvious mobile overflow.
+  - Confirm sidebar visibility, nav active state, user menu behavior, announcement rendering, and lack of obvious mobile overflow.
 
 ## Testing Strategy
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { startOfShanghaiDay, toShanghaiDateTimeLocal } from "@/lib/time";
+import { DateTimePicker } from "./date-time-picker";
 
 function todayRange() {
   const now = Date.now();
@@ -30,14 +31,8 @@ export function RangeForm({ from, to, action = "/dashboard" }: { from: string; t
         <button type="button" className="btn ghost" onClick={() => applyPreset(rollingRange(24 * 60 * 60 * 1000))}>最近 24h</button>
         <button type="button" className="btn ghost" onClick={() => applyPreset(rollingRange(7 * 24 * 60 * 60 * 1000))}>最近 7 天</button>
       </div>
-      <label>
-        <span>开始</span>
-        <input className="mono" type="datetime-local" name="from" value={fromValue} onChange={e => setFromValue(e.target.value)} />
-      </label>
-      <label>
-        <span>结束</span>
-        <input className="mono" type="datetime-local" name="to" value={toValue} onChange={e => setToValue(e.target.value)} />
-      </label>
+      <DateTimePicker label="开始" name="from" value={fromValue} onChange={setFromValue} />
+      <DateTimePicker label="结束" name="to" value={toValue} onChange={setToValue} />
       <button className="btn primary" type="submit">应用区间</button>
     </form>
   );

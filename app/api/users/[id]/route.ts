@@ -49,12 +49,14 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
     const row = (await pgDb.select().from(pgSchema.users).where(eq(pgSchema.users.id, id)).limit(1))[0];
     if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
+    if (row.id === actor.id) return NextResponse.json({ error: "不能删除自己" }, { status: 400 });
     await pgDb.delete(pgSchema.users).where(eq(pgSchema.users.id, id));
     await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `删除用户 ${row.username}`, actor: actor.username });
     return NextResponse.json({ ok: true });
   }
   const row = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
   if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
+  if (row.id === actor.id) return NextResponse.json({ error: "不能删除自己" }, { status: 400 });
   db.delete(schema.users).where(eq(schema.users.id, id)).run();
     db.insert(schema.activities).values({ ts: Date.now(), event: `删除用户 ${row.username}`, actor: actor.username }).run();
     return NextResponse.json({ ok: true });

@@ -137,7 +137,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <UserTokenChart data={detail?.stats.tokenSeries ?? []} />
         </section>
 
-        <section className="section" style={{ marginTop: 32 }}>
+        <section className="section section-stack">
           <h2>我的 API Key 消耗</h2>
           <div className="table-wrap">
           <table className="table">
@@ -150,7 +150,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </section>
 
-        <section className="section" style={{ marginTop: 32 }}>
+        <section className="section section-stack">
           <h2>我的模型消耗</h2>
           <table className="table model-stats-table">
             <thead><tr><th>模型</th><th>请求</th><th>Token</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>
@@ -187,8 +187,8 @@ function Stat({
       <div className="label">{label}</div>
       <div className="value">
         {value}
-        {smallValue && <span style={{ color: "var(--text-3)", fontSize: 18 }}>.{smallValue}</span>}
-        {unit && <span style={{ color: "var(--text-3)", fontSize: 14 }}>{unit}</span>}
+        {smallValue && <span className="value-small">.{smallValue}</span>}
+        {unit && <span className="value-unit">{unit}</span>}
       </div>
       {delta !== undefined ? (
         <div className="meta">

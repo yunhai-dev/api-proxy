@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,7 @@ type ModelPrice = {
 type Channel = { id: string; name: string; type: "claude" | "openai"; enabled: boolean; models: string[] };
 type Mapping = { provider: "claude" | "openai"; inboundModel: string; upstreamModel: string };
 type CatalogModel = { provider: "claude" | "openai"; id: string; displayName: string };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 export function PricingTable() {
   const toast = useToast();
@@ -39,8 +40,11 @@ export function PricingTable() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(prices, {
     provider: row => row.provider,
     channelId: row => row.channelId ?? "",
@@ -52,7 +56,7 @@ export function PricingTable() {
   }, "model");
 
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { load(); }, [page, query, provider, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, query, provider, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [query, provider, sort.key, sort.dir]);
 
   async function load() {
@@ -128,6 +132,7 @@ export function PricingTable() {
   }
 
   async function remove(row: ModelPrice) {
+    if (!confirm(`确认删除模型定价 ${row.model}？`)) return;
     const r = await fetch(`/api/model-prices/${row.id}`, { method: "DELETE" });
     if (r.ok) { toast("已删除模型定价"); load(); }
   }
@@ -139,14 +144,13 @@ export function PricingTable() {
           <span className="pricing-provider-label">服务商</span>
           <button className={`pricing-provider-option claude ${provider === "claude" ? "active" : ""}`} onClick={() => { setProvider("claude"); setChannelId(""); setModel(""); }} type="button">
             <span>Claude</span>
-            <small className="mono">{providerCounts.claude} models</small>
+            <small className="mono">共 {providerCounts.claude} 个模型</small>
           </button>
           <button className={`pricing-provider-option openai ${provider === "openai" ? "active" : ""}`} onClick={() => { setProvider("openai"); setChannelId(""); setModel(""); }} type="button">
             <span>OpenAI</span>
-            <small className="mono">{providerCounts.openai} models</small>
+            <small className="mono">共 {providerCounts.openai} 个模型</small>
           </button>
         </div>
-        <button className="btn primary" onClick={() => setOpen(true)}>+ 添加定价</button>
       </div>
 
       {open && (
@@ -186,7 +190,7 @@ export function PricingTable() {
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型定价" />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} prices`}</span>
+        <button className="btn primary" onClick={() => setOpen(true)}>+ 添加定价</button>
       </div>
 
       <div className="table-wrap">
@@ -205,23 +209,45 @@ export function PricingTable() {
         </thead>
         <tbody>
           {loading && <tr><td colSpan={8} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && prices.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配定价，未配置的模型成本按 0 计算。</td></tr>}
+          {!loading && prices.length === 0 && <tr><td colSpan={8} className="empty">暂无匹配定价，未配置的模型成本按 0 计算。 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr key={row.id}>
-              <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
+              <td><span className={`type-pill ${row.provider}`}>{row.provider === "claude" ? "Claude" : "OpenAI"}</span></td>
               <td>{row.channelId ? channelNames.get(row.channelId) ?? row.channelId : <span className="dim">默认价</span>}</td>
               <td className="mono">{row.model}</td>
               <td className="mono">${row.inputPricePerMTok}/M Token</td>
               <td className="mono">${row.outputPricePerMTok}/M Token</td>
               <td className="mono">${row.cacheReadPricePerMTok}/M Token</td>
               <td className="mono">${row.cacheCreationPricePerMTok}/M Token</td>
-              <td className="right"><button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button></td>
+              <td className="right nowrap">
+                <button
+                  className="btn sm ghost icon-btn"
+                  onClick={event => {
+                    if (openActionsId === row.id) {
+                      setOpenActionsId(null);
+                      return;
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setOpenActionsId(row.id);
+                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                  }}
+                  aria-label="操作"
+                  aria-expanded={openActionsId === row.id}
+                >
+                  <MoreHorizontal />
+                </button>
+                {openActionsId === row.id && openActionsRect && (
+                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                    <button className="danger" onClick={() => { setOpenActionsId(null); remove(row); }}>删除</button>
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }

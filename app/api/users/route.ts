@@ -6,6 +6,7 @@ import { AuthError, requireAdmin } from "@/lib/auth";
 import { insertDefaultUserQuota, insertDefaultUserQuotaAsync } from "@/lib/user-quota";
 import { usePostgres } from "@/lib/db/runtime";
 import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
+import { hashPassword } from "@/lib/password";
 
 export const dynamic = "force-dynamic";
 
@@ -92,12 +93,15 @@ export async function POST(req: NextRequest) {
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
   const email = typeof body.email === "string" ? body.email.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
   const role = roles.has(body.role) ? body.role as "super_admin" | "admin" | "user" : "user";
   if (!username) return NextResponse.json({ error: "请输入用户名" }, { status: 400 });
   if (!displayName) return NextResponse.json({ error: "请输入显示名称" }, { status: 400 });
+  if (password && password.length < 8) return NextResponse.json({ error: "密码至少 8 个字符" }, { status: 400 });
 
   const now = Date.now();
-  const row = { id: "u_" + nanoid(8), username, displayName, email, role, status: "active" as const, createdAt: now, updatedAt: now };
+  const passwordHash = password ? hashPassword(password) : "";
+  const row = { id: "u_" + nanoid(8), username, displayName, email, passwordHash, role, status: "active" as const, createdAt: now, updatedAt: now };
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       await pgDb.insert(pgSchema.users).values(row);

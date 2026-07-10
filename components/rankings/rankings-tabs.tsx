@@ -3,7 +3,6 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { TopRankingBarChart } from "@/components/rankings/top-ranking-bar-chart";
 import { fmtRelativeTime } from "@/lib/utils";
-import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
@@ -48,7 +47,7 @@ type ModelStat = {
   totalTokens: number;
   cost: number;
 };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 type RankingTab = "keys" | "users" | "models";
 
 export function RankingsTabs({ tab, topKeys, topUsers, modelStats }: { tab: RankingTab; topKeys: TopKey[]; topUsers: TopUser[]; modelStats: ModelStat[] }) {
@@ -62,7 +61,7 @@ export function RankingsTabs({ tab, topKeys, topUsers, modelStats }: { tab: Rank
   }
 
   return (
-    <section className="section">
+    <section className="list-section">
       <div className="rank-tabs">
         <button type="button" className={tab === "keys" ? "active" : ""} onClick={() => setTab("keys")}>密钥</button>
         <button type="button" className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>用户</button>
@@ -75,16 +74,11 @@ export function RankingsTabs({ tab, topKeys, topUsers, modelStats }: { tab: Rank
 }
 
 function KeyTable({ rows }: { rows: TopKey[] }) {
-  const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [query]);
-  const filtered = rows.filter(row => {
-    const q = query.trim().toLowerCase();
-    return !q || row.name.toLowerCase().includes(q) || row.prefix.toLowerCase().includes(q);
-  });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const { sortedRows, sortHeader } = useSortableRows(filtered, {
+  const { sortedRows, sortHeader } = useSortableRows(rows, {
     name: row => row.name,
     prefix: row => row.prefix,
     requests: row => row.requests,
@@ -107,18 +101,17 @@ function KeyTable({ rows }: { rows: TopKey[] }) {
   const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
-      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索密钥 / 前缀" /><span className="spacer" /><span className="mono dim">{filtered.length} keys</span></div>
       <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无密钥消耗数据" />
       <div className="table-wrap">
       <table className="table key-stats-table">
         <thead><tr>{sortHeader("name", "密钥")}{sortHeader("prefix", "前缀")}{sortHeader("requests", "请求数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}{sortHeader("last", "最后使用")}</tr></thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配密钥</td></tr>}
+          {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配密钥 <span className="mono dim">// no rows</span></td></tr>}
           {pageRows.map(k => <tr key={k.id}><td>{k.name}</td><td className="mono dim">{k.prefix}</td><td className="right mono">{k.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(k.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(k.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${k.cost.toFixed(2)}</td><td className="mono dim">{fmtRelativeTime(k.last)}</td></tr>)}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={rows.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }
@@ -126,6 +119,7 @@ function KeyTable({ rows }: { rows: TopKey[] }) {
 function UserTable({ rows }: { rows: TopUser[] }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   useEffect(() => { setPage(1); }, [query]);
   const filtered = rows.filter(row => {
     const q = query.trim().toLowerCase();
@@ -156,18 +150,18 @@ function UserTable({ rows }: { rows: TopUser[] }) {
   const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
-      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索用户 / 用户名" /><span className="spacer" /><span className="mono dim">{filtered.length} users</span></div>
+      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索用户 / 用户名" /><span className="spacer" /><span className="mono dim">{filtered.length} 位用户</span></div>
       <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无用户消耗数据" />
       <div className="table-wrap">
       <table className="table key-stats-table">
         <thead><tr>{sortHeader("name", "用户")}{sortHeader("username", "用户名")}{sortHeader("requests", "请求数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}{sortHeader("last", "最后使用")}</tr></thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配用户</td></tr>}
+          {pageRows.length === 0 && <tr><td colSpan={10} className="empty">无匹配用户 <span className="mono dim">// no rows</span></td></tr>}
           {pageRows.map(u => <tr key={u.id}><td>{u.name}</td><td className="mono dim">{u.username}</td><td className="right mono">{u.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(u.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(u.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${u.cost.toFixed(2)}</td><td className="mono dim">{fmtRelativeTime(u.last)}</td></tr>)}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }
@@ -176,6 +170,7 @@ function ModelTable({ rows }: { rows: ModelStat[] }) {
   const [query, setQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   useEffect(() => { setPage(1); }, [query, providerFilter]);
   const filtered = rows.filter(row => {
     const q = query.trim().toLowerCase();
@@ -205,18 +200,38 @@ function ModelTable({ rows }: { rows: ModelStat[] }) {
   const pageRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
     <>
-      <div className="list-toolbar"><Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型" /><Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} /><span className="spacer" /><span className="mono dim">{filtered.length} models</span></div>
+      <div className="list-toolbar">
+        <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型" />
+        <div className="provider-tabs" aria-label="筛选服务商">
+          {[
+            ["all", "全部"],
+            ["claude", "Claude"],
+            ["openai", "OpenAI"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`provider-tab ${value} ${providerFilter === value ? "active" : ""}`}
+              onClick={() => setProviderFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <span className="mono dim">{filtered.length} 个模型</span>
+      </div>
       <TopRankingBarChart rows={chartRows} emptyText="当前时间范围暂无模型消耗数据" />
       <div className="table-wrap">
       <table className="table model-stats-table">
         <thead><tr>{sortHeader("model", "模型")}{sortHeader("provider", "供应商")}{sortHeader("requests", "请求总数", "right")}{sortHeader("totalTokens", "Token 总数", "right")}{sortHeader("tokensIn", "输入", "right")}{sortHeader("tokensOut", "输出", "right")}{sortHeader("cacheReadTokens", "命中", "right")}{sortHeader("cacheCreationTokens", "创建", "right")}{sortHeader("cost", "费用", "right")}</tr></thead>
         <tbody>
-          {pageRows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配模型消耗数据</td></tr>}
-          {pageRows.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider}</span></td><td className="right mono">{m.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${m.cost.toFixed(2)}</td></tr>)}
+          {pageRows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配模型消耗数据 <span className="mono dim">// no rows</span></td></tr>}
+          {pageRows.map(m => <tr key={`${m.provider}:${m.model}`}><td className="mono">{m.model}</td><td><span className={`type-pill ${m.provider}`}>{m.provider === "claude" ? "Claude" : "OpenAI"}</span></td><td className="right mono">{m.requests.toLocaleString()}</td><td className="right mono">{fmtTokenValue(m.totalTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensIn / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.tokensOut / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheReadTokens / 1_000_000)}</td><td className="right mono">{fmtTokenValue(m.cacheCreationTokens / 1_000_000)}</td><td className="right mono">${m.cost.toFixed(2)}</td></tr>)}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }

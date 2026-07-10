@@ -55,15 +55,18 @@
   .up { @apply text-xs uppercase tracking-wider; }
   .sep { @apply mx-1.5 text-muted-foreground; }
 
-  .container { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
+  .container { @apply mx-auto w-full max-w-7xl px-4 sm:px-5 lg:px-6; }
   .data-container { @apply max-w-screen-2xl; }
 
-  .btn { @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50; }
+  .btn { @apply inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50; }
   .btn.primary { @apply border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground; }
   .btn.ghost { @apply border-transparent bg-transparent shadow-none hover:bg-accent; }
-  .btn.danger { @apply text-destructive hover:bg-destructive/10 hover:text-destructive; }
-  .btn.sm { @apply h-8 px-3 text-xs; }
-  .kbd { @apply rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground; }
+  .btn.danger { @apply border-transparent text-destructive shadow-none hover:bg-destructive/10 hover:text-destructive; }
+  .btn.sm { @apply h-7 px-2.5 text-xs; }
+  .btn.sm.icon-btn { @apply w-7 px-0; }
+  .icon-btn svg { @apply h-3.5 w-3.5; }
+
+  .kbd { @apply rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground; }
 
   .ui-input,
   .field input,
@@ -71,74 +74,235 @@
   .field textarea,
   .pricing-editor input,
   .settings-price-row input {
-    @apply w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+    @apply w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-ring/40 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-70;
   }
   .ui-input,
   .field input,
   .field select,
   .pricing-editor input,
-  .settings-price-row input { @apply h-9; }
-  .field textarea { @apply min-h-24 py-2; }
-  .field label { @apply mb-2 block text-xs font-medium text-muted-foreground; }
+  .settings-price-row input { @apply h-8; }
+  .field textarea { @apply min-h-20 py-2; }
+  .field label { @apply mb-1.5 block text-xs font-medium text-muted-foreground; }
   .field .hint,
-  .hint { @apply mt-1.5 text-xs text-muted-foreground; }
+  .hint { @apply mt-1.5 text-xs leading-5 text-muted-foreground; }
   .field-row { @apply grid gap-3 sm:grid-cols-2; }
-  .inline-form { @apply mb-4 grid gap-3 rounded-lg border bg-card p-4 md:grid-cols-4 md:items-end; }
-  .ui-search-input { @apply inline-grid h-9 w-full max-w-sm grid-cols-[2rem_1fr] items-center rounded-md border border-input bg-background shadow-sm focus-within:ring-1 focus-within:ring-ring; }
+  .inline-form { @apply mb-4 grid gap-3 rounded-xl border bg-card p-3 shadow-sm md:grid-cols-4 md:items-end; }
+  .ui-search-input { @apply inline-grid h-8 w-full max-w-[16rem] grid-cols-[2rem_1fr] items-center rounded-md border border-input bg-background shadow-sm transition-colors hover:border-ring/40 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring; }
+  .log-search { @apply max-w-[11rem]; }
   .ui-search-input .ui-input { @apply border-0 bg-transparent pl-0 shadow-none focus-visible:ring-0; }
   .ui-search-input-mark { @apply text-center text-xs text-muted-foreground; }
 
   .page-actions { @apply flex flex-wrap items-center gap-2; }
-  .list-toolbar { @apply mb-4 flex flex-wrap items-center gap-2; }
+  .page-actions + .list-toolbar { @apply mt-3; }
+  .list-toolbar { @apply mb-3 flex flex-wrap items-center gap-2; }
   .list-toolbar .spacer,
   .spacer { @apply flex-1; }
-  .list-pagination { @apply mt-4 flex flex-wrap items-center justify-between gap-3; }
-  .list-pagination-actions { @apply flex flex-wrap items-center gap-2; }
+  .list-pagination { @apply mt-3 flex flex-wrap items-center justify-between gap-3 text-sm; }
+  .list-pagination-actions { @apply flex flex-wrap items-center gap-1; }
 
-  .section { @apply min-w-0 rounded-lg border bg-card p-4 shadow-sm; }
-  .section h2 { @apply mb-3 text-sm font-semibold tracking-tight; }
-  .grid-2 { @apply mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]; }
+  .section { @apply min-w-0 rounded-xl border bg-card p-4 shadow-sm; }
+  .section + .section,
+  .section-stack,
+  .stat-strip + .section { @apply mt-4; }
+  .section h2,
+  .list-section h2 { @apply mb-3 text-sm font-semibold tracking-tight; }
+  .section-head-inline { @apply mb-3 flex flex-wrap items-center justify-between gap-2; }
+  .section-head-inline h2 { @apply mb-0; }
+  .grid-2 { @apply mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]; }
 
-  .stat-strip { @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6; }
+  .stat-strip { @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8; }
   .stat,
   .perf-card,
   .settings-card,
-  .channel-health-card,
   .orbit-panel,
   .flow-node,
   .landing-panel,
   .model-square-card,
   .model-detail-panel,
   .model-square-empty,
-  .gift-card-code-list div,
-  .gift-card-success { @apply rounded-lg border bg-card p-4 shadow-sm; }
+  .gift-card-success { @apply rounded-xl border bg-card p-3 shadow-sm; }
+
+  .settings-panel .settings-card { @apply rounded-xl border bg-card px-5 py-5 shadow-sm; }
+  .settings-panel .settings-card > h2 { @apply mb-4 border-b pb-3 text-lg font-semibold tracking-tight text-foreground; }
+  .settings-panel .settings-card > .field + .field { @apply mt-4; }
+  .settings-panel .settings-card .field-row + .field,
+  .settings-panel .settings-card .field + .field-row,
+  .settings-panel .settings-card .field-row + .field-row { @apply mt-3; }
+  .settings-panel .settings-card .field > label,
+  .settings-panel .settings-card .field-row label { @apply mb-1.5 block text-sm font-medium text-foreground/80; }
+  .settings-panel .settings-card .field .hint,
+  .settings-panel .settings-card .hint { @apply mt-1.5 text-xs leading-5 text-muted-foreground; }
+  .settings-panel .settings-card .settings-toggle + .field,
+  .settings-panel .settings-card .settings-toggle + .settings-toggle,
+  .settings-panel .settings-card .field + .settings-toggle,
+  .settings-panel .settings-card .settings-toggle + .field-row,
+  .settings-panel .settings-card .settings-toggle + .page-actions,
+  .settings-panel .settings-card .field + .page-actions,
+  .settings-panel .settings-card .page-actions + .settings-card-foot,
+  .settings-panel .settings-card .field + .settings-card-foot,
+  .settings-panel .settings-card .settings-toggle + .settings-card-foot,
+  .settings-panel .settings-card .hint + .settings-card-foot,
+  .settings-panel .settings-card textarea + .settings-card-foot,
+  .settings-panel .settings-card .field-row + .settings-card-foot { @apply mt-5; }
+  .settings-panel .settings-card textarea.announcement-editor { @apply min-h-32; }
+  .settings-panel .settings-card .page-actions { @apply mt-2; }
+  .settings-panel .settings-card .page-actions .btn { @apply h-9 px-4; }
+  .settings-panel .settings-card .settings-toggle { @apply flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/40; }
+  .settings-panel .settings-card .settings-toggle > div:first-child { @apply min-w-0 flex-1; }
+  .settings-panel .settings-card .settings-toggle .toggle-label { @apply h-8 px-3 text-xs; }
+  .settings-panel .settings-card .settings-toggle-label { @apply text-sm font-medium text-foreground; }
+  .settings-panel .settings-card-foot { @apply mt-6 flex items-center justify-end gap-3 border-t border-dashed pt-4; }
+  .settings-panel .settings-card-foot .btn { @apply h-9 px-5 text-sm shadow-sm; }
+  .settings-panel .settings-card-foot::before { content: "修改后请记得保存"; @apply mr-auto text-xs text-muted-foreground; }
   .stat .label,
-  .perf-card .label { @apply text-xs uppercase tracking-wide text-muted-foreground; }
+  .perf-card .label { @apply text-[11px] font-medium uppercase tracking-wide text-muted-foreground; }
   .stat .value,
-  .perf-card .value { @apply mt-1 text-2xl font-semibold tracking-tight; }
+  .perf-card .value { @apply mt-1 text-xl font-semibold tracking-tight; }
+  .stat .value-small { @apply text-sm text-muted-foreground; }
+  .stat .value-unit { @apply ml-1 text-xs text-muted-foreground; }
   .stat .meta,
   .stat .extra,
-  .perf-card .hint { @apply mt-1 text-xs text-muted-foreground; }
+  .perf-card .hint { @apply mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground; }
   .delta-up { color: hsl(var(--ok)); }
   .delta-down { color: hsl(var(--err)); }
 
-  .table-wrap { @apply w-full overflow-x-auto rounded-lg border; }
-  .table { @apply min-w-max text-sm; }
-  .table th { @apply border-b bg-muted/50 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground; }
+  .table-wrap { @apply w-full overflow-x-auto rounded-xl border bg-card shadow-sm; }
+  .table { @apply min-w-full table-fixed text-sm; }
+  .table th,
+  .table td { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
+  .table th { @apply border-b bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground; }
   .table td { @apply border-b px-3 py-2 align-middle; }
   .table tr:last-child td { @apply border-b-0; }
-  .table tr:hover td { @apply bg-muted/40; }
+  .table tbody tr { @apply transition-colors; }
+  .table tbody tr:hover td { @apply bg-muted/35; }
   .table .right,
   .right { @apply text-right; }
   .nowrap { @apply whitespace-nowrap; }
   .clickable-row { @apply cursor-pointer; }
-  .empty { @apply px-4 py-10 text-center text-sm text-muted-foreground; }
-  .sort-button { @apply inline-flex items-center gap-1 text-inherit hover:text-foreground; }
+  .empty { @apply px-4 py-8 text-center text-sm text-muted-foreground; }
+  .sort-button { @apply inline-flex items-center gap-1 text-inherit transition-colors hover:text-foreground; }
   .sort-mark { @apply text-xs text-muted-foreground; }
 
+  .truncate { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
+  .truncate-cell { @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap; }
+  .filterbar { @apply mb-3 flex flex-wrap items-end gap-2; }
+  .list-section { @apply rounded-xl border bg-card p-4 shadow-sm; }
+  .section + .list-section,
+  .list-section + .section,
+  .list-section + .list-section,
+  .section + .stat-strip,
+  .stat-strip + .list-section,
+  .list-section + .stat-strip { @apply mt-4; }
+  .perf-section,
+  .throughput-section { @apply min-w-0 rounded-xl border bg-card p-4 shadow-sm; }
+
+  .model-map-name { @apply inline-flex flex-wrap items-center gap-1; }
+  .model-map-arrow { @apply mx-1 text-muted-foreground; }
+  .mapping-channel-picker { @apply flex flex-wrap items-center gap-1; }
+  .mapping-failures { @apply mt-2 rounded-md border bg-destructive/5 px-2 py-1 text-xs text-destructive; }
+  .pricing-actions { @apply flex flex-wrap items-center gap-2; }
+  .pricing-error { @apply mt-1.5 text-xs leading-5 text-destructive; }
+  .pricing-modal { @apply max-w-3xl; }
+  .channel-actions-col,
+  .users-balance-cell,
+  .users-control-cell,
+  .users-status-cell,
+  .users-actions-cell,
+  .channel-test-model-cell { @apply whitespace-nowrap; }
+  .users-table th:nth-child(5),
+  .users-table td:nth-child(5) { @apply w-36; }
+  .key-stats-table,
+  .model-stats-table { @apply table-fixed min-w-[920px]; }
+  .check-control { @apply inline-flex h-8 w-8 shrink-0 items-center justify-center; }
+  .key-cell { @apply inline-flex min-w-0 items-center gap-1; }
+  .copy { @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground; }
+  .quota-num { @apply font-mono tabular-nums; }
+  .track { @apply relative h-1.5 w-full overflow-hidden rounded-full bg-muted; }
+  .gift-card-layout { @apply grid gap-4 lg:grid-cols-[1fr_360px]; }
+  .gift-card-form-grid { @apply grid gap-3 sm:grid-cols-2; }
+  .gift-card-create { @apply grid gap-3; }
+  .gift-card-created-head { @apply text-sm font-medium text-foreground; }
+  .gift-card-created { @apply rounded-md border bg-muted/30 p-3; }
+  .gift-card-code-list { @apply mt-2 grid gap-1; }
+  .gift-card-code-list div { @apply rounded-md border bg-background px-3 py-2 font-mono text-sm; }
+  .confirm-modal { @apply max-w-md; }
+  .confirm-text { @apply text-sm text-foreground; }
+  .confirm-sub { @apply mt-1 text-xs text-muted-foreground; }
+  .logs-table { @apply table-fixed min-w-[1180px]; }
+  .channels-table { @apply table-fixed min-w-[1360px]; }
+  .channels-table .channel-base-col,
+  .channels-table .channel-base-cell { @apply w-[280px]; }
+  .channels-table .channel-models-col { @apply w-[190px]; }
+  .channels-table .models { @apply cursor-help; }
+  .channels-table th:nth-child(1),
+  .channels-table td:nth-child(1) { @apply sticky left-0 z-10 w-[140px] bg-background; }
+  .channels-table thead th:nth-child(1) { @apply z-20 border-r bg-background; }
+  .channels-table tbody tr:hover td:nth-child(1) { @apply bg-muted; }
+  .channels-table td:nth-child(10),
+  .channels-table th:nth-child(10) { @apply w-[100px] overflow-visible; }
+  .channels-table td:last-child { @apply overflow-visible; }
+  .row-actions-menu { @apply relative inline-flex justify-end; }
+  .row-actions-popover { @apply z-30 grid min-w-24 overflow-hidden rounded-md border bg-popover p-1 text-left text-sm text-popover-foreground shadow-lg; }
+  .row-actions-popover button { @apply rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground; }
+  .row-actions-popover button.danger { @apply text-destructive hover:text-destructive; }
+
+  .key-scope-readonly { @apply inline-flex rounded-md border bg-muted/30 px-2 py-0.5 text-xs font-medium text-muted-foreground; }
+
+  .channel-history-modal { @apply max-w-3xl; }
+  .channel-history-summary { @apply grid grid-cols-2 gap-2 sm:grid-cols-4; }
+  .channel-history-stat { @apply rounded-lg border bg-muted/30 px-3 py-2 text-sm; }
+  .channel-history-stat.ok { color: hsl(var(--ok)); }
+  .channel-history-stat.err { color: hsl(var(--err)); }
+  .channel-history-stat .label { @apply block text-[11px] uppercase tracking-wide text-muted-foreground; }
+  .channel-history-stat strong { @apply block font-mono text-base font-semibold tabular-nums; }
+  .channel-history-stat small { @apply ml-1 text-xs font-normal text-muted-foreground; }
+  .channel-history-list { @apply grid max-h-[58vh] gap-2 overflow-auto rounded-lg border bg-muted/30 p-2; }
+  .channel-history-row { @apply grid gap-1 rounded-md border bg-background px-3 py-2; }
+  .channel-history-row .meta { @apply flex flex-wrap items-center gap-2 text-xs; }
+  .channel-history-row .badge { @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide; }
+  .channel-history-row.ok .badge { @apply border-primary/30 bg-primary/10 text-primary; }
+  .channel-history-row.err .badge { @apply border-destructive/30 bg-destructive/10 text-destructive; }
+  .channel-history-row .time { @apply text-muted-foreground; }
+  .channel-history-row .latency { @apply font-semibold tabular-nums; }
+  .channel-history-row .error { @apply max-h-32 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground; }
+
+  .logs-table.admin { @apply min-w-[1320px]; }
+  .logs-table th:nth-child(1),
+  .logs-table td:nth-child(1) { @apply w-[88px]; }
+  .logs-table th:nth-child(2),
+  .logs-table td:nth-child(2) { @apply w-[76px]; }
+  .logs-table th:nth-child(3),
+  .logs-table td:nth-child(3) { @apply w-[90px]; }
+  .logs-table.admin th:nth-child(4),
+  .logs-table.admin td:nth-child(4) { @apply w-[112px]; }
+  .logs-table th:nth-last-child(1),
+  .logs-table td:nth-last-child(1),
+  .logs-table th:nth-last-child(2),
+  .logs-table td:nth-last-child(2),
+  .logs-table th:nth-last-child(3),
+  .logs-table td:nth-last-child(3),
+  .logs-table th:nth-last-child(4),
+  .logs-table td:nth-last-child(4),
+  .logs-table th:nth-last-child(5),
+  .logs-table td:nth-last-child(5),
+  .logs-table th:nth-last-child(6),
+  .logs-table td:nth-last-child(6),
+  .logs-table th:nth-last-child(7),
+  .logs-table td:nth-last-child(7),
+  .logs-table th:nth-last-child(8),
+  .logs-table td:nth-last-child(8) { @apply w-[72px]; }
+  .logs-table tbody tr { @apply cursor-pointer; }
+  .logs-table tr.new td { @apply bg-primary/5; }
+  .logs-table tr.has-error td { @apply bg-destructive/5; }
+  .err-toggle { @apply ml-1 text-[10px] text-muted-foreground; }
+  .slow { color: hsl(var(--warn)); }
+  .running { @apply text-[10px] text-muted-foreground; }
+  .cache-token { @apply text-muted-foreground; }
+  .create-token { @apply text-foreground; }
+
   .status,
-  .status-badge { @apply inline-flex items-center gap-2 text-sm; }
-  .dot { @apply inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground; }
+  .status-badge { @apply inline-flex items-center gap-1.5 rounded-full border bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground; }
+  .dot { @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground; }
   .dot.ok,
   .status.ok .dot { background: hsl(var(--ok)); }
   .dot.warn,
@@ -159,21 +323,26 @@
   .type-pill.openai,
   .channel.openai { color: hsl(var(--openai)); }
 
-  .toggle-label { @apply inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted; }
-  .toggle-label.on { @apply border-primary/40 bg-primary/10 text-primary; }
-  .toggle-label.off { @apply bg-muted/50; }
+  .toggle-label { @apply inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted; }
+  .toggle-label.on { @apply border-emerald-400 bg-emerald-400/15 text-emerald-500 shadow-sm shadow-emerald-400/20; }
+  .toggle-label.off { @apply border-destructive/40 bg-destructive/10 text-destructive; }
+  .toggle-label.on .dot { background: hsl(var(--ok)); }
+  .toggle-label.off .dot { background: hsl(var(--err)); }
 
   .select { @apply relative inline-block max-w-full; }
   .select.fill-select { @apply block w-full; }
-  .select-trigger { @apply flex h-9 min-w-28 items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-sm shadow-sm; }
-  .select.sm .select-trigger { @apply h-8 px-2 text-xs; }
+  .select-trigger { @apply flex h-8 min-w-28 items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-sm shadow-sm outline-none transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-70; }
+  .select.sm .select-trigger { @apply h-7 px-2.5 text-xs; }
   .select-trigger.editable { @apply p-0 pl-3; }
-  .select-trigger.editable input { @apply h-full flex-1 bg-transparent outline-none; }
+  .select-trigger.editable input { @apply h-full min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-0; }
   .select-trigger.editable button { @apply h-full px-2; }
   .select-menu,
-  .combo-menu { @apply z-50 max-h-60 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md; }
+  .combo-menu { @apply z-50 max-h-60 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg; }
   .select-item,
-  .combo-item { @apply flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground; }
+  .combo-item { @apply flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground; }
+  .select-item.active,
+  .combo-item.active,
+  .select-item.current { @apply bg-accent text-accent-foreground; }
   .select-item.disabled { @apply pointer-events-none opacity-50; }
   .select-check { @apply w-3 text-xs; }
   .select-empty,
@@ -182,15 +351,35 @@
   .combo-toggle::before { @apply inline-block h-0 w-0 border-x-4 border-t-4 border-x-transparent border-t-muted-foreground; content: ""; }
 
   .modal-backdrop,
-  .model-detail-backdrop { @apply fixed inset-0 z-50 flex items-start justify-center bg-background/80 p-4 pt-20 backdrop-blur-sm; }
-  .modal { @apply flex max-h-[calc(100vh-6rem)] w-full max-w-lg flex-col rounded-lg border bg-card text-card-foreground shadow-lg; }
+  .model-detail-backdrop { @apply fixed inset-0 z-50 flex items-start justify-center bg-background/75 p-4 pt-16 backdrop-blur-sm; }
+  .modal { @apply flex max-h-[calc(100vh-5rem)] w-full max-w-lg flex-col rounded-xl border bg-card text-card-foreground shadow-xl; }
   .modal-head { @apply flex items-center justify-between border-b px-4 py-3; }
-  .modal-head h2 { @apply text-base font-semibold; }
-  .modal-close { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground; }
-  .modal-body { @apply grid gap-4 overflow-auto p-4; }
-  .modal-foot { @apply flex justify-end gap-2 border-t bg-muted/30 px-4 py-3; }
+  .modal-head h2 { @apply text-sm font-semibold tracking-tight; }
+  .modal-close { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .modal-body { @apply grid gap-3 overflow-auto p-4; }
+  .modal-foot { @apply flex justify-end gap-2 border-t bg-muted/20 px-4 py-3; }
   .announcement-modal,
   .gift-card-modal { @apply max-w-2xl; }
+
+  .log-error-modal { @apply max-w-5xl; }
+  .log-error-body { @apply gap-3; }
+  .error-meta { @apply grid gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground md:grid-cols-3; }
+  .error-detail,
+  .json-node { @apply max-h-[58vh] overflow-auto rounded-lg border bg-muted/30 p-3 text-xs leading-5; }
+  .error-detail-loading { @apply flex items-center gap-2 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground; }
+  .json-children { @apply mt-1 border-l border-border/70; }
+  .json-row { @apply border-b border-border/40 py-1 last:border-0; }
+  .json-line { @apply grid grid-cols-[1.25rem_minmax(14rem,22rem)_auto_minmax(0,1fr)] items-start gap-2 rounded px-2 py-1 hover:bg-background/70; }
+  .json-toggle { @apply h-5 w-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:hover:bg-transparent; }
+  .json-key { @apply min-w-0 whitespace-pre-wrap break-words font-semibold text-foreground; }
+  .json-colon,
+  .json-empty { @apply text-muted-foreground; }
+  .json-summary { @apply min-w-0 text-left text-muted-foreground hover:text-foreground; }
+  .json-value { @apply min-w-0 whitespace-pre-wrap break-words; }
+  .json-value.string { color: hsl(var(--ok)); }
+  .json-value.number,
+  .json-value.boolean { color: hsl(var(--openai)); }
+  .json-value.null { @apply text-muted-foreground; }
 
   .toast { @apply fixed bottom-5 left-1/2 z-[200] -translate-x-1/2 rounded-md border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-md; }
   .loading-spinner { @apply inline-block h-4 w-4 animate-spin rounded-full border border-muted-foreground border-t-primary align-[-2px]; }
@@ -219,19 +408,19 @@
 
   .landing-page { @apply min-h-screen bg-background text-foreground; }
   .landing-nav { @apply flex items-center justify-between gap-4 border-b px-4 py-4 lg:px-12; }
-  .landing-brand { @apply inline-flex items-center gap-2 font-mono font-medium; }
+  .landing-brand { @apply inline-flex items-center gap-2 text-sm font-semibold tracking-tight; }
   .landing-logo { @apply h-6 w-6 rounded object-contain; }
   .landing-links { @apply hidden items-center gap-1 md:flex; }
   .landing-links a { @apply rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground; }
   .landing-actions { @apply flex items-center gap-2; }
-  .landing-hero { @apply grid gap-10 px-4 py-16 lg:grid-cols-[1fr_0.8fr] lg:px-12 lg:py-24; }
+  .landing-hero { @apply grid gap-8 px-4 py-12 lg:grid-cols-[1fr_0.8fr] lg:px-12 lg:py-16; }
   .landing-kicker { @apply text-xs uppercase tracking-widest text-muted-foreground; }
   .landing-hero h1,
   .landing-cta h2,
-  .band-copy h2 { @apply mt-4 max-w-4xl text-4xl font-semibold tracking-tight sm:text-6xl; }
+  .band-copy h2 { @apply mt-3 max-w-4xl text-3xl font-semibold tracking-tight sm:text-5xl; }
   .landing-hero p,
-  .landing-panel p { @apply mt-6 max-w-2xl text-base leading-7 text-muted-foreground; }
-  .landing-hero-actions { @apply mt-8 flex flex-wrap gap-3; }
+  .landing-panel p { @apply mt-4 max-w-2xl text-sm leading-7 text-muted-foreground; }
+  .landing-hero-actions { @apply mt-6 flex flex-wrap gap-2; }
   .landing-console { @apply rounded-xl border bg-card shadow-sm; }
   .landing-console-head { @apply flex items-center gap-2 border-b px-4 py-3 text-sm text-muted-foreground; }
   .landing-console-status { @apply ml-auto; }
@@ -244,6 +433,56 @@
   .chip-b { @apply absolute right-4 top-20; }
   .chip-c { @apply absolute bottom-6 left-1/3; }
   .landing-code { @apply border-t bg-muted/30 p-4 text-sm text-muted-foreground; }
+  .landing-hero-v2 { @apply items-center lg:grid-cols-[1fr_0.9fr]; }
+  .landing-hero-card { @apply overflow-hidden rounded-2xl border bg-card shadow-sm; }
+  .landing-card-head { @apply flex items-center gap-2 border-b px-4 py-3 text-sm text-muted-foreground; }
+  .landing-card-status { @apply ml-auto hidden sm:inline; }
+  .landing-card-stats { @apply grid gap-3 p-5; }
+  .landing-card-stats li { @apply flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-3 py-2 text-sm; }
+  .landing-card-stats strong { @apply min-w-0 truncate text-right font-semibold text-foreground; }
+  .landing-card-foot { @apply flex flex-wrap gap-2 border-t bg-muted/30 p-4 text-xs text-muted-foreground; }
+  .landing-card-foot span { @apply inline-flex items-center gap-1.5 rounded-full border bg-background px-2 py-1; }
+  .landing-metric-strip { @apply grid gap-3 border-t px-4 py-6 sm:grid-cols-2 lg:grid-cols-4 lg:px-12; }
+  .landing-metric { @apply rounded-xl border bg-card p-3 shadow-sm; }
+  .landing-metric strong { @apply mt-1 block text-sm font-semibold text-foreground; }
+  .landing-section { @apply border-t px-4 py-10 lg:px-12; }
+  .landing-section-head { @apply max-w-3xl; }
+  .landing-section-head h2 { @apply mt-3 text-2xl font-semibold tracking-tight sm:text-4xl; }
+  .landing-section-head p { @apply mt-3 text-sm leading-6 text-muted-foreground; }
+  .landing-section-foot { @apply mt-6; }
+  .landing-capability-grid { @apply mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3; }
+  .landing-capability-card { @apply rounded-xl border bg-card p-4 shadow-sm; }
+  .landing-capability-card h3,
+  .landing-model-card h3,
+  .landing-step h3 { @apply text-lg font-semibold tracking-tight; }
+  .landing-capability-card p,
+  .landing-model-card p,
+  .landing-step p { @apply mt-2 text-sm leading-6 text-muted-foreground; }
+  .landing-model-grid { @apply mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3; }
+  .landing-model-card { @apply relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-card p-4 text-left shadow-sm transition-colors hover:border-primary/40 hover:shadow-md; }
+  .landing-model-card.claude { box-shadow: inset 3px 0 0 hsl(var(--claude)); }
+  .landing-model-card.openai { box-shadow: inset 3px 0 0 hsl(var(--openai)); }
+  .landing-model-card-head { @apply flex items-center justify-between gap-2; }
+  .landing-model-card h3 { @apply text-lg; }
+  .landing-model-tag { @apply inline-flex rounded-full border bg-muted/40 px-2 py-1 text-xs text-muted-foreground; }
+  .landing-model-card-foot { @apply mt-auto flex items-center justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground; }
+  .landing-model-card-foot span:first-child { @apply font-medium text-foreground/80; }
+  .landing-steps { @apply mt-6 grid gap-3 lg:grid-cols-3; }
+  .landing-step { @apply rounded-xl border bg-card p-4 shadow-sm; }
+  .landing-step-index { @apply mb-4 inline-flex rounded-full border bg-muted/40 px-2 py-1 text-xs text-muted-foreground; }
+  .landing-use-cases { @apply mt-8 grid gap-3 sm:grid-cols-2; }
+  .landing-use-case { @apply rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm; }
+  .landing-snippet-grid { @apply mt-8 grid gap-4 xl:grid-cols-2; }
+  .landing-code-block { @apply overflow-hidden rounded-xl border bg-card shadow-sm; }
+  .landing-code-head { @apply flex items-center gap-2 border-b bg-muted/30 px-4 py-3 text-xs text-muted-foreground; }
+  .landing-code-head span { @apply rounded bg-primary/10 px-2 py-0.5 text-primary; }
+  .landing-code-block pre { @apply overflow-x-auto p-4 text-xs leading-6 text-muted-foreground; }
+  .landing-faq { @apply mt-8 grid gap-3; }
+  .landing-faq-item { @apply rounded-xl border bg-card px-5 py-4 shadow-sm; }
+  .landing-faq-item summary { @apply cursor-pointer text-sm font-semibold text-foreground; }
+  .landing-faq-item p { @apply mt-3 text-sm leading-6 text-muted-foreground; }
+  .landing-footer { @apply flex flex-wrap items-center gap-4 border-t px-4 py-6 text-xs text-muted-foreground lg:px-12; }
+  .landing-footer a { @apply hover:text-foreground; }
   .landing-band,
   .landing-panels,
   .landing-cta { @apply grid gap-6 border-t px-4 py-14 lg:px-12; }
@@ -252,25 +491,116 @@
 
   .model-square-shell,
   .docs { @apply mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8; }
-  .model-square-grid { @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
+  .model-square-hero { @apply rounded-2xl border bg-card p-5 shadow-sm sm:p-6; }
+  .model-square-hero h1 { @apply mt-2 text-2xl font-semibold tracking-tight sm:text-4xl; }
+  .model-square-hero p { @apply mt-3 max-w-3xl text-sm leading-6 text-muted-foreground; }
+  .model-square-stats { @apply mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground; }
+  .model-square-stats span { @apply rounded-full border bg-muted/30 px-2.5 py-0.5; }
+  .model-square-group { @apply mt-5 rounded-2xl border bg-card p-4 shadow-sm; }
+  .model-square-group-head { @apply mb-3 flex flex-wrap items-end justify-between gap-3 border-b pb-3; }
+  .model-square-group-head h2 { @apply mt-1 text-lg font-semibold tracking-tight; }
+  .model-square-count,
+  .model-square-toolbar-count { @apply text-sm text-muted-foreground; }
+  .model-square-toolbar { @apply mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(18rem,1fr)_10rem_10rem_10rem_auto] lg:items-center; }
+  .model-square-toolbar-count { @apply lg:justify-self-end; }
+  .model-square-grid { @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4; }
+  .model-square-card { @apply flex flex-col gap-3 rounded-xl border bg-background p-4 text-left shadow-sm transition-colors hover:border-primary/40 hover:shadow-md; }
+  .model-square-card.claude { box-shadow: inset 3px 0 0 hsl(var(--claude)); }
+  .model-square-card.openai { box-shadow: inset 3px 0 0 hsl(var(--openai)); }
+  .model-square-card-top { @apply flex items-center justify-between gap-3; }
+  .model-square-status { @apply inline-flex items-center gap-1.5 rounded-full border bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground; }
+  .model-square-status span { @apply h-1.5 w-1.5 rounded-full bg-emerald-500; }
+  .model-square-card-body { @apply min-w-0; }
+  .model-square-card-body h3 { @apply text-base font-semibold tracking-tight text-foreground; }
+  .model-square-card-body p { @apply mt-1.5 text-xs leading-5 text-muted-foreground; }
+  .model-square-id { @apply mt-1.5 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground; }
+  .model-square-price { @apply mt-auto grid grid-cols-2 gap-2; }
+  .model-square-price div { @apply rounded-md border bg-muted/20 px-2.5 py-2; }
+  .model-square-price span { @apply text-[11px] text-muted-foreground; }
+  .model-square-price strong { @apply mt-0.5 block font-mono text-xs font-semibold text-foreground; }
+  .model-square-card-foot { @apply flex items-center justify-between gap-3 border-t pt-2 text-xs text-muted-foreground; }
+  .model-square-card-foot strong { @apply text-xs font-medium text-foreground; }
+  .model-square-empty { @apply mt-6 rounded-2xl p-8; }
+  .model-square-empty h2 { @apply mt-3 text-2xl font-semibold tracking-tight; }
+  .model-square-empty p { @apply mt-3 max-w-2xl text-sm leading-6 text-muted-foreground; }
+  .model-square-empty .btn { @apply mt-5; }
   .settings-grid,
   .settings-lower-grid,
   .account-grid,
   .perf-grid,
   .channel-health-grid,
-  .user-token-legend { @apply grid gap-4; }
+  .user-token-legend { @apply grid gap-3; }
   .settings-grid { @apply lg:grid-cols-3; }
+  .settings-panel .settings-grid { @apply lg:grid-cols-1; }
   .settings-lower-grid,
   .account-grid { @apply lg:grid-cols-[1fr_320px]; }
   .log-toolbar,
   .filterbar,
   .rank-tabs,
-  .range-form { @apply mb-4 flex flex-wrap items-center gap-2; }
-  .log-wrap { @apply max-h-[calc(100vh-14rem)] overflow-auto rounded-lg border font-mono text-xs; }
+  .range-form { @apply mb-3 flex flex-wrap items-end gap-2; }
+  .settings-card-foot { @apply mt-4 flex justify-end border-t pt-3; }
+  .settings-tabs { @apply mb-3 inline-flex min-h-8 flex-wrap items-center gap-1 rounded-md bg-muted/40 p-1; }
+  .settings-tab { @apply inline-flex h-7 items-center justify-center gap-1.5 rounded-sm border border-transparent bg-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .settings-tab.active { @apply border-border bg-background text-foreground shadow-sm; }
+  .provider-tabs,
+  .pricing-provider-switch,
+  .rank-tabs { @apply inline-flex min-h-8 flex-wrap items-center gap-1 rounded-md bg-muted/40 p-1; }
+  .provider-tabs { @apply mb-0; }
+  .pricing-provider-label { @apply px-2 text-xs font-medium text-muted-foreground; }
+  .provider-tab,
+  .pricing-provider-option,
+  .rank-tabs button { @apply inline-flex h-7 items-center justify-center gap-1.5 rounded-sm border border-transparent bg-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .pricing-provider-option { @apply h-auto min-h-7 flex-col items-start gap-0 px-3 py-1; }
+  .pricing-provider-option small { @apply text-[10px] leading-3 text-muted-foreground; }
+  .provider-tab.active,
+  .pricing-provider-option.active,
+  .rank-tabs button.active { @apply border-border bg-background text-foreground shadow-sm; }
+  .pricing-provider-option.claude.active,
+  .provider-tab.claude.active { color: hsl(var(--claude)); }
+  .pricing-provider-option.openai.active,
+  .provider-tab.openai.active { color: hsl(var(--openai)); }
+  .range-form { @apply mb-3 flex flex-wrap items-end gap-2; }
+  .range-presets { @apply flex min-h-8 flex-wrap items-center gap-1 rounded-md bg-muted/40 p-1; }
+  .range-presets .btn { @apply h-7 border-transparent bg-transparent px-2.5 text-xs shadow-none hover:bg-background; }
+  .range-field { @apply grid min-w-0 gap-1; }
+  .range-field span { @apply text-xs font-medium leading-none text-muted-foreground; }
+  .range-picker { @apply relative; }
+  .range-picker-trigger { @apply flex h-8 w-[11.5rem] items-center justify-between rounded-md border border-input bg-background px-3 text-left text-xs shadow-sm transition-colors hover:border-ring/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .range-picker-popover { @apply absolute left-0 top-full z-50 mt-2 w-[18rem] rounded-xl border bg-popover p-3 text-popover-foreground shadow-xl; }
+  .range-picker-popover .rdp-root { --rdp-accent-color: hsl(var(--primary)); --rdp-accent-background-color: hsl(var(--primary) / 0.1); --rdp-day_button-width: 2rem; --rdp-day_button-height: 2rem; --rdp-day-width: 2rem; --rdp-day-height: 2rem; @apply m-0 text-sm; }
+  .range-picker-time { @apply mt-3 flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground; }
+  .range-picker-time .ui-input { @apply h-8 w-28 text-xs; }
+  .log-wrap { @apply max-h-[calc(100vh-14rem)] overflow-auto rounded-xl border bg-card font-mono text-xs shadow-sm; }
   .log-row { @apply grid min-w-[1060px] grid-cols-[90px_76px_90px_90px_minmax(150px,1fr)_58px_72px_72px_70px_70px_70px_70px_86px] gap-2 border-b px-3 py-2; }
-  .log-row.head { @apply sticky top-0 bg-muted text-muted-foreground; }
+  .log-row.head { @apply sticky top-0 bg-muted/70 text-muted-foreground; }
   .docs-section { @apply border-t py-6; }
   .docs-code-wrap { @apply overflow-hidden rounded-lg border bg-muted/30; }
   .docs-code-head { @apply flex items-center justify-between border-b px-3 py-2 text-xs text-muted-foreground; }
   .docs-code { @apply overflow-x-auto p-4 font-mono text-sm; }
+
+  /* Status page: per-channel uptime row */
+  .channel-status-toolbar { @apply mb-3 flex flex-wrap items-center gap-2; }
+  .refresh-buttons { @apply inline-flex min-h-8 items-center gap-1 rounded-md bg-muted/40 p-1; }
+  .refresh-pill { @apply inline-flex h-7 items-center justify-center rounded-sm border border-transparent bg-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .refresh-pill.active { @apply border-border bg-background text-foreground shadow-sm; }
+  .uptime-list { @apply flex flex-col divide-y rounded-xl border bg-card shadow-sm; }
+  .uptime-row { @apply flex flex-col gap-1.5 px-4 py-3; }
+  .uptime-head { @apply flex items-center justify-between gap-3; }
+  .uptime-name { @apply flex min-w-0 items-center gap-2 text-sm font-medium; }
+  .uptime-name .status-badge { @apply text-[10px]; }
+  .uptime-value { @apply text-sm font-medium tabular-nums text-emerald-500; }
+  .uptime-value small { @apply ml-1 text-xs font-normal text-muted-foreground; }
+  .uptime-segments {
+    display: grid;
+    gap: 2px;
+    width: 100%;
+    height: 18px;
+  }
+  .uptime-segment { display: block; height: 18px; min-width: 0; border-radius: 2px; transition: transform 120ms ease; transform-origin: bottom; }
+  .uptime-segment:hover { transform: scaleY(1.25); }
+  .uptime-segment.ok { background: hsl(142 70% 38%); }
+  .uptime-segment.err { background: hsl(0 84% 60%); }
+  .uptime-segment.none { background: hsl(240 5% 92%); }
+  .uptime-axis { @apply flex items-center justify-between text-xs text-muted-foreground; }
 }
+

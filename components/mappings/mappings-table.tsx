@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -26,7 +27,7 @@ type Channel = {
   enabled: boolean;
   models: string[];
 };
-const pageSize = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 export function MappingsTable() {
   const toast = useToast();
@@ -45,8 +46,11 @@ export function MappingsTable() {
   const [channelFilter, setChannelFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
   const channelNames = new Map(channels.map(c => [c.id, c.name]));
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
@@ -79,7 +83,7 @@ export function MappingsTable() {
   }
 
   useEffect(() => { loadChannels(); }, []);
-  useEffect(() => { load(); }, [page, query, providerFilter, channelFilter, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, query, providerFilter, channelFilter, sort.key, sort.dir]);
   useEffect(() => { setPage(1); setSelected([]); }, [query, providerFilter, channelFilter, sort.key, sort.dir]);
 
   const upstreamModels = [...new Set(channels
@@ -162,6 +166,7 @@ export function MappingsTable() {
   }
 
   async function remove(row: Mapping) {
+    if (!confirm(`确认删除模型映射 ${row.inboundModel}？`)) return;
     const r = await fetch(`/api/model-mappings/${row.id}`, { method: "DELETE" });
     if (r.ok) {
       toast("已删除模型映射");
@@ -204,18 +209,42 @@ export function MappingsTable() {
 
   return (
     <>
-      <div className="page-actions">
-        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: true })} disabled={selectedRows.length === 0}>启用</button>
-        <button className="btn ghost" onClick={() => bulkUpdate({ enabled: false })} disabled={selectedRows.length === 0}>停用</button>
-        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 条</span>}
-        <button className="btn primary" onClick={openCreate}>+ 添加映射</button>
-      </div>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索入站 / 上游 / 渠道" />
-        <Select value={providerFilter} onChange={setProviderFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <div className="provider-tabs" aria-label="筛选服务商">
+          {[
+            ["all", "全部"],
+            ["claude", "Claude"],
+            ["openai", "OpenAI"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`provider-tab ${value} ${providerFilter === value ? "active" : ""}`}
+              onClick={() => setProviderFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, { value: "__all_channels", label: "全渠道映射" }, ...channels.map(c => ({ value: c.id, label: c.name }))]} />
         <span className="spacer" />
-        <span className="mono dim">{loading ? <span className="loading-spinner" aria-label="加载中" /> : `${total} mappings`}</span>
+        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 条</span>}
+        <Select
+          value=""
+          onChange={value => {
+            if (!value) return;
+            if (value === "enable") bulkUpdate({ enabled: true });
+            if (value === "disable") bulkUpdate({ enabled: false });
+          }}
+          disabled={selectedRows.length === 0}
+          placeholder="批量操作"
+          options={[
+            { value: "enable", label: "启用" },
+            { value: "disable", label: "停用" },
+          ]}
+        />
+        <button className="btn primary" onClick={openCreate}>+ 添加映射</button>
       </div>
 
       {open && (
@@ -324,7 +353,7 @@ export function MappingsTable() {
         </thead>
         <tbody>
           {loading && <tr><td colSpan={9} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配映射</td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={9} className="empty">暂无匹配映射 <span className="mono dim">// no rows</span></td></tr>}
           {sortedRows.map(row => (
             <tr key={row.id}>
               <td>
@@ -336,25 +365,45 @@ export function MappingsTable() {
                   onClick={() => toggleSelected(row)}
                 />
               </td>
-              <td><span className={`type-pill ${row.provider}`}>{row.provider}</span></td>
+              <td><span className={`type-pill ${row.provider}`}>{row.provider === "claude" ? "Claude" : "OpenAI"}</span></td>
               <td className="mono">{row.inboundModel}</td>
-              <td><span className={`type-pill ${row.targetProvider ?? row.provider}`}>{row.targetProvider ?? row.provider}</span></td>
+              <td><span className={`type-pill ${row.targetProvider ?? row.provider}`}>{(row.targetProvider ?? row.provider) === "claude" ? "Claude" : "OpenAI"}</span></td>
               <td className="mono">{row.upstreamModel}</td>
               <td className="mono dim" title={row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部渠道"}>
                 {row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部"}
               </td>
               <td><button className={`toggle-label ${row.enabled ? "on" : "off"}`} onClick={() => toggle(row)}><span className="dot" />{row.enabled ? "启用" : "停用"}</button></td>
               <td className="mono dim">{formatShanghaiDate(row.createdAt)}</td>
-              <td className="right">
-                <button className="btn sm ghost" onClick={() => openEdit(row)}>编辑</button>{" "}
-                <button className="btn sm ghost danger" onClick={() => remove(row)}>删除</button>
+              <td className="right nowrap">
+                <button
+                  className="btn sm ghost icon-btn"
+                  onClick={event => {
+                    if (openActionsId === row.id) {
+                      setOpenActionsId(null);
+                      return;
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setOpenActionsId(row.id);
+                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                  }}
+                  aria-label="操作"
+                  aria-expanded={openActionsId === row.id}
+                >
+                  <MoreHorizontal />
+                </button>
+                {openActionsId === row.id && openActionsRect && (
+                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                    <button onClick={() => { setOpenActionsId(null); openEdit(row); }}>编辑</button>
+                    <button className="danger" onClick={() => { setOpenActionsId(null); remove(row); }}>删除</button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       </div>
-      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
 }

@@ -3,7 +3,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { AnnouncementSurface } from "@/components/announcement";
 import { announcementFromSettings } from "@/lib/announcement";
 import { getSettingsAsync } from "@/lib/settings";
-import { SiteLogo } from "./site-logo";
 
 export async function LandingNav() {
   const [user, settings] = await Promise.all([getCurrentUser(), getSettingsAsync()]);
@@ -15,13 +14,17 @@ export async function LandingNav() {
     <>
       <header className="landing-nav">
         <Link href="/" className="landing-brand" aria-label={settings.siteName}>
-          <SiteLogo logoUrl={settings.siteLogoUrl} alt={settings.siteName} className="landing-logo" />
+          {settings.siteLogoUrl ? (
+            <img src={settings.siteLogoUrl} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
+          ) : (
+            <span className="inline-block h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-primary/80 to-primary shadow-sm" aria-hidden="true" />
+          )}
           <span>{settings.siteName}</span>
         </Link>
         <nav className="landing-links" aria-label="首页导航">
-          <Link href="/#routing">接入</Link>
-          <Link href="/model-square">模型</Link>
-          <Link href="/#control">体验</Link>
+          <Link href="/#features">能力</Link>
+          <Link href="/#models">模型</Link>
+          <Link href="/#integration">接入</Link>
           <Link href="/docs">文档</Link>
         </nav>
         <div className="landing-actions">

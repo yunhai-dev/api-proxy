@@ -19,7 +19,7 @@ type Key = {
 
 type User = { id: string; username: string; displayName: string };
 
-export function KeyForm({ onCreated, allowUserSelect = false }: { onCreated: (k: Key & { fullKey: string }) => void; allowUserSelect?: boolean }) {
+export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: { onCreated: (k: Key & { fullKey: string }) => void; allowUserSelect?: boolean; inline?: boolean }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -64,11 +64,18 @@ export function KeyForm({ onCreated, allowUserSelect = false }: { onCreated: (k:
 
   return (
     <>
-      <div className="page-actions">
+      {!inline && (
+        <div className="page-actions">
+          <button className="btn primary" onClick={() => setOpen(o => !o)}>
+            + 新建密钥 <span className="mono kbd">N</span>
+          </button>
+        </div>
+      )}
+      {inline && (
         <button className="btn primary" onClick={() => setOpen(o => !o)}>
           + 新建密钥 <span className="mono kbd">N</span>
         </button>
-      </div>
+      )}
 
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
