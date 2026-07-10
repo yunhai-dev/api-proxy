@@ -130,6 +130,11 @@
   .settings-panel .settings-card .field-row + .field-row { @apply mt-3; }
   .settings-panel .settings-card .field > label,
   .settings-panel .settings-card .field-row label { @apply mb-1.5 block text-sm font-medium text-foreground/80; }
+  .settings-panel .settings-card .label-help { @apply relative inline-flex w-fit items-center gap-1; }
+  .settings-panel .settings-card .help-dot { @apply inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border bg-muted text-[10px] font-semibold text-muted-foreground; }
+  .settings-panel .settings-card .help-tip { @apply pointer-events-none absolute left-0 top-full z-20 mt-1 hidden w-64 rounded-md border bg-popover px-2 py-1.5 text-xs font-normal leading-5 text-popover-foreground shadow-md; }
+  .settings-panel .settings-card .label-help:hover .help-tip,
+  .settings-panel .settings-card .label-help:focus-within .help-tip { @apply block; }
   .settings-panel .settings-card .field .hint,
   .settings-panel .settings-card .hint { @apply mt-1.5 text-xs leading-5 text-muted-foreground; }
   .settings-panel .settings-card .settings-toggle + .field,
@@ -138,6 +143,8 @@
   .settings-panel .settings-card .settings-toggle + .field-row,
   .settings-panel .settings-card .settings-toggle + .page-actions,
   .settings-panel .settings-card .field + .page-actions,
+  .settings-panel .settings-card .page-actions + .field,
+  .settings-panel .settings-card .field + button.btn,
   .settings-panel .settings-card .page-actions + .settings-card-foot,
   .settings-panel .settings-card .field + .settings-card-foot,
   .settings-panel .settings-card .settings-toggle + .settings-card-foot,
@@ -385,6 +392,9 @@
   .loading-spinner { @apply inline-block h-4 w-4 animate-spin rounded-full border border-muted-foreground border-t-primary align-[-2px]; }
 
   .announcement-bar { @apply grid grid-cols-[auto_1fr] items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm text-muted-foreground; }
+  .announcement-app.announcement-bar { @apply fixed inset-x-3 top-14 z-30 rounded-xl border bg-card/95 px-4 py-2 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/80 lg:left-72 lg:right-6; }
+  body.sidebar-collapsed .announcement-app.announcement-bar { @apply lg:left-20; }
+  .announcement-app.announcement-bar .announcement-marquee { @apply min-w-0 flex-1 overflow-hidden; }
   .announcement-bar-label { @apply whitespace-nowrap text-xs font-medium uppercase tracking-wide text-foreground; }
   .announcement-marquee { @apply min-w-0 overflow-hidden; mask-image: linear-gradient(90deg, transparent, black 24px, black calc(100% - 24px), transparent); }
   .announcement-marquee-track { @apply inline-flex min-w-max items-center gap-2 whitespace-nowrap; animation: announcement-scroll 22s linear infinite; }

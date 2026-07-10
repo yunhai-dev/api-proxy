@@ -1,7 +1,7 @@
 "use client";
 
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavTabs } from "./nav-tabs";
 import { Clock } from "./clock";
 import { UserMenu } from "./user-menu";
@@ -28,6 +28,11 @@ export function SidebarShell({
   initiallyCollapsed?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+
+  useEffect(() => {
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    return () => document.body.classList.remove("sidebar-collapsed");
+  }, [collapsed]);
 
   function toggle() {
     const next = !collapsed;

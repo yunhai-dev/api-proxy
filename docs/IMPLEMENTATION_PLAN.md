@@ -143,6 +143,15 @@
 | 4 | 后台表格、筛选、分页、表单、弹窗收尾 | 完成 | 以共享 class 为主 |
 | 5 | 类型检查、构建与浏览器烟测 | 完成 | `bunx tsc --noEmit` / `bun run build` |
 
+## 代理零输出高可用处理
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 设置项与管理端开关 | 完成 | 详见 [`docs/plan/proxy-empty-output.md`](./plan/proxy-empty-output.md) |
+| 2 | 非流式空输出检测与日志收敛 | 完成 | 缺失 usage 不误判 |
+| 3 | 流式 prelude/commit 与槽位释放 | 完成 | 首次可见输出后继续实时透传 |
+| 4 | 类型检查与构建验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
+
 ## 技术决策
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行

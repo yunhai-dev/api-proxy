@@ -11,6 +11,7 @@ type AppSettings = {
   proxyRetry429: boolean;
   proxyRetry5xx: boolean;
   proxyRetryNetwork: boolean;
+  proxyTreatEmptyOutputAsFailure: boolean;
   fallbackEnabled: boolean;
   fallbackChannelId: string;
   fallbackModel: string;
@@ -184,6 +185,7 @@ export function SettingsForm() {
           <Toggle label="重试 429" hint="上游限流时尝试其他候选渠道。" checked={settings.proxyRetry429} onChange={proxyRetry429 => setSettings({ ...settings, proxyRetry429 })} />
           <Toggle label="重试 5xx" hint="上游服务端错误时尝试其他候选渠道。" checked={settings.proxyRetry5xx} onChange={proxyRetry5xx => setSettings({ ...settings, proxyRetry5xx })} />
           <Toggle label="重试网络错误" hint="连接失败、超时等网络错误时尝试其他候选渠道。" checked={settings.proxyRetryNetwork} onChange={proxyRetryNetwork => setSettings({ ...settings, proxyRetryNetwork })} />
+          <Toggle label="空输出视为失败" hint="上游返回 200 但没有可见输出且 usage 输出 token 为 0 时，按网络失败重试/降级；缺少 usage 时不会误判。" checked={settings.proxyTreatEmptyOutputAsFailure} onChange={proxyTreatEmptyOutputAsFailure => setSettings({ ...settings, proxyTreatEmptyOutputAsFailure })} />
           <div className="settings-card-foot">
             <button className="btn primary" onClick={save} disabled={busy}>{busy ? "保存中…" : "保存设置"}</button>
           </div>
