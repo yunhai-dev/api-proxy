@@ -6,6 +6,7 @@ import { getRedis } from "@/lib/redis";
 import { usePostgres } from "@/lib/db/runtime";
 import { modelLookupCandidates } from "@/lib/model-variants";
 import { getSettings, getSettingsAsync } from "@/lib/settings";
+import { upsertRequestStatAsync } from "@/lib/request-stats";
 
 type Subscriber = (entry: LogListEntry) => void;
 type LogInput = Omit<LogEntry, "id" | "cacheTokens" | "cacheReadTokens" | "cacheCreationTokens" | "ttftMs" | "durationMs" | "cost"> & {
@@ -120,16 +121,18 @@ class LogHub {
       errorMsg: e.errorMsg,
     }).returning({ id: pgSchema.requestLogs.id });
 
+    const key = e.keyId ? (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
     if (e.keyId) {
       const cost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
-      const key = (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0];
       await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: (key?.used ?? 0) + addTok }).where(eq(pgSchema.keys.id, e.keyId));
       await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost);
       void addTokenUsage(e.keyId, key?.userId, e.tokensIn + e.tokensOut);
     }
 
-    const entry = logEntryFromInput(Number(inserted[0]?.id ?? 0), ts, e);
+    const rawLogId = Number(inserted[0]?.id ?? 0);
+    if (rawLogId) await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""));
+    const entry = logEntryFromInput(rawLogId, ts, e);
     const listEntry = toLogListEntry(entry);
     this.emit(listEntry);
     this.publish(listEntry);
@@ -233,6 +236,7 @@ class LogHub {
       errorMsg: e.errorMsg,
     }).where(eq(pgSchema.requestLogs.id, id));
 
+    const key = e.keyId ? (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
     if (e.keyId) {
       const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
       const newTokens = e.tokensIn + e.tokensOut;
@@ -240,13 +244,13 @@ class LogHub {
       const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (newTokens - oldTokens) / 1_000_000;
       if (addTok !== 0) {
-        const key = (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0];
         await pgDb.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: (key?.used ?? 0) + addTok }).where(eq(pgSchema.keys.id, e.keyId));
         await addUserUsageAsync(key?.userId, newTokens - oldTokens, newCost - oldCost);
         void addTokenUsage(e.keyId, key?.userId, newTokens - oldTokens);
       }
     }
 
+    await upsertRequestStatAsync(id, requestStatFromInput(e.ts, e, key?.userId ?? ""));
     const entry = logEntryFromInput(id, e.ts, e);
     const listEntry = toLogListEntry(entry);
     this.emit(listEntry);
@@ -289,6 +293,27 @@ function toLogListEntry(entry: LogEntry | LogListEntry): LogListEntry {
   const full = entry as LogEntry & { hasDetail?: boolean };
   const { requestDetail, errorMsg, ...rest } = full;
   return { ...rest, hasDetail: full.hasDetail || Boolean(requestDetail || errorMsg) };
+}
+
+function requestStatFromInput(ts: number, e: LogInput, userId: string) {
+  return {
+    requestId: e.requestId,
+    ts,
+    keyId: e.keyId,
+    userId,
+    channelId: e.channelId,
+    channelType: e.channelType,
+    model: e.model,
+    status: e.status,
+    latencyMs: e.latencyMs,
+    ttftMs: e.ttftMs ?? e.latencyMs,
+    durationMs: e.durationMs ?? e.latencyMs,
+    tokensIn: e.tokensIn,
+    tokensOut: e.tokensOut,
+    cacheTokens: e.cacheTokens ?? 0,
+    cacheReadTokens: e.cacheReadTokens ?? 0,
+    cacheCreationTokens: e.cacheCreationTokens ?? 0,
+  };
 }
 
 function addUserUsage(userId: string | undefined, tokens: number, usd: number) {

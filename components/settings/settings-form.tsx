@@ -98,6 +98,7 @@ export function SettingsForm() {
   const [archiveConfirmed, setArchiveConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [backfillBusy, setBackfillBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
 
   useEffect(() => {
@@ -208,6 +209,18 @@ export function SettingsForm() {
       setArchiveConfirmed(false);
     } finally {
       setArchiveBusy(false);
+    }
+  }
+
+  async function backfillRequestStats() {
+    setBackfillBusy(true);
+    try {
+      const r = await fetch("/api/settings/archive", { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(data.error || "同步失败"); return; }
+      toast(`已同步 ${data.synced ?? 0}/${data.total ?? 0} 条请求统计`);
+    } finally {
+      setBackfillBusy(false);
     }
   }
 
@@ -365,11 +378,21 @@ export function SettingsForm() {
             </div>
           </div>
 
+          <div className="archive-panel">
+            <div className="archive-panel-head">
+              <div>
+                <h3>历史统计同步</h3>
+                <p>启动容器时会自动同步；如迁移前已有请求日志，也可以手动同步一次，确保清理前统计完整。</p>
+              </div>
+            </div>
+            <button className="btn" type="button" onClick={backfillRequestStats} disabled={backfillBusy}>{backfillBusy ? "同步中…" : "同步历史请求统计"}</button>
+          </div>
+
           <div className="archive-panel danger-zone">
             <div className="archive-panel-head">
               <div>
                 <h3>归档并清理旧数据</h3>
-                <p>先按截止日期下载归档，再手动确认删除旧记录。</p>
+                <p>先按截止日期下载归档，再手动确认删除旧记录；请求日志会先写入轻量统计表，清理明细不影响历史统计。</p>
               </div>
             </div>
             <div className="field-row archive-fields">

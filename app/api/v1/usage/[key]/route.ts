@@ -45,16 +45,16 @@ export async function GET(
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       return pgDb
         .select({
-          model: pgSchema.requestLogs.model,
-          status: pgSchema.requestLogs.status,
-          tokensIn: pgSchema.requestLogs.tokensIn,
-          tokensOut: pgSchema.requestLogs.tokensOut,
-          cacheTokens: pgSchema.requestLogs.cacheTokens,
-          cacheReadTokens: pgSchema.requestLogs.cacheReadTokens,
-          cacheCreationTokens: pgSchema.requestLogs.cacheCreationTokens,
+          model: pgSchema.requestStats.model,
+          status: pgSchema.requestStats.status,
+          tokensIn: pgSchema.requestStats.tokensIn,
+          tokensOut: pgSchema.requestStats.tokensOut,
+          cacheTokens: pgSchema.requestStats.cacheTokens,
+          cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+          cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
         })
-        .from(pgSchema.requestLogs)
-        .where(and(eq(pgSchema.requestLogs.keyId, key.id), gte(pgSchema.requestLogs.ts, since)));
+        .from(pgSchema.requestStats)
+        .where(and(eq(pgSchema.requestStats.keyId, key.id), gte(pgSchema.requestStats.ts, since)));
     })()
     : db
       .select({

@@ -162,6 +162,17 @@
 | 4 | 设置页日志归档清理 UI | 完成 | 先下载归档，再确认删除 |
 | 5 | 类型检查与代表性验证 | 完成 | `bunx tsc --noEmit` 通过 |
 
+## 请求统计留存
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 统计留存设计与阶段拆分 | 完成 | 详见 [`docs/plan/request-stats-retention.md`](./plan/request-stats-retention.md) |
+| 2 | 新增 `request_stats` 表与初始化回填 | 完成 | 保留每请求一行轻量统计事实 |
+| 3 | 请求写入、Key 删除与清理前同步统计事实 | 完成 | 提前记录 `user_id`，避免 Key 删除后变成未知用户 |
+| 4 | Dashboard / 用户详情 / 用量 API 改读统计表 | 完成 | 明细清理后历史统计不变 |
+| 5 | 启动自动回填与设置页手动同步 | 完成 | 容器启动执行 schema init；设置页提供同步按钮 |
+| 6 | 类型检查与清理前后统计验证 | 完成 | `bunx tsc --noEmit` 通过；本地缺少 `DATABASE_URL`，未执行 schema 初始化 |
+
 ## 技术决策
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行

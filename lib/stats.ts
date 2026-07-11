@@ -166,7 +166,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   const trafficMap = new Map<string, { id: string; name: string; type: "claude" | "openai"; n: number }>();
   for (const row of rangeRows) {
     const channelId = row.channelId ?? "missing-channel";
-    const channelType = row.channelType === "claude" ? "claude" : "openai";
+    const channelType = row.channelType;
     const cur = trafficMap.get(channelId) ?? { id: channelId, name: row.channelName ?? "未选择", type: channelType, n: 0 };
     cur.n += 1;
     trafficMap.set(channelId, cur);
@@ -183,8 +183,8 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   }>();
   for (const row of rangeRows) {
     const keyId = row.keyId ?? "missing-key";
-    const userId = row.keyUserId ?? "unknown-user";
-    const rowCost = costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
+    const userId = row.keyUserId || "unknown-user";
+    const rowCost = costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
     const cur = keyMap.get(keyId) ?? {
       id: keyId, name: row.keyName ?? "未认证", prefix: row.keyPrefix ?? "—", last: row.keyLastUsedAt ?? 0,
       requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
@@ -214,7 +214,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     .map(k => ({
       ...k,
       totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens,
-      cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0),
+      cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0),
     }))
     .sort((a, b) => b.totalTokens - a.totalTokens)
     .slice(0, 6);
@@ -239,7 +239,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     cost: number;
   }>();
   for (const row of rangeRows) {
-    const channelType = row.channelType === "claude" ? "claude" : "openai";
+    const channelType = row.channelType;
     const key = `${channelType}:${row.model}`;
     const cur = modelMap.get(key) ?? {
       provider: channelType,
@@ -293,7 +293,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
 
   const userTokenTotals = new Map<string, { id: string; name: string; totalTokens: number }>();
   for (const row of rangeRows) {
-    const id = row.keyUserId ?? "unknown-user";
+    const id = row.keyUserId || "unknown-user";
     const name = row.userDisplayName || row.username || "未知用户";
     const cur = userTokenTotals.get(id) ?? { id, name, totalTokens: 0 };
     cur.totalTokens += row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
@@ -303,7 +303,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   const userTokenIds = new Set(userTokenUsers.map(user => user.id));
   const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
   for (const row of rangeRows) {
-    const id = row.keyUserId ?? "unknown-user";
+    const id = row.keyUserId || "unknown-user";
     if (!userTokenIds.has(id)) continue;
     const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((row.ts - since) / bucketMs)));
     userTokenSeries[idx][id] = (userTokenSeries[idx][id] ?? 0) + row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
@@ -377,50 +377,49 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const { since, until } = resolvePeriod(period, now);
   const periodMs = Math.max(1, until - since);
   const prevSince = since - periodMs;
-  const ownerWhere = opts.userId ? eq(pgSchema.keys.userId, opts.userId) : undefined;
+  const ownerWhere = opts.userId ? eq(pgSchema.requestStats.userId, opts.userId) : undefined;
 
   const rangeRows = await pgDb
     .select({
-      id: pgSchema.requestLogs.id,
-      requestId: pgSchema.requestLogs.requestId,
-      ts: pgSchema.requestLogs.ts,
-      status: pgSchema.requestLogs.status,
-      latencyMs: pgSchema.requestLogs.latencyMs,
-      ttftMs: pgSchema.requestLogs.ttftMs,
-      durationMs: pgSchema.requestLogs.durationMs,
-      model: pgSchema.requestLogs.model,
-      tokensIn: pgSchema.requestLogs.tokensIn,
-      tokensOut: pgSchema.requestLogs.tokensOut,
-      cacheTokens: pgSchema.requestLogs.cacheTokens,
-      cacheReadTokens: pgSchema.requestLogs.cacheReadTokens,
-      cacheCreationTokens: pgSchema.requestLogs.cacheCreationTokens,
-      channelId: pgSchema.channels.id,
+      id: pgSchema.requestStats.rawLogId,
+      requestId: pgSchema.requestStats.requestId,
+      ts: pgSchema.requestStats.ts,
+      status: pgSchema.requestStats.status,
+      latencyMs: pgSchema.requestStats.latencyMs,
+      ttftMs: pgSchema.requestStats.ttftMs,
+      durationMs: pgSchema.requestStats.durationMs,
+      model: pgSchema.requestStats.model,
+      tokensIn: pgSchema.requestStats.tokensIn,
+      tokensOut: pgSchema.requestStats.tokensOut,
+      cacheTokens: pgSchema.requestStats.cacheTokens,
+      cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+      cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
+      channelId: pgSchema.requestStats.channelId,
       channelName: pgSchema.channels.name,
-      channelType: pgSchema.channels.type,
-      keyId: pgSchema.keys.id,
+      channelType: sql<"claude" | "openai">`coalesce(${pgSchema.channels.type}, ${pgSchema.requestStats.channelType})`,
+      keyId: pgSchema.requestStats.keyId,
       keyName: pgSchema.keys.name,
       keyPrefix: pgSchema.keys.prefix,
-      keyUserId: pgSchema.keys.userId,
+      keyUserId: pgSchema.requestStats.userId,
       userDisplayName: pgSchema.users.displayName,
       username: pgSchema.users.username,
       keyLastUsedAt: pgSchema.keys.lastUsedAt,
     })
-    .from(pgSchema.requestLogs)
-    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestLogs.channelId))
-    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
-    .leftJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.keys.userId))
-    .where(ownerWhere ? and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until), ownerWhere) : and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until)));
+    .from(pgSchema.requestStats)
+    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestStats.channelId))
+    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestStats.keyId))
+    .leftJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.requestStats.userId))
+    .where(ownerWhere ? and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until), ownerWhere) : and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until)));
 
   const prevRows = await pgDb
-    .select({ id: pgSchema.requestLogs.id })
-    .from(pgSchema.requestLogs)
-    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
-    .where(ownerWhere ? and(gte(pgSchema.requestLogs.ts, prevSince), lt(pgSchema.requestLogs.ts, since), ownerWhere) : and(gte(pgSchema.requestLogs.ts, prevSince), lt(pgSchema.requestLogs.ts, since)));
+    .select({ id: pgSchema.requestStats.rawLogId })
+    .from(pgSchema.requestStats)
+    .where(ownerWhere ? and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since), ownerWhere) : and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since)));
   const activeRows = await pgDb
     .select({ id: pgSchema.requestLogs.id })
     .from(pgSchema.requestLogs)
     .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
-    .where(ownerWhere ? and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS), ownerWhere) : and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS)));
+    .where(opts.userId ? and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS), eq(pgSchema.keys.userId, opts.userId)) : and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS)));
 
   const requests24h = rangeRows.length;
   const success24h = rangeRows.filter(r => r.status >= 200 && r.status < 300).length;
@@ -438,7 +437,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const cacheReadTokens = totalCacheReadTokens / 1_000_000;
   const cacheCreationTokens = totalCacheCreationTokens / 1_000_000;
   const cacheTokens = cacheReadTokens + cacheCreationTokens;
-  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
+  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
   const totalPromptTokens = tokensIn + cacheReadTokens + cacheCreationTokens;
   const cacheHit = totalPromptTokens > 0 ? (cacheReadTokens / totalPromptTokens) * 100 : 0;
   const seconds = Math.max(1, periodMs / 1000);
@@ -475,10 +474,10 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const userMap = new Map<string, { id: string; name: string; username: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number }>();
   const modelMap = new Map<string, { provider: "claude" | "openai"; model: string; requests: number; success: number; latencies: number[]; ttfts: number[]; durations: number[]; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number }>();
   for (const row of rangeRows) {
-    const provider = row.channelType === "claude" ? "claude" : "openai";
+    const provider = row.channelType;
     const channelId = row.channelId ?? "missing-channel";
     const keyId = row.keyId ?? "missing-key";
-    const userId = row.keyUserId ?? "unknown-user";
+    const userId = row.keyUserId || "unknown-user";
     const rowCost = costFor(provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
     const traffic = trafficMap.get(channelId) ?? { id: channelId, name: row.channelName ?? "未选择", type: provider, n: 0 };
     traffic.n += 1;
@@ -513,12 +512,12 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     model.cost += rowCost;
     modelMap.set(modelKey, model);
   }
-  const topKeys = [...keyMap.values()].map(k => ({ ...k, totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens, cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType === "claude" ? "claude" : "openai", row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
+  const topKeys = [...keyMap.values()].map(k => ({ ...k, totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens, cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
   const topUsers = [...userMap.values()].map(u => ({ ...u, totalTokens: u.tokensIn + u.tokensOut + u.cacheReadTokens + u.cacheCreationTokens })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
   const modelStats = [...modelMap.values()].map(m => ({ provider: m.provider, model: m.model, requests: m.requests, tokensIn: m.tokensIn, tokensOut: m.tokensOut, cacheTokens: m.cacheTokens, cacheReadTokens: m.cacheReadTokens, cacheCreationTokens: m.cacheCreationTokens, totalTokens: m.tokensIn + m.tokensOut + m.cacheReadTokens + m.cacheCreationTokens, cost: m.cost })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 8);
   const userTokenTotals = new Map<string, { id: string; name: string; totalTokens: number }>();
   for (const row of rangeRows) {
-    const id = row.keyUserId ?? "unknown-user";
+    const id = row.keyUserId || "unknown-user";
     const name = row.userDisplayName || row.username || "未知用户";
     const cur = userTokenTotals.get(id) ?? { id, name, totalTokens: 0 };
     cur.totalTokens += row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
@@ -528,7 +527,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const userTokenIds = new Set(userTokenUsers.map(user => user.id));
   const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
   for (const row of rangeRows) {
-    const id = row.keyUserId ?? "unknown-user";
+    const id = row.keyUserId || "unknown-user";
     if (!userTokenIds.has(id)) continue;
     const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((row.ts - since) / bucketMs)));
     userTokenSeries[idx][id] = (userTokenSeries[idx][id] ?? 0) + row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
@@ -751,7 +750,7 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
     channelType: row.channelType ?? "openai",
     userName: row.userName ?? row.username ?? "未知用户",
     username: row.username ?? "",
-    cost: logCost(row.channelType === "claude" ? "claude" : "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
+    cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
   })) as LogListEntry[];
 }
 

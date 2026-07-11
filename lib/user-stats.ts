@@ -1,5 +1,5 @@
 import { db, schema } from "./db";
-import { and, desc, eq, gte, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { usePostgres } from "./db/runtime";
 import { getSettings, getSettingsAsync } from "./settings";
 
@@ -86,27 +86,32 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] ?? null;
   const keys = await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.userId, userId));
   const logWhere = period
-    ? and(eq(pgSchema.keys.userId, userId), gte(pgSchema.requestLogs.ts, period.since), lt(pgSchema.requestLogs.ts, period.until))
-    : eq(pgSchema.keys.userId, userId);
+    ? and(eq(pgSchema.requestStats.userId, userId), gte(pgSchema.requestStats.ts, period.since), lt(pgSchema.requestStats.ts, period.until))
+    : eq(pgSchema.requestStats.userId, userId);
   const logs = await pgDb
     .select({
-      id: pgSchema.requestLogs.id,
-      ts: pgSchema.requestLogs.ts,
-      keyId: pgSchema.requestLogs.keyId,
-      channelId: pgSchema.requestLogs.channelId,
-      model: pgSchema.requestLogs.model,
-      status: pgSchema.requestLogs.status,
-      tokensIn: pgSchema.requestLogs.tokensIn,
-      tokensOut: pgSchema.requestLogs.tokensOut,
-      cacheReadTokens: pgSchema.requestLogs.cacheReadTokens,
-      cacheCreationTokens: pgSchema.requestLogs.cacheCreationTokens,
-      channelType: pgSchema.channels.type,
+      id: pgSchema.requestStats.rawLogId,
+      ts: pgSchema.requestStats.ts,
+      keyId: pgSchema.requestStats.keyId,
+      channelId: pgSchema.requestStats.channelId,
+      model: pgSchema.requestStats.model,
+      status: pgSchema.requestStats.status,
+      tokensIn: pgSchema.requestStats.tokensIn,
+      tokensOut: pgSchema.requestStats.tokensOut,
+      cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+      cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
+      channelType: pgSchema.requestStats.channelType,
     })
-    .from(pgSchema.requestLogs)
-    .innerJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
-    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestLogs.channelId))
+    .from(pgSchema.requestStats)
     .where(logWhere)
-    .orderBy(desc(pgSchema.requestLogs.ts));
+    .orderBy(desc(pgSchema.requestStats.ts));
+  const keyIds = keys.map(key => key.id);
+  const recentWhere = period
+    ? and(inArray(pgSchema.requestLogs.keyId, keyIds), gte(pgSchema.requestLogs.ts, period.since), lt(pgSchema.requestLogs.ts, period.until))
+    : inArray(pgSchema.requestLogs.keyId, keyIds);
+  const recentLogs = keyIds.length > 0
+    ? await pgDb.select().from(pgSchema.requestLogs).where(recentWhere).orderBy(desc(pgSchema.requestLogs.ts)).limit(20)
+    : [];
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
   const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
@@ -117,7 +122,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const tokensOut = logs.reduce((sum, log) => sum + log.tokensOut, 0);
   const cacheReadTokens = logs.reduce((sum, log) => sum + log.cacheReadTokens, 0);
   const cacheCreationTokens = logs.reduce((sum, log) => sum + log.cacheCreationTokens, 0);
-  const cost = logs.reduce((sum, log) => sum + costFor(log.model, log.channelType === "claude" ? "claude" : "openai", log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, billingMultiplier), 0);
+  const cost = logs.reduce((sum, log) => sum + costFor(log.model, log.channelType, log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, billingMultiplier), 0);
   const byModel = new Map<string, { model: string; requests: number; tokens: number; cost: number }>();
   const byKey = new Map<string, { keyId: string; requests: number; tokens: number; cost: number }>();
   const now = period?.until ?? Date.now();
@@ -126,7 +131,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const bucketMs = Math.max(1, (now - since) / bucketCount);
   const tokenSeries = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }));
   for (const log of logs) {
-    const provider = log.channelType === "claude" ? "claude" : "openai";
+    const provider = log.channelType;
     const cur = byModel.get(log.model) ?? { model: log.model, requests: 0, tokens: 0, cost: 0 };
     cur.requests += 1;
     cur.tokens += log.tokensIn + log.tokensOut + log.cacheReadTokens + log.cacheCreationTokens;
@@ -159,7 +164,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
       cost,
       models: [...byModel.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 10),
       tokenSeries,
-      recentLogs: logs.slice(0, 20),
+      recentLogs,
     },
   };
 }

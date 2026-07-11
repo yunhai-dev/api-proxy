@@ -3,6 +3,7 @@ import { count, lt } from "drizzle-orm";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { usePostgres } from "@/lib/db/runtime";
+import { backfillRequestStatsAsync, backfillRequestStatsBeforeDeleteAsync } from "@/lib/request-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,20 @@ export async function GET(req: NextRequest) {
     if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
     const count = await countRows(parsed.type, parsed.before);
     return NextResponse.json({ type: parsed.type, before: parsed.before, count });
+  } catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
+  }
+}
+
+export async function POST() {
+  try {
+    const actor = await requireAdmin();
+    if (!usePostgres()) return NextResponse.json({ error: "当前仅支持 PostgreSQL 模式" }, { status: 400 });
+    const result = await backfillRequestStatsAsync();
+    const { pgDb, pgSchema } = await import("@/lib/db/pg");
+    await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `同步请求历史统计 ${result.synced}/${result.total} 条`, actor: actor.username });
+    return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
@@ -85,6 +100,7 @@ async function deleteRows(type: ArchiveType, before: number) {
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
     if (type === "channel_test_logs") return (await pgDb.delete(pgSchema.channelTestLogs).where(lt(pgSchema.channelTestLogs.ts, before)).returning({ id: pgSchema.channelTestLogs.id })).length;
     if (type === "activities") return (await pgDb.delete(pgSchema.activities).where(lt(pgSchema.activities.ts, before)).returning({ id: pgSchema.activities.id })).length;
+    await backfillRequestStatsBeforeDeleteAsync(before);
     return (await pgDb.delete(pgSchema.requestLogs).where(lt(pgSchema.requestLogs.ts, before)).returning({ id: pgSchema.requestLogs.id })).length;
   }
   const count = await countRows(type, before);

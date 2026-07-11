@@ -11,6 +11,7 @@ const requiredTables = [
   "keys",
   "channels",
   "request_logs",
+  "request_stats",
   "activities",
   "channel_test_logs",
   "model_mappings",
@@ -109,6 +110,50 @@ const statements = [
     request_detail text,
     error_msg text
   )`,
+  `CREATE TABLE IF NOT EXISTS request_stats (
+    raw_log_id integer PRIMARY KEY,
+    request_id text NOT NULL DEFAULT '',
+    ts bigint NOT NULL,
+    key_id text NOT NULL,
+    user_id text NOT NULL DEFAULT '',
+    channel_id text NOT NULL,
+    channel_type text NOT NULL,
+    model text NOT NULL,
+    status integer NOT NULL,
+    latency_ms integer NOT NULL,
+    ttft_ms integer NOT NULL DEFAULT 0,
+    duration_ms integer NOT NULL DEFAULT 0,
+    tokens_in integer NOT NULL DEFAULT 0,
+    tokens_out integer NOT NULL DEFAULT 0,
+    cache_tokens integer NOT NULL DEFAULT 0,
+    cache_read_tokens integer NOT NULL DEFAULT 0,
+    cache_creation_tokens integer NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS request_stats_ts_idx ON request_stats (ts)`,
+  `CREATE INDEX IF NOT EXISTS request_stats_key_ts_idx ON request_stats (key_id, ts)`,
+  `CREATE INDEX IF NOT EXISTS request_stats_user_ts_idx ON request_stats (user_id, ts)`,
+  `INSERT INTO request_stats (raw_log_id, request_id, ts, key_id, user_id, channel_id, channel_type, model, status, latency_ms, ttft_ms, duration_ms, tokens_in, tokens_out, cache_tokens, cache_read_tokens, cache_creation_tokens)
+    SELECT rl.id, rl.request_id, rl.ts, rl.key_id, coalesce(k.user_id, ''), rl.channel_id, coalesce(c.type, 'openai'), rl.model, rl.status, rl.latency_ms, rl.ttft_ms, rl.duration_ms, rl.tokens_in, rl.tokens_out, rl.cache_tokens, rl.cache_read_tokens, rl.cache_creation_tokens
+    FROM request_logs rl
+    LEFT JOIN keys k ON k.id = rl.key_id
+    LEFT JOIN channels c ON c.id = rl.channel_id
+    ON CONFLICT (raw_log_id) DO UPDATE SET
+      request_id = excluded.request_id,
+      ts = excluded.ts,
+      key_id = excluded.key_id,
+      user_id = coalesce(nullif(request_stats.user_id, ''), excluded.user_id),
+      channel_id = excluded.channel_id,
+      channel_type = excluded.channel_type,
+      model = excluded.model,
+      status = excluded.status,
+      latency_ms = excluded.latency_ms,
+      ttft_ms = excluded.ttft_ms,
+      duration_ms = excluded.duration_ms,
+      tokens_in = excluded.tokens_in,
+      tokens_out = excluded.tokens_out,
+      cache_tokens = excluded.cache_tokens,
+      cache_read_tokens = excluded.cache_read_tokens,
+      cache_creation_tokens = excluded.cache_creation_tokens`,
   `CREATE TABLE IF NOT EXISTS activities (
     id serial PRIMARY KEY,
     ts bigint NOT NULL,
@@ -217,6 +262,14 @@ async function existingTables() {
   return new Set(rows.map(row => row.table_name));
 }
 
+async function applyRequestStatsMigration(sql) {
+  const start = statements.findIndex(statement => statement.includes("CREATE TABLE IF NOT EXISTS request_stats"));
+  const end = statements.findIndex(statement => statement.includes("CREATE TABLE IF NOT EXISTS activities"));
+  for (const statement of statements.slice(start, end)) {
+    await sql.unsafe(statement);
+  }
+}
+
 try {
   await waitForDatabase();
   await sql`select pg_advisory_lock(hashtext('api-proxy-schema-init'))`;
@@ -232,6 +285,7 @@ try {
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);
+      await applyRequestStatsMigration(sql);
     } else {
       console.log(`[schema] initializing PostgreSQL schema, missing: ${missing.join(", ")}`);
       for (const statement of statements) {

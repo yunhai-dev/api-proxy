@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { AuthError, isAdmin, requireUser } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
+import { backfillRequestStatsForKeyAsync } from "@/lib/request-stats";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -66,6 +67,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
       const row = (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, id)).limit(1))[0];
       if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
       if (!isAdmin(user) && row.userId !== user.id) return NextResponse.json({ error: "无权操作该密钥" }, { status: 403 });
+      await backfillRequestStatsForKeyAsync(row.id, row.userId);
       await pgDb.delete(pgSchema.keys).where(eq(pgSchema.keys.id, id));
       await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `删除密钥 ${row.name}`, actor: user.username });
       return NextResponse.json({ ok: true });

@@ -1,4 +1,4 @@
-import { bigint, boolean, integer, pgTable, real, serial, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, pgTable, real, serial, text, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const keys = pgTable("keys", {
   id: text("id").primaryKey(),
@@ -57,6 +57,30 @@ export const requestLogs = pgTable("request_logs", {
   requestDetail: text("request_detail"),
   errorMsg: text("error_msg"),
 });
+
+export const requestStats = pgTable("request_stats", {
+  rawLogId: integer("raw_log_id").primaryKey(),
+  requestId: text("request_id").notNull().default(""),
+  ts: bigint("ts", { mode: "number" }).notNull(),
+  keyId: text("key_id").notNull(),
+  userId: text("user_id").notNull().default(""),
+  channelId: text("channel_id").notNull(),
+  channelType: text("channel_type", { enum: ["claude", "openai"] }).notNull(),
+  model: text("model").notNull(),
+  status: integer("status").notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  ttftMs: integer("ttft_ms").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  tokensIn: integer("tokens_in").notNull().default(0),
+  tokensOut: integer("tokens_out").notNull().default(0),
+  cacheTokens: integer("cache_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
+}, table => [
+  index("request_stats_ts_idx").on(table.ts),
+  index("request_stats_key_ts_idx").on(table.keyId, table.ts),
+  index("request_stats_user_ts_idx").on(table.userId, table.ts),
+]);
 
 export const activities = pgTable("activities", {
   id: serial("id").primaryKey(),
@@ -178,4 +202,5 @@ export const giftCards = pgTable("gift_cards", {
 export type Key = typeof keys.$inferSelect;
 export type Channel = typeof channels.$inferSelect;
 export type RequestLog = typeof requestLogs.$inferSelect;
+export type RequestStat = typeof requestStats.$inferSelect;
 export type GiftCard = typeof giftCards.$inferSelect;
