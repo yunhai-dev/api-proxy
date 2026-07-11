@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type SelectOption = {
   value: string;
@@ -30,6 +30,7 @@ export function Select({
   const [highlight, setHighlight] = useState(0);
   const [menuRect, setMenuRect] = useState<{ top: number; left: number; minWidth: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const current = options.find(o => o.value === value);
   const filteredOptions = useMemo(() => editable && value.trim()
@@ -40,28 +41,55 @@ export function Select({
     if (!open) return;
     const idx = filteredOptions.findIndex(o => o.value === value);
     setHighlight(idx >= 0 ? idx : 0);
-    const rect = wrapRef.current?.getBoundingClientRect();
-    if (rect) setMenuRect({ top: rect.bottom + 4, left: rect.left, minWidth: rect.width });
     const onClick = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!wrapRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
   }, [open, value, filteredOptions]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const trigger = wrapRef.current?.getBoundingClientRect();
+    const menu = menuRef.current?.getBoundingClientRect();
+    if (!trigger || !menu) return;
+
+    const gap = 4;
+    const margin = 8;
+    const below = window.innerHeight - trigger.bottom - gap - margin;
+    const above = trigger.top - gap - margin;
+    const top = below >= menu.height || below >= above
+      ? trigger.bottom + gap
+      : Math.max(margin, trigger.top - gap - menu.height);
+    const maxLeft = Math.max(margin, window.innerWidth - menu.width - margin);
+    const left = Math.min(Math.max(margin, trigger.left), maxLeft);
+    setMenuRect({ top, left, minWidth: trigger.width });
+  }, [open, filteredOptions]);
 
   function pick(v: string) {
     onChange(v);
     setOpen(false);
   }
 
+  function openMenu() {
+    setMenuRect(null);
+    setOpen(true);
+  }
+
+  function toggleMenu() {
+    setMenuRect(null);
+    setOpen(o => !o);
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (open && filteredOptions[highlight]) pick(filteredOptions[highlight].value);
-      else setOpen(true);
+      else openMenu();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!open) setOpen(true);
+      if (!open) openMenu();
       else setHighlight(h => filteredOptions.length ? Math.min(filteredOptions.length - 1, h + 1) : 0);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -77,16 +105,16 @@ export function Select({
       className={`select ${open ? "open" : ""} ${size === "sm" ? "sm" : ""} ${disabled ? "disabled" : ""} ${className}`}
     >
       {editable ? (
-        <div className="select-trigger mono editable" onClick={() => { if (!disabled) setOpen(true); }}>
+        <div className="select-trigger mono editable" onClick={() => { if (!disabled) openMenu(); }}>
           <input
             value={value}
-            onChange={e => { if (!disabled) { onChange(e.target.value); setOpen(true); } }}
-            onFocus={() => { if (!disabled) setOpen(true); }}
+            onChange={e => { if (!disabled) { onChange(e.target.value); openMenu(); } }}
+            onFocus={() => { if (!disabled) openMenu(); }}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
             disabled={disabled}
           />
-          <button type="button" onClick={() => { if (!disabled) setOpen(o => !o); }} aria-label="展开选项" disabled={disabled}>
+          <button type="button" onClick={() => { if (!disabled) toggleMenu(); }} aria-label="展开选项" disabled={disabled}>
             <span className="select-chevron" />
           </button>
         </div>
@@ -94,7 +122,7 @@ export function Select({
         <button
           type="button"
           className="select-trigger mono"
-          onClick={() => { if (!disabled) setOpen(o => !o); }}
+          onClick={() => { if (!disabled) toggleMenu(); }}
           onKeyDown={onKeyDown}
           disabled={disabled}
         >
@@ -104,8 +132,9 @@ export function Select({
       )}
       {open && (
         <div
+          ref={menuRef}
           className="select-menu"
-          style={menuRect ? { position: "fixed", top: menuRect.top, left: menuRect.left, right: "auto", width: "max-content", maxWidth: `calc(100vw - ${menuRect.left + 16}px)` } : undefined}
+          style={{ position: "fixed", top: menuRect?.top ?? 0, left: menuRect?.left ?? 0, right: "auto", minWidth: menuRect?.minWidth, width: "max-content", maxWidth: `calc(100vw - ${(menuRect?.left ?? 0) + 8}px)`, visibility: menuRect ? "visible" : "hidden" }}
         >
           {filteredOptions.length === 0 && <div className="select-empty mono">无匹配选项</div>}
           {filteredOptions.map((o, i) => (
