@@ -9,6 +9,7 @@ import { startOfShanghaiDay } from "./time";
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const STALE_ACTIVE_MS = 30 * 60 * 1000;
+const CHANNEL_HEALTH_CELL_LIMIT = 60;
 
 function rangeStart(range: DashboardRange, now = Date.now()) {
   if (range === "today") return startOfShanghaiDay(now);
@@ -558,52 +559,64 @@ export function getChannelHealth(period?: { since: number; until: number }) {
     .orderBy(schema.channels.name)
     .all();
 
+  if (!period) return channels.map(c => ({ ...c, testLogs: [], totalTests: 0, okTests: 0 }));
+
+  const summaries = db
+    .select({
+      channelId: schema.channelTestLogs.channelId,
+      totalTests: sql<number>`count(*)::int`,
+      okTests: sql<number>`sum(case when ${schema.channelTestLogs.ok} then 1 else 0 end)::int`,
+    })
+    .from(schema.channelTestLogs)
+    .where(and(gte(schema.channelTestLogs.ts, period.since), lt(schema.channelTestLogs.ts, period.until)))
+    .groupBy(schema.channelTestLogs.channelId)
+    .all();
+  const summaryByChannel = new Map(summaries.map(row => [row.channelId, row]));
   const recentLogs = new Map<string, (typeof schema.channelTestLogs.$inferSelect)[]>();
   for (const channel of channels) {
     recentLogs.set(channel.id, db
       .select()
       .from(schema.channelTestLogs)
-      .where(eq(schema.channelTestLogs.channelId, channel.id))
+      .where(and(eq(schema.channelTestLogs.channelId, channel.id), gte(schema.channelTestLogs.ts, period.since), lt(schema.channelTestLogs.ts, period.until)))
       .orderBy(desc(schema.channelTestLogs.ts))
-      .limit(36)
+      .limit(CHANNEL_HEALTH_CELL_LIMIT)
       .all()
       .reverse());
   }
 
-  if (!period) return channels.map(c => ({ ...c, testLogs: [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
-
-  const logs = db
-    .select()
-    .from(schema.channelTestLogs)
-    .where(and(gte(schema.channelTestLogs.ts, period.since), lt(schema.channelTestLogs.ts, period.until)))
-    .orderBy(schema.channelTestLogs.ts)
-    .all();
-  const byChannel = new Map<string, typeof logs>();
-  for (const log of logs) {
-    const list = byChannel.get(log.channelId) ?? [];
-    list.push(log);
-    byChannel.set(log.channelId, list);
-  }
-  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
+  return channels.map(c => {
+    const summary = summaryByChannel.get(c.id);
+    return { ...c, testLogs: recentLogs.get(c.id) ?? [], totalTests: Number(summary?.totalTests ?? 0), okTests: Number(summary?.okTests ?? 0) };
+  });
 }
 
 export async function getChannelHealthAsync(period?: { since: number; until: number }) {
   if (!usePostgres()) return getChannelHealth(period);
   const { pgDb, pgSchema } = await import("./db/pg");
   const channels = await pgDb.select().from(pgSchema.channels).where(and(eq(pgSchema.channels.enabled, true), gte(pgSchema.channels.monitorIntervalSec, 1))).orderBy(pgSchema.channels.name);
+  if (!period) return channels.map(c => ({ ...c, testLogs: [], totalTests: 0, okTests: 0 }));
+  const summaries = await pgDb
+    .select({
+      channelId: pgSchema.channelTestLogs.channelId,
+      totalTests: sql<number>`count(*)::int`,
+      okTests: sql<number>`sum(case when ${pgSchema.channelTestLogs.ok} then 1 else 0 end)::int`,
+    })
+    .from(pgSchema.channelTestLogs)
+    .where(and(gte(pgSchema.channelTestLogs.ts, period.since), lt(pgSchema.channelTestLogs.ts, period.until)))
+    .groupBy(pgSchema.channelTestLogs.channelId);
+  const summaryByChannel = new Map(summaries.map(row => [row.channelId, row]));
   const recentLogs = new Map<string, (typeof pgSchema.channelTestLogs.$inferSelect)[]>();
   for (const channel of channels) {
-    recentLogs.set(channel.id, (await pgDb.select().from(pgSchema.channelTestLogs).where(eq(pgSchema.channelTestLogs.channelId, channel.id)).orderBy(desc(pgSchema.channelTestLogs.ts)).limit(36)).reverse());
+    recentLogs.set(channel.id, (await pgDb.select().from(pgSchema.channelTestLogs)
+      .where(and(eq(pgSchema.channelTestLogs.channelId, channel.id), gte(pgSchema.channelTestLogs.ts, period.since), lt(pgSchema.channelTestLogs.ts, period.until)))
+      .orderBy(desc(pgSchema.channelTestLogs.ts))
+      .limit(CHANNEL_HEALTH_CELL_LIMIT))
+      .reverse());
   }
-  if (!period) return channels.map(c => ({ ...c, testLogs: [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
-  const logs = await pgDb.select().from(pgSchema.channelTestLogs).where(and(gte(pgSchema.channelTestLogs.ts, period.since), lt(pgSchema.channelTestLogs.ts, period.until))).orderBy(pgSchema.channelTestLogs.ts);
-  const byChannel = new Map<string, typeof logs>();
-  for (const log of logs) {
-    const list = byChannel.get(log.channelId) ?? [];
-    list.push(log);
-    byChannel.set(log.channelId, list);
-  }
-  return channels.map(c => ({ ...c, testLogs: byChannel.get(c.id) ?? [], recentTestLogs: recentLogs.get(c.id) ?? [] }));
+  return channels.map(c => {
+    const summary = summaryByChannel.get(c.id);
+    return { ...c, testLogs: recentLogs.get(c.id) ?? [], totalTests: Number(summary?.totalTests ?? 0), okTests: Number(summary?.okTests ?? 0) };
+  });
 }
 
 export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): LogListEntry[] {

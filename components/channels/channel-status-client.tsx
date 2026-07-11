@@ -5,7 +5,7 @@ import { RefreshCw } from "lucide-react";
 import { ChannelHealthList } from "@/components/channels/channel-health-list";
 
 type TestLog = { id: number; ts: number; ok: boolean; latencyMs: number };
-type ChannelHealth = { id: string; name: string; type: "claude" | "openai"; status: "ok" | "warn" | "err"; p50Ms: number; testLogs: TestLog[]; recentTestLogs?: TestLog[] };
+type ChannelHealth = { id: string; name: string; type: "claude" | "openai"; status: "ok" | "warn" | "err"; p50Ms: number; testLogs: TestLog[]; totalTests: number; okTests: number };
 
 const REFRESH_BUTTONS = [
   { value: 0, label: "关闭" },
@@ -19,16 +19,19 @@ export function ChannelStatusClient({
   initialRows,
   since,
   until,
-  windowDays,
+  windowMs,
+  windowLabel,
   loadHealth,
 }: {
   initialRows: ChannelHealth[];
   since: number;
   until: number;
-  windowDays: number;
+  windowMs: number;
+  windowLabel: string;
   loadHealth: (range: { since: number; until: number }) => Promise<ChannelHealth[]>;
 }) {
   const [rows, setRows] = useState(initialRows);
+  const [range, setRange] = useState({ since, until });
   const [intervalSec, setIntervalSec] = useState(0);
   const [updatedAt, setUpdatedAt] = useState(Date.now());
   const [, setTick] = useState(0);
@@ -41,8 +44,10 @@ export function ChannelStatusClient({
     setLoading(true);
     try {
       const now = Date.now();
-      const fresh = await loadHealth({ since: now - windowDays * 86400000, until: now });
+      const nextRange = { since: now - windowMs, until: now };
+      const fresh = await loadHealth(nextRange);
       setRows(fresh);
+      setRange(nextRange);
       setUpdatedAt(now);
     } finally {
       inFlight.current = false;
@@ -104,7 +109,7 @@ export function ChannelStatusClient({
         <span className="hint">上次更新 {Math.max(0, Math.floor((Date.now() - updatedAt) / 1000))}s 前</span>
       </div>
       <section className="list-section section-stack">
-        <ChannelHealthList rows={rows} since={since} until={until} windowDays={windowDays} />
+        <ChannelHealthList rows={rows} since={range.since} until={range.until} windowLabel={windowLabel} />
       </section>
     </>
   );

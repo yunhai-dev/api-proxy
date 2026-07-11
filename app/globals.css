@@ -565,6 +565,7 @@
   .uptime-value small { @apply ml-1 text-xs font-normal text-muted-foreground; }
   .uptime-segments {
     display: grid;
+    align-items: end;
     gap: 2px;
     width: 100%;
     height: 18px;
