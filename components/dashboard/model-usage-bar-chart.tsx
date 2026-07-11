@@ -56,7 +56,7 @@ export function ModelUsageBarChart({ rows }: { rows: ModelUsageRow[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-      {!hasData && <div className="throughput-empty mono">当前时间范围暂无模型消耗数据</div>}
+      {!hasData && <div className="chart-empty mono">当前时间范围暂无模型消耗数据</div>}
     </div>
   );
 }

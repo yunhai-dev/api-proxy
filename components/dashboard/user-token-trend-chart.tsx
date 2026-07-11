@@ -59,7 +59,7 @@ export function UserTokenTrendChart({ users, data }: { users: UserLine[]; data: 
             ))}
           </LineChart>
         </ResponsiveContainer>
-        {!hasData && <div className="throughput-empty mono">当前时间范围暂无用户 Token 数据</div>}
+        {!hasData && <div className="chart-empty mono">当前时间范围暂无用户 Token 数据</div>}
       </div>
       {users.length > 0 && (
         <div className="user-token-legend">

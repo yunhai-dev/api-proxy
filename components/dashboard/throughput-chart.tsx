@@ -117,7 +117,7 @@ export function ThroughputChart({ series }: { series: Point[] }) {
             />
           </AreaChart>
         </ResponsiveContainer>
-        {!hasTraffic && <div className="throughput-empty mono">当前时间范围暂无吞吐数据</div>}
+        {!hasTraffic && <div className="chart-empty mono">当前时间范围暂无吞吐数据</div>}
       </div>
     </section>
   );

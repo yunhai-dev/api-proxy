@@ -14,7 +14,7 @@ const COLORS = [
 
 export function ChannelTrafficChart({ data }: { data: ChannelTraffic[] }) {
   const total = data.reduce((sum, row) => sum + row.n, 0);
-  if (total === 0) return <div className="empty">暂无流量数据 <span className="mono">// waiting</span></div>;
+  if (total === 0) return <div className="chart-empty-wrap"><div className="chart-empty mono">当前时间范围暂无渠道流量数据</div></div>;
 
   return (
     <div className="traffic-pie-wrap">

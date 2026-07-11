@@ -161,6 +161,19 @@
   .settings-panel .settings-card-foot { @apply mt-6 flex items-center justify-end gap-3 border-t border-dashed pt-4; }
   .settings-panel .settings-card-foot .btn { @apply h-9 px-5 text-sm shadow-sm; }
   .settings-panel .settings-card-foot::before { content: "修改后请记得保存"; @apply mr-auto text-xs text-muted-foreground; }
+  .archive-panel { @apply rounded-lg border bg-muted/20 p-4; }
+  .archive-panel + .archive-panel { @apply mt-4; }
+  .archive-panel.danger-zone { @apply border-destructive/20 bg-destructive/5; }
+  .archive-panel-head { @apply mb-3 flex items-start justify-between gap-3; }
+  .archive-panel-head h3 { @apply text-sm font-semibold text-foreground; }
+  .archive-panel-head p { @apply mt-1 text-xs leading-5 text-muted-foreground; }
+  .archive-panel .page-actions { @apply mt-0; }
+  .archive-fields { @apply mt-3; }
+  .archive-actions { @apply mt-4 flex flex-wrap items-center gap-2; }
+  .archive-count { @apply rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground; }
+  .archive-confirm { @apply mt-4 flex items-start gap-2 rounded-md border bg-background/70 px-3 py-2 text-sm; }
+  .archive-confirm input { @apply mt-0.5; }
+  .archive-delete-row { @apply mt-4 flex flex-wrap items-center gap-3 border-t border-destructive/20 pt-4; }
   .stat .label,
   .perf-card .label { @apply text-[11px] font-medium uppercase tracking-wide text-muted-foreground; }
   .stat .value,
@@ -170,6 +183,7 @@
   .stat .meta,
   .stat .extra,
   .perf-card .hint { @apply mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground; }
+  .perf-card { @apply p-2.5; }
   .delta-up { color: hsl(var(--ok)); }
   .delta-down { color: hsl(var(--err)); }
 
@@ -319,6 +333,20 @@
   .combo-empty { @apply px-2 py-3 text-center text-sm text-muted-foreground; }
   .select-chevron,
   .combo-toggle::before { @apply inline-block h-0 w-0 border-x-4 border-t-4 border-x-transparent border-t-muted-foreground; content: ""; }
+
+  .model-picker { @apply rounded-lg border bg-muted/20 p-3; }
+  .model-picker legend { @apply px-1 text-xs font-medium text-muted-foreground; }
+  .model-tools { @apply mb-2 flex justify-end; }
+  .model-add-row { @apply flex gap-2; }
+  .combo { @apply relative min-w-0 flex-1; }
+  .combo input { @apply h-8 w-full rounded-md border border-input bg-background px-3 pr-8 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-ring/40 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring; }
+  .combo-toggle { @apply absolute right-0 top-0 flex h-8 w-8 items-center justify-center rounded-r-md; }
+  .combo-menu { @apply absolute left-0 right-0 top-full mt-1; }
+  .combo-item { @apply justify-between; }
+  .model-custom-list { @apply mt-3 flex flex-wrap gap-2; }
+  .chip-removable { @apply inline-flex max-w-full items-center gap-1 rounded-full border bg-background px-2 py-1 text-xs shadow-sm; }
+  .chip-removable > span { @apply min-w-0 truncate; }
+  .chip-removable button { @apply inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground; }
 
   .modal-backdrop,
   .model-detail-backdrop { @apply fixed inset-0 z-50 flex items-start justify-center bg-background/75 p-4 pt-16 backdrop-blur-sm; }
@@ -500,9 +528,8 @@
   .settings-grid,
   .settings-lower-grid,
   .account-grid,
-  .perf-grid,
-  .channel-health-grid,
-  .user-token-legend { @apply grid gap-3; }
+  .channel-health-grid { @apply grid gap-3; }
+  .perf-grid { @apply grid gap-2 sm:grid-cols-2 xl:grid-cols-3; }
   .settings-grid { @apply lg:grid-cols-3; }
   .settings-panel .settings-grid { @apply lg:grid-cols-1; }
   .settings-lower-grid,
@@ -533,6 +560,30 @@
   .pricing-provider-option.openai.active,
   .provider-tab.openai.active { color: hsl(var(--openai)); }
   .range-form { @apply mb-3 flex flex-wrap items-end gap-2; }
+  .user-token-legend { @apply mt-3 flex flex-wrap gap-2; }
+  .user-token-legend.compact { @apply mt-0 px-3; }
+  .user-token-legend-row { @apply inline-flex min-w-0 items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground shadow-sm; }
+  .user-token-legend-row i { @apply h-2 w-2 shrink-0 rounded-full; }
+  .user-token-legend-row span { @apply min-w-0 truncate; }
+  .user-token-legend-row strong { @apply text-foreground; }
+  .throughput-chart,
+  .model-usage-chart,
+  .ranking-bar-chart,
+  .chart-empty-wrap { @apply relative; }
+  .chart-empty { @apply pointer-events-none absolute left-1/2 top-1/2 z-10 w-fit max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full border bg-background/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-sm; }
+  .chart-empty::before { content: ""; @apply mr-2 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50 align-middle; }
+  .chart-empty-wrap { @apply min-h-60; }
+  .traffic-pie-wrap { @apply grid gap-3 lg:grid-cols-[260px_1fr] lg:items-center; }
+  .traffic-pie { @apply relative min-h-60; }
+  .traffic-pie-total { @apply pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center; }
+  .traffic-pie-total span { @apply text-xl font-semibold; }
+  .traffic-pie-total small { @apply text-xs text-muted-foreground; }
+  .traffic-pie-legend { @apply grid gap-2; }
+  .traffic-legend-row { @apply grid grid-cols-[0.5rem_minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-lg border bg-background px-2.5 py-2 text-xs shadow-sm; }
+  .traffic-legend-row i { @apply h-2 w-2 rounded-full; }
+  .traffic-legend-row .name { @apply truncate; }
+  .traffic-legend-row .pct { @apply text-foreground; }
+  .traffic-legend-row .count { @apply text-muted-foreground; }
   .range-presets { @apply flex min-h-8 flex-wrap items-center gap-1 rounded-md bg-muted/40 p-1; }
   .range-presets .btn { @apply h-7 border-transparent bg-transparent px-2.5 text-xs shadow-none hover:bg-background; }
   .range-field { @apply grid min-w-0 gap-1; }

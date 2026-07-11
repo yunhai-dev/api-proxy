@@ -48,6 +48,15 @@ type ChannelOption = {
   models: string[];
 };
 
+type ArchiveType = "request_logs" | "channel_test_logs" | "activities";
+type ArchivePreview = { type: ArchiveType; before: number; count: number };
+
+const archiveTypeOptions = [
+  { value: "request_logs", label: "请求日志" },
+  { value: "channel_test_logs", label: "渠道测试日志" },
+  { value: "activities", label: "审计日志" },
+];
+
 const announcementModeOptions = [
   { value: "marquee", label: "轮播滚动" },
   { value: "modal", label: "弹窗" },
@@ -67,7 +76,7 @@ const settingsTabs = [
   { id: "announcement", label: "公告" },
   { id: "site-mail", label: "网站与邮件" },
   { id: "config", label: "配置导入/导出" },
-  { id: "logs", label: "日志导出" },
+  { id: "logs", label: "日志归档" },
   { id: "limits", label: "默认用户限制" },
 ] as const;
 
@@ -83,7 +92,12 @@ export function SettingsForm() {
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [importText, setImportText] = useState("");
   const [testEmail, setTestEmail] = useState("");
+  const [archiveType, setArchiveType] = useState<ArchiveType>("request_logs");
+  const [archiveDate, setArchiveDate] = useState("");
+  const [archivePreview, setArchivePreview] = useState<ArchivePreview | null>(null);
+  const [archiveConfirmed, setArchiveConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
 
   useEffect(() => {
@@ -147,10 +161,61 @@ export function SettingsForm() {
     toast(r.ok ? "测试邮件已发送" : data.error || "发送失败");
   }
 
+  function archiveBefore() {
+    if (!archiveDate) return null;
+    const value = new Date(`${archiveDate}T00:00:00`).getTime();
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function archiveUrl() {
+    const before = archiveBefore();
+    return before ? `/api/export?type=${archiveType}&format=csv&before=${before}` : `/api/export?type=${archiveType}&format=csv`;
+  }
+
+  async function previewArchive() {
+    const before = archiveBefore();
+    if (!before) { toast("请选择截止日期"); return; }
+    setArchiveBusy(true);
+    try {
+      const params = new URLSearchParams({ type: archiveType, before: String(before) });
+      const r = await fetch(`/api/settings/archive?${params}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(data.error || "预览失败"); return; }
+      setArchivePreview(data);
+      setArchiveConfirmed(false);
+      toast(`将清理 ${data.count ?? 0} 条数据`);
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
+  async function deleteArchive() {
+    const before = archiveBefore();
+    if (!before || !archivePreview) { toast("请先预览清理数量"); return; }
+    if (!archiveConfirmed) { toast("请先确认已下载归档"); return; }
+    if (!confirm(`确认删除 ${archivePreview.count} 条旧数据？此操作不可恢复。`)) return;
+    setArchiveBusy(true);
+    try {
+      const r = await fetch("/api/settings/archive", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: archiveType, before, archiveConfirmed, confirm: "DELETE" }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(data.error || "删除失败"); return; }
+      toast(`已删除 ${data.deleted ?? 0} 条旧数据`);
+      setArchivePreview(null);
+      setArchiveConfirmed(false);
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
   if (!settings) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
   const fallbackChannel = channels.find(channel => channel.id === settings.fallbackChannelId);
   const fallbackModelOptions = fallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
+  const archiveReady = !!archivePreview && archivePreview.type === archiveType && archivePreview.before === archiveBefore();
 
   return (
     <div className="settings-panel">
@@ -285,13 +350,52 @@ export function SettingsForm() {
         </div>
 
         <div className="settings-card" hidden={activeTab !== "logs"}>
-          <h2>日志导出</h2>
-          <div className="page-actions settings-export-actions" style={{ margin: 0 }}>
-            <a className="btn" href="/api/export?type=request_logs&format=csv" target="_blank">请求日志 CSV</a>
-            <a className="btn" href="/api/export?type=channel_test_logs&format=csv" target="_blank">渠道测试 CSV</a>
-            <a className="btn" href="/api/export?type=activities&format=csv" target="_blank">审计日志 CSV</a>
+          <h2>日志导出与清理</h2>
+          <div className="archive-panel">
+            <div className="archive-panel-head">
+              <div>
+                <h3>直接导出</h3>
+                <p>导出完整 CSV，不会删除任何数据。</p>
+              </div>
+            </div>
+            <div className="page-actions settings-export-actions">
+              <a className="btn" href="/api/export?type=request_logs&format=csv" target="_blank">请求日志 CSV</a>
+              <a className="btn" href="/api/export?type=channel_test_logs&format=csv" target="_blank">渠道测试 CSV</a>
+              <a className="btn" href="/api/export?type=activities&format=csv" target="_blank">审计日志 CSV</a>
+            </div>
           </div>
-          {renderSaveButton()}
+
+          <div className="archive-panel danger-zone">
+            <div className="archive-panel-head">
+              <div>
+                <h3>归档并清理旧数据</h3>
+                <p>先按截止日期下载归档，再手动确认删除旧记录。</p>
+              </div>
+            </div>
+            <div className="field-row archive-fields">
+              <div className="field">
+                <label>清理类型</label>
+                <Select className="fill-select" value={archiveType} onChange={value => { setArchiveType(value as ArchiveType); setArchivePreview(null); setArchiveConfirmed(false); }} options={archiveTypeOptions} />
+              </div>
+              <div className="field">
+                <label>删除早于此日期的数据</label>
+                <input className="mono" type="date" value={archiveDate} onChange={e => { setArchiveDate(e.target.value); setArchivePreview(null); setArchiveConfirmed(false); }} />
+              </div>
+            </div>
+            <div className="archive-actions">
+              <button className="btn" type="button" onClick={previewArchive} disabled={archiveBusy}>{archiveBusy ? "处理中…" : "预览数量"}</button>
+              <a className={`btn ${archiveBefore() ? "" : "disabled"}`} href={archiveUrl()} target="_blank" aria-disabled={!archiveBefore()}>下载归档 CSV</a>
+              {archivePreview && <span className="archive-count mono">将清理 {archivePreview.count.toLocaleString()} 条</span>}
+            </div>
+            <label className="archive-confirm">
+              <input type="checkbox" checked={archiveConfirmed} onChange={e => setArchiveConfirmed(e.target.checked)} disabled={!archiveReady} />
+              <span>我已下载并保存归档文件，确认可以删除旧数据。</span>
+            </label>
+            <div className="archive-delete-row">
+              <button className="btn danger" type="button" onClick={deleteArchive} disabled={!archiveReady || !archiveConfirmed || archiveBusy}>删除旧数据</button>
+              <span className="hint">删除后无法从数据库恢复。</span>
+            </div>
+          </div>
         </div>
 
         <div className="settings-card" hidden={activeTab !== "limits"}>

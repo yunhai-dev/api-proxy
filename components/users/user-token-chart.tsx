@@ -15,10 +15,18 @@ function fmtToken(value: number) {
   return `${(value / 1_000_000).toFixed(2)}M`;
 }
 
+const SERIES = [
+  { key: "input", color: "oklch(0.78 0.13 75)" },
+  { key: "output", color: "oklch(0.74 0.16 245)" },
+  { key: "cacheRead", color: "oklch(0.70 0.13 150)" },
+  { key: "cacheCreation", color: "oklch(0.72 0.13 35)" },
+] as const;
+
 export function UserTokenChart({ data }: { data: Point[] }) {
   const first = data[0]?.ts ?? 0;
   const last = data[data.length - 1]?.ts ?? 0;
   const showDate = last - first >= 24 * 60 * 60 * 1000;
+  const hasData = data.some(point => SERIES.some(series => point[series.key] > 0));
   return (
     <div className="throughput-chart">
       <ResponsiveContainer width="100%" height={260}>
@@ -31,12 +39,20 @@ export function UserTokenChart({ data }: { data: Point[] }) {
             labelFormatter={value => fmtTime(Number(value), true)}
             formatter={(value, name) => [fmtToken(Number(value)), label(name as string)]}
           />
-          <Line type="monotone" dataKey="input" stroke="oklch(0.78 0.13 75)" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="output" stroke="oklch(0.74 0.16 245)" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="cacheRead" stroke="oklch(0.70 0.13 150)" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="cacheCreation" stroke="oklch(0.72 0.13 35)" strokeWidth={2} dot={false} />
+          {SERIES.map(series => (
+            <Line key={series.key} type="monotone" dataKey={series.key} stroke={series.color} strokeWidth={2} dot={false} />
+          ))}
         </LineChart>
       </ResponsiveContainer>
+      <div className="user-token-legend compact">
+        {SERIES.map(series => (
+          <div key={series.key} className="user-token-legend-row">
+            <i style={{ background: series.color }} />
+            <span>{label(series.key)}</span>
+          </div>
+        ))}
+      </div>
+      {!hasData && <div className="chart-empty mono">当前时间范围暂无 Token 数据</div>}
     </div>
   );
 }

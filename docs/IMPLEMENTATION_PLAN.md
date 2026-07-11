@@ -152,6 +152,16 @@
 | 3 | 流式 prelude/commit 与槽位释放 | 完成 | 首次可见输出后继续实时透传 |
 | 4 | 类型检查与构建验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
 
+## 数据归档与清理
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 归档清理设计与阶段拆分 | 完成 | 详见 [`docs/plan/data-archive-cleanup.md`](./plan/data-archive-cleanup.md) |
+| 2 | 导出接口支持截止时间过滤 | 完成 | `request_logs`、`channel_test_logs`、`activities` |
+| 3 | 设置页新增预览与删除接口 | 完成 | 管理员手动确认后删除旧数据 |
+| 4 | 设置页日志归档清理 UI | 完成 | 先下载归档，再确认删除 |
+| 5 | 类型检查与代表性验证 | 完成 | `bunx tsc --noEmit` 通过 |
+
 ## 技术决策
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
