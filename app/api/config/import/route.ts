@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { usePostgres } from "@/lib/db/runtime";
 import { validateCapabilities } from "@/lib/protocol-capabilities";
+import { validateUpstreamBaseUrl } from "@/lib/upstream";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
   for (const row of Array.isArray(body.channels) ? body.channels : []) {
     if (!row?.id || !row.name || !row.type || !row.baseUrl) continue;
     const capabilities = validateCapabilities(row.capabilities);
-    if (!capabilities.ok) continue;
+    if (!capabilities.ok || validateUpstreamBaseUrl(row.baseUrl)) continue;
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.channels).where(eq(pg.pgSchema.channels.id, row.id)).limit(1))[0]
       : db.select().from(schema.channels).where(eq(schema.channels.id, row.id)).get();

@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
 import { validateCapabilities } from "@/lib/protocol-capabilities";
+import { validateUpstreamBaseUrl } from "@/lib/upstream";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -21,7 +22,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (typeof body.testModel === "string") update.testModel = body.testModel.trim();
       if (typeof body.enabled === "boolean") update.enabled = body.enabled;
       if (Array.isArray(body.models)) update.models = body.models;
-      if (typeof body.baseUrl === "string" && body.baseUrl.trim()) update.baseUrl = body.baseUrl.trim();
+      if (body.baseUrl !== undefined) {
+        const baseUrlError = validateUpstreamBaseUrl(body.baseUrl);
+        if (baseUrlError) return NextResponse.json({ error: baseUrlError }, { status: 400 });
+        update.baseUrl = body.baseUrl.trim();
+      }
       if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
       if (body.type === "claude" || body.type === "openai") update.type = body.type;
       if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;
@@ -52,7 +57,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (typeof body.testModel === "string") update.testModel = body.testModel.trim();
     if (typeof body.enabled === "boolean") update.enabled = body.enabled;
     if (Array.isArray(body.models)) update.models = body.models;
-    if (typeof body.baseUrl === "string" && body.baseUrl.trim()) update.baseUrl = body.baseUrl.trim();
+    if (body.baseUrl !== undefined) {
+      const baseUrlError = validateUpstreamBaseUrl(body.baseUrl);
+      if (baseUrlError) return NextResponse.json({ error: baseUrlError }, { status: 400 });
+      update.baseUrl = body.baseUrl.trim();
+    }
     if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
     if (body.type === "claude" || body.type === "openai") update.type = body.type;
     if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;

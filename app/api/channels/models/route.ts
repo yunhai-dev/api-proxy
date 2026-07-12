@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { usePostgres } from "@/lib/db/runtime";
-import { modelsEndpointFor } from "@/lib/upstream";
+import { modelsEndpointFor, validateUpstreamBaseUrl } from "@/lib/upstream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
   if (type !== "claude" && type !== "openai") {
     return NextResponse.json({ error: "请选择服务商" }, { status: 400 });
   }
-  if (!baseUrl) return NextResponse.json({ error: "请输入基础地址" }, { status: 400 });
+  const baseUrlError = validateUpstreamBaseUrl(baseUrl);
+  if (baseUrlError) return NextResponse.json({ error: baseUrlError }, { status: 400 });
   if (!apiKey) return NextResponse.json({ error: "请输入 API 密钥" }, { status: 400 });
 
   const controller = new AbortController();

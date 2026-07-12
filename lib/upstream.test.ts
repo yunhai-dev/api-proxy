@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { headersFor } from "./upstream";
+import { headersFor, validateUpstreamBaseUrl } from "./upstream";
 
 describe("upstream headers", () => {
   test("replaces credentials and forwards only allowlisted OpenAI headers", () => {
@@ -27,5 +27,16 @@ describe("upstream headers", () => {
     expect(headers.get("x-api-key")).toBe("upstream-secret");
     expect(headers.get("anthropic-version")).toBe("2026-01-01");
     expect(headers.get("anthropic-beta")).toBe("feature-2026-01-01");
+  });
+});
+
+describe("upstream URL validation", () => {
+  test("accepts HTTPS URLs and rejects unsafe URLs", () => {
+    expect(validateUpstreamBaseUrl("https://api.example.com/v1")).toBeNull();
+    expect(validateUpstreamBaseUrl("http://api.example.com")).toBe(
+      process.env.NODE_ENV === "production" ? "生产环境渠道地址必须使用 HTTPS" : null,
+    );
+    expect(validateUpstreamBaseUrl("https://user:pass@example.com")).not.toBeNull();
+    expect(validateUpstreamBaseUrl("not a URL")).not.toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
 import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
 import { validateCapabilities } from "@/lib/protocol-capabilities";
+import { validateUpstreamBaseUrl } from "@/lib/upstream";
 
 export async function GET(req: NextRequest) {
   try {
@@ -69,11 +70,13 @@ export async function POST(req: NextRequest) {
   }
   const capabilities = validateCapabilities(body.capabilities);
   if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
+  const baseUrlError = validateUpstreamBaseUrl(body.baseUrl);
+  if (baseUrlError) return NextResponse.json({ error: baseUrlError }, { status: 400 });
   const row = {
     id: "c_" + nanoid(8),
     name: body.name.trim(),
     type: body.type as "claude" | "openai",
-    baseUrl: body.baseUrl ?? "",
+    baseUrl: body.baseUrl.trim(),
     apiKey: body.apiKey ?? "sk-" + nanoid(32),
     weight: Number(body.weight) || 1,
     maxConcurrency: Math.max(0, Number(body.maxConcurrency) || 0),

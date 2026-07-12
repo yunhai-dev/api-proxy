@@ -38,6 +38,20 @@ export type UpstreamResult = UpstreamOk | UpstreamErr;
 
 const DEFAULT_TIMEOUT = 60_000;
 
+export function validateUpstreamBaseUrl(baseUrl: unknown): string | null {
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) return "请输入基础地址";
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && url.protocol === "http:")) {
+      return "生产环境渠道地址必须使用 HTTPS";
+    }
+    if (url.username || url.password) return "渠道地址不能包含用户名或密码";
+    return null;
+  } catch {
+    return "基础地址无效";
+  }
+}
+
 export function apiUrl(baseUrl: string, endpoint: string): string {
   const base = baseUrl.replace(/\/+$/, "");
   const version = /\/v\d+$/.test(base) ? "" : "/v1";
