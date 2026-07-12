@@ -948,6 +948,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
+        await settleTpm(null);
         await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error }, { failureStatus: "err" });
         attempts.push({ channel: route.channel.name, error, status: 502 });
         lastError = `${route.channel.name}: ${error}`;
