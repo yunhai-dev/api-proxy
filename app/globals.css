@@ -248,7 +248,9 @@
   .confirm-text { @apply text-sm text-foreground; }
   .confirm-sub { @apply mt-1 text-xs text-muted-foreground; }
   .logs-table { @apply min-w-full; }
-  .channels-table .models { @apply cursor-help; }
+  .channels-table .models { @apply flex max-w-72 cursor-help flex-wrap gap-1; }
+  .channels-table .model { @apply inline-flex max-w-48 truncate rounded-md border bg-muted/30 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-foreground; }
+  .channels-table .model.dim { @apply border-dashed bg-transparent text-muted-foreground; }
   .channels-table td:last-child { @apply overflow-visible; }
   .row-actions-menu { @apply relative inline-flex justify-end; }
   .row-actions-popover { @apply z-30 grid min-w-24 overflow-hidden rounded-md border bg-popover p-1 text-left text-sm text-popover-foreground shadow-lg; }
@@ -337,6 +339,12 @@
   .model-picker { @apply rounded-lg border bg-muted/20 p-3; }
   .model-picker legend { @apply px-1 text-xs font-medium text-muted-foreground; }
   .model-tools { @apply mb-2 flex justify-end; }
+  .fetched-model-picker { @apply mb-3 rounded-md border bg-background p-2; }
+  .fetched-model-head { @apply mb-2 flex items-center justify-between text-xs font-medium text-foreground; }
+  .fetched-model-list { @apply grid max-h-40 gap-1 overflow-y-auto pr-1; }
+  .fetched-model-option { @apply flex min-w-0 items-center gap-2 rounded-sm px-1 py-1 hover:bg-muted/60; }
+  .fetched-model-option label { @apply min-w-0 cursor-pointer truncate text-xs font-normal; }
+  .fetched-model-actions { @apply mt-2 flex justify-end gap-1 border-t pt-2; }
   .model-add-row { @apply flex gap-2; }
   .combo { @apply relative min-w-0 flex-1; }
   .combo input { @apply h-8 w-full rounded-md border border-input bg-background px-3 pr-8 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-ring/40 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring; }

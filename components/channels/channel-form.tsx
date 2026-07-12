@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/toast";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
 const PREDEFINED: Record<"claude" | "openai", string[]> = {
@@ -45,13 +48,17 @@ export function ChannelForm({
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [customModel, setCustomModel] = useState("");
+  const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
+  const [selectedFetchedModels, setSelectedFetchedModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const fetchSeqRef = useRef(0);
 
   // 由父组件通过 trigger 打开
   useEffect(() => {
     if (!trigger) return;
+    resetFetchedModels();
     if (trigger === "add") {
       setEditingId(null);
       setName(""); setType("claude"); setBaseUrl(""); setWeight("1"); setMaxConcurrency("0"); setMonitorIntervalSec("0");
@@ -77,12 +84,26 @@ export function ChannelForm({
   useEffect(() => {
     if (!open) return;
     firstFieldRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (fetchedModels !== null) resetFetchedModels();
+      else close();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, fetchedModels]);
 
-  function close() { setOpen(false); }
+  useEffect(() => {
+    if (open) resetFetchedModels();
+  }, [type, baseUrl, apiKey]);
+
+  function resetFetchedModels() {
+    fetchSeqRef.current += 1;
+    setFetchedModels(null);
+    setSelectedFetchedModels([]);
+  }
+
+  function close() { resetFetchedModels(); setOpen(false); }
 
   function addCustomModel() {
     const m = customModel.trim();
@@ -128,6 +149,9 @@ export function ChannelForm({
   async function fetchModels() {
     if (!baseUrl.trim()) { toast("请输入基础地址"); return; }
     if (!editingId && !apiKey.trim()) { toast("请输入 API 密钥"); return; }
+    const seq = ++fetchSeqRef.current;
+    setFetchedModels(null);
+    setSelectedFetchedModels([]);
     setFetchingModels(true);
     try {
       const r = await fetch("/api/channels/models", {
@@ -136,12 +160,24 @@ export function ChannelForm({
         body: JSON.stringify({ id: editingId, type, baseUrl, apiKey }),
       });
       const data = await r.json().catch(() => ({}));
+      if (seq !== fetchSeqRef.current) return;
       if (!r.ok) { toast(data.error || "拉取失败"); return; }
-      setModels(data.models ?? []);
-      toast(`已拉取 ${data.models?.length ?? 0} 个模型`);
+      const fetched: string[] = Array.isArray(data.models) ? data.models.filter((m: unknown): m is string => typeof m === "string" && !!m) : [];
+      setFetchedModels(fetched);
+      setSelectedFetchedModels(fetched.filter(m => models.includes(m)));
+      toast(`已拉取 ${fetched.length} 个模型`);
     } finally {
-      setFetchingModels(false);
+      if (seq === fetchSeqRef.current) setFetchingModels(false);
     }
+  }
+
+  function toggleFetchedModel(model: string) {
+    setSelectedFetchedModels(prev => prev.includes(model) ? prev.filter(item => item !== model) : [...prev, model]);
+  }
+
+  function confirmFetchedModels() {
+    setModels(prev => [...prev, ...selectedFetchedModels.filter(model => !prev.includes(model))]);
+    resetFetchedModels();
   }
 
   const isEdit = !!editingId;
@@ -172,7 +208,7 @@ export function ChannelForm({
                   <Select
                     className="fill-select"
                     value={type}
-                    onChange={v => setType(v as "claude" | "openai")}
+                    onChange={v => { resetFetchedModels(); setType(v as "claude" | "openai"); }}
                     options={[
                       { value: "claude", label: "claude" },
                       { value: "openai", label: "openai" },
@@ -234,7 +270,7 @@ export function ChannelForm({
                   className="mono"
                   placeholder="https://api.anthropic.com"
                   value={baseUrl}
-                  onChange={e => setBaseUrl(e.target.value)}
+                  onChange={e => { resetFetchedModels(); setBaseUrl(e.target.value); }}
                 />
               </div>
               <div className="field">
@@ -244,7 +280,7 @@ export function ChannelForm({
                   className="mono"
                   placeholder={isEdit ? "留空保持原值" : "sk-…"}
                   value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
+                  onChange={e => { resetFetchedModels(); setApiKey(e.target.value); }}
                 />
                 {isEdit && <div className="hint">出于安全，编辑时不回显现有密钥。</div>}
               </div>
@@ -257,6 +293,11 @@ export function ChannelForm({
                 onAddCustom={addCustomModel}
                 onFetchModels={fetchModels}
                 fetchingModels={fetchingModels}
+                fetchedModels={fetchedModels}
+                selectedFetchedModels={selectedFetchedModels}
+                onToggleFetchedModel={toggleFetchedModel}
+                onConfirmFetchedModels={confirmFetchedModels}
+                onCancelFetchedModels={resetFetchedModels}
               />
             </div>
             <div className="modal-foot">
@@ -275,7 +316,8 @@ export function ChannelForm({
 function ModelMultiSelect({
   value, onChange, predefined,
   customModel, onCustomModelChange, onAddCustom,
-  onFetchModels, fetchingModels,
+  onFetchModels, fetchingModels, fetchedModels, selectedFetchedModels,
+  onToggleFetchedModel, onConfirmFetchedModels, onCancelFetchedModels,
 }: {
   value: string[];
   onChange: (v: string[]) => void;
@@ -285,6 +327,11 @@ function ModelMultiSelect({
   onAddCustom: () => void;
   onFetchModels: () => void;
   fetchingModels: boolean;
+  fetchedModels: string[] | null;
+  selectedFetchedModels: string[];
+  onToggleFetchedModel: (model: string) => void;
+  onConfirmFetchedModels: () => void;
+  onCancelFetchedModels: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -340,10 +387,38 @@ function ModelMultiSelect({
       </legend>
 
       <div className="model-tools">
-        <button type="button" className="btn sm ghost" onClick={onFetchModels} disabled={fetchingModels}>
+        <Button type="button" variant="outline" size="sm" onClick={onFetchModels} disabled={fetchingModels}>
           {fetchingModels ? "拉取中…" : "从上游拉取"}
-        </button>
+        </Button>
       </div>
+
+      {fetchedModels !== null && (
+        <div className="fetched-model-picker">
+          <div className="fetched-model-head">
+            <span>上游模型</span>
+            <span className="dim mono">已勾选 {selectedFetchedModels.length}</span>
+          </div>
+          {fetchedModels.length === 0 ? (
+            <div className="hint">上游未返回可用模型。</div>
+          ) : (
+            <div className="fetched-model-list">
+              {fetchedModels.map(model => {
+                const id = `fetched-model-${model}`;
+                return (
+                  <div className="fetched-model-option" key={model}>
+                    <Checkbox id={id} checked={selectedFetchedModels.includes(model)} onCheckedChange={() => onToggleFetchedModel(model)} />
+                    <Label htmlFor={id} className="mono">{model}</Label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="fetched-model-actions">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancelFetchedModels}>取消</Button>
+            <Button type="button" size="sm" onClick={onConfirmFetchedModels} disabled={selectedFetchedModels.length === 0}>确认添加</Button>
+          </div>
+        </div>
+      )}
 
       <div className="model-add-row" ref={wrapRef}>
         <div className={`combo ${open ? "open" : ""}`}>

@@ -136,7 +136,22 @@ export function MappingsTable() {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { toast(data.error || "更新失败"); return; }
-      toast("已更新模型映射");
+
+      const results = await Promise.all(inboundList.slice(1).map(inboundModel => fetch("/api/model-mappings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider, targetProvider, inboundModel, upstreamModel, channelIds, enabled: editing.enabled }),
+      }).then(async response => ({ inboundModel, ok: response.ok, data: await response.json().catch(() => ({})) }))));
+      const failedRows = results.filter(result => !result.ok).map(result => `${result.inboundModel}: ${result.data?.error || "创建失败"}`);
+      setFailures(failedRows);
+      if (failedRows.length > 0) {
+        setInboundModels([inboundList[0], ...failedRows.map(item => item.split(":")[0])].join("\n"));
+        toast(`已更新 1 条、创建 ${results.length - failedRows.length} 条，失败 ${failedRows.length} 条`);
+        load();
+        return;
+      }
+
+      toast(results.length > 0 ? `已更新 1 条、创建 ${results.length} 条模型映射` : "已更新模型映射");
       resetForm();
       setOpen(false);
       load();
@@ -261,7 +276,7 @@ export function MappingsTable() {
                   value={provider}
                   onChange={v => { setProvider(v as "claude" | "openai"); setUpstreamModel(""); setChannelIds([]); }}
                   disabled={!!editing}
-                  options={[{ value: "claude", label: "claude" }, { value: "openai", label: "openai" }]}
+                  options={[{ value: "claude", label: <span className="type-pill claude">Claude</span> }, { value: "openai", label: <span className="type-pill openai">OpenAI</span> }]}
                 />
                 {editing && <div className="hint">编辑时不修改服务商；如需切换服务商，请删除后重新创建。</div>}
               </div>
@@ -270,7 +285,7 @@ export function MappingsTable() {
                 <Select
                   value={targetProvider}
                   onChange={v => { setTargetProvider(v as "claude" | "openai"); setUpstreamModel(""); setChannelIds([]); }}
-                  options={[{ value: "claude", label: "claude" }, { value: "openai", label: "openai" }]}
+                  options={[{ value: "claude", label: <span className="type-pill claude">Claude</span> }, { value: "openai", label: <span className="type-pill openai">OpenAI</span> }]}
                 />
                 <div className="hint">上游服务商不同于入站服务商时，会启用协议转换。</div>
               </div>
@@ -298,9 +313,9 @@ export function MappingsTable() {
                   value={inboundModels}
                   onChange={e => setInboundModels(e.target.value)}
                   placeholder={"调用方使用的模型名，每行一个\n例如：claude-sonnet\n例如：sonnet-latest"}
-                  rows={editing ? 2 : 5}
+                  rows={5}
                 />
-                <div className="hint">{editing ? "编辑时只使用第一行。" : "每行创建一条映射；同一模型可以重复添加，用于聚合多个渠道。"}</div>
+                <div className="hint">{editing ? "第一行更新当前映射，其余每行创建一条新映射。" : "每行创建一条映射；同一模型可以重复添加，用于聚合多个渠道。"}</div>
               </div>
               <div className="field">
                 <label>上游模型</label>

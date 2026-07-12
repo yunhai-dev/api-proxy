@@ -173,6 +173,15 @@
 | 5 | 启动自动回填与设置页手动同步 | 完成 | 容器启动执行 schema init；设置页提供同步按钮 |
 | 6 | 类型检查与清理前后统计验证 | 完成 | `bunx tsc --noEmit` 通过；本地缺少 `DATABASE_URL`，未执行 schema 初始化 |
 
+## 渠道上游模型勾选确认
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 计划与 shadcn 复选组件 | [x] | 详见 [`docs/plan/channel-fetched-model-selection.md`](./plan/channel-fetched-model-selection.md) |
+| 2 | 渠道表单拆分拉取候选与已确认模型 | [x] | |
+| 3 | 候选模型复选确认 UI | [x] | |
+| 4 | 类型检查、构建与交互验证 | [x] | `bunx tsc --noEmit` / `bun run build` 通过；上游联调需有效渠道凭据 |
+
 ## 技术决策
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
