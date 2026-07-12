@@ -63,6 +63,23 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
       </section>
 
       <section className="section section-stack">
+        <div className="section-head-inline"><h2>协议桥接</h2><span className="mono dim">仅统计已审计记录</span></div>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>方向</th><th>请求</th><th>成功率</th><th>拒绝</th><th>TTFT P50</th><th>Duration P50</th></tr></thead>
+            <tbody>
+              {[
+                ["原生", stats.bridgeObservability.native],
+                ["OpenAI → Claude", stats.bridgeObservability.openaiToClaude],
+                ["Claude → OpenAI", stats.bridgeObservability.claudeToOpenai],
+              ].map(([label, value]) => <tr key={label as string}><td>{label as string}</td><td className="mono">{(value as typeof stats.bridgeObservability.native).requests.toLocaleString()}</td><td className="mono">{(value as typeof stats.bridgeObservability.native).successRate.toFixed(1)}%</td><td className="mono">{(value as typeof stats.bridgeObservability.native).compatibilityRejections.toLocaleString()}</td><td className="mono">{(value as typeof stats.bridgeObservability.native).ttftP50Ms}ms</td><td className="mono">{(value as typeof stats.bridgeObservability.native).durationP50Ms}ms</td></tr>)}
+              <tr><td>未分类</td><td className="mono">{stats.bridgeObservability.unclassifiedRequests.toLocaleString()}</td><td colSpan={4} className="dim">未启用详情或桥接审计的请求不会被推定为原生请求</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="section section-stack">
         <div className="section-head-inline"><h2>渠道流量</h2><span className="mono dim">按请求量占比</span></div>
         <ChannelTrafficChart data={stats.trafficByChannel} />
       </section>
