@@ -381,6 +381,7 @@ async function requestDetail(input: {
   upstreamRequestId?: string | null;
   requiredCapabilities?: string[];
   capabilityProfile?: string[];
+  compatibilityRejection?: string;
 }) {
   const settings = await getSettingsAsync();
   if (!settings.recordAllRequestDetails) return null;
@@ -398,6 +399,7 @@ async function requestDetail(input: {
     capabilities: input.targetType && input.type !== input.targetType
       ? { required: input.requiredCapabilities ?? [], selected: input.capabilityProfile ?? [] }
       : null,
+    compatibility_rejection: input.compatibilityRejection ?? null,
     fallback: input.fallbackReason ? { reason: input.fallbackReason } : null,
     attempts: input.attempts ?? [],
     request_headers: sanitizeHeaders(input.requestHeaders),
@@ -435,6 +437,7 @@ async function recordFailure(input: {
   upstreamModel?: string;
   mappingId?: string;
   mappedChannelIds?: string[];
+  compatibilityRejection?: string;
   key?: typeof schema.keys.$inferSelect;
   channel?: ChannelCandidate;
   attempts?: { channel: string; error: string; status: number }[];
@@ -463,7 +466,7 @@ async function recordFailure(input: {
     cacheTokens: 0,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
-    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body, attempts: input.attempts }),
+    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body, attempts: input.attempts, compatibilityRejection: input.compatibilityRejection }),
     errorMsg: failureDetail({
       requestId: input.requestId,
       type: input.type,
@@ -693,7 +696,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], compatibilityRejection: req.type !== fallbackChannel.type ? error : undefined, key, channel: fallbackChannel });
       await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };
@@ -869,7 +872,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       upstreamBody = await routeBody(route);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, compatibilityRejection: req.type !== route.targetProvider ? error : undefined, key, channel: route.channel });
       await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };
