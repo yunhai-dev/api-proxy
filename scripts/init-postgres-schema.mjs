@@ -115,6 +115,7 @@ const statements = [
     request_detail text,
     error_msg text
   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS request_logs_key_request_id_idx ON request_logs (key_id, request_id) WHERE key_id <> '' AND request_id <> ''`,
   `CREATE TABLE IF NOT EXISTS request_stats (
     raw_log_id integer PRIMARY KEY,
     request_id text NOT NULL DEFAULT '',

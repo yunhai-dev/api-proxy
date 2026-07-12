@@ -1,5 +1,5 @@
 import { db, schema } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { LogEntry, LogListEntry } from "./types";
 import { getRedis } from "@/lib/redis";
 import { usePostgres } from "@/lib/db/runtime";
@@ -122,15 +122,21 @@ class LogHub {
         cacheCreationTokens: e.cacheCreationTokens ?? 0,
         requestDetail: e.requestDetail ?? null,
         errorMsg: e.errorMsg,
-      }).returning({ id: pgSchema.requestLogs.id });
+      }).onConflictDoNothing().returning({ id: pgSchema.requestLogs.id });
       rawLogId = Number(inserted[0]?.id ?? 0);
+      if (!rawLogId) {
+        const existing = (await tx.select({ id: pgSchema.requestLogs.id }).from(pgSchema.requestLogs)
+          .where(and(eq(pgSchema.requestLogs.keyId, e.keyId), eq(pgSchema.requestLogs.requestId, e.requestId))).limit(1))[0];
+        rawLogId = Number(existing?.id ?? 0);
+        return;
+      }
       const key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
       if (e.keyId) {
         const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
         await tx.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
         await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost, tx);
       }
-      if (rawLogId) await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
+      await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
     });
     const entry = logEntryFromInput(rawLogId, ts, e);
     const listEntry = toLogListEntry(entry);

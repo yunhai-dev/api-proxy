@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, pgTable, real, serial, text, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const keys = pgTable("keys", {
@@ -60,7 +61,9 @@ export const requestLogs = pgTable("request_logs", {
   cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
   requestDetail: text("request_detail"),
   errorMsg: text("error_msg"),
-});
+}, table => [
+  uniqueIndex("request_logs_key_request_id_idx").on(table.keyId, table.requestId).where(sql`${table.keyId} <> '' AND ${table.requestId} <> ''`),
+]);
 
 export const requestStats = pgTable("request_stats", {
   rawLogId: integer("raw_log_id").primaryKey(),

@@ -267,5 +267,5 @@
 | 1 | 原生/桥接协议契约与严格预检 | [x] | 详见 [`docs/plan/enterprise-protocol-compatibility.md`](./plan/enterprise-protocol-compatibility.md) |
 | 2 | 支持子集转换与 SSE 完整性 | [x] | 覆盖 Chat/Responses ↔ Messages 的已支持子集及终止事件 |
 | 3 | 渠道与模型能力路由 | [x] | 渠道/模型 capability profile 已参与常规和回退选路 |
-| 4 | 上游传输、配额与可靠性加固 | [ ] | 传输边界、原子 TPM、队列与闭环/半开熔断已加固；请求日志、Key/用户额度与统计事实已在同一 PostgreSQL 事务内持久化，仍缺请求 ID 幂等账本与完整集成覆盖 |
+| 4 | 上游传输、配额与可靠性加固 | [ ] | 传输边界、原子 TPM、队列与闭环/半开熔断已加固；请求日志、Key/用户额度与统计事实已在同一 PostgreSQL 事务内持久化，并以 Key + 请求 ID 去重计费；仍缺完整集成覆盖 |
 | 5 | 可观测性、契约测试与分批发布 | [ ] | 已记录协议方向并覆盖核心契约；指标和分批开关待补 |
