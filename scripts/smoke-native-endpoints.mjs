@@ -23,6 +23,21 @@ async function post(label, path, body, headers = {}) {
   console.log(`${label}: ok`);
 }
 
+async function stream(label, path, body, marker, headers = {}) {
+  const response = await fetch(`${configuredBaseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${configuredRelayKey}`,
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+  const text = await response.text();
+  if (!response.ok || !text.includes(marker)) throw new Error(`${label}: invalid stream response`);
+  console.log(`${label}: ok`);
+}
+
 await post("messages", "/v1/messages", {
   model: required("API_PROXY_SMOKE_CLAUDE_MODEL", process.env.API_PROXY_SMOKE_CLAUDE_MODEL),
   max_tokens: 1,
@@ -44,3 +59,16 @@ await post("embeddings", "/v1/embeddings", {
   model: required("API_PROXY_SMOKE_EMBEDDING_MODEL", process.env.API_PROXY_SMOKE_EMBEDDING_MODEL),
   input: "ping",
 });
+
+if (process.env.API_PROXY_SMOKE_STREAM === "1") {
+  await stream("messages stream", "/v1/messages", {
+    model: process.env.API_PROXY_SMOKE_CLAUDE_MODEL,
+    max_tokens: 1,
+    messages: [{ role: "user", content: "ping" }],
+  }, "data:", { "anthropic-version": "2023-06-01" });
+  await stream("chat completions stream", "/v1/chat/completions", {
+    model: openAiModel,
+    max_completion_tokens: 1,
+    messages: [{ role: "user", content: "ping" }],
+  }, "data:");
+}
