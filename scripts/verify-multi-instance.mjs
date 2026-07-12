@@ -68,6 +68,28 @@ async function verifyPostgres() {
   console.log("postgres: ok");
 }
 
+async function verifyRequestIdempotency() {
+  const requestId = `verify-request:${crypto.randomUUID()}`;
+  const keyId = `verify-key:${crypto.randomUUID()}`;
+  try {
+    const first = await pg`
+      insert into request_logs (request_id, ts, key_id, channel_id, model, status, latency_ms)
+      values (${requestId}, ${Date.now()}, ${keyId}, 'verify-channel', 'verify-model', 200, 0)
+      returning id
+    `;
+    const duplicate = await pg`
+      insert into request_logs (request_id, ts, key_id, channel_id, model, status, latency_ms)
+      values (${requestId}, ${Date.now()}, ${keyId}, 'verify-channel', 'verify-model', 200, 0)
+      on conflict do nothing
+      returning id
+    `;
+    if (first.length !== 1 || duplicate.length !== 0) throw new Error("request usage idempotency failed");
+    console.log("request usage idempotency: ok");
+  } finally {
+    await pg`delete from request_logs where request_id = ${requestId} and key_id = ${keyId}`;
+  }
+}
+
 async function verifyRedisSemaphore() {
   const key = `verify:sem:${crypto.randomUUID()}`;
   const tokenA = crypto.randomUUID();
@@ -107,6 +129,7 @@ try {
   await redisB.connect();
   await redisSub.connect();
   await verifyPostgres();
+  await verifyRequestIdempotency();
   await verifyRedisSemaphore();
   await verifyRedisFanout();
   console.log("multi-instance primitives: ok");
