@@ -22,6 +22,7 @@ let channels: Channel[] = [];
 let mappings: Record<string, unknown>[] = [];
 let settings: Record<string, unknown> = {};
 let upstreamCalls: string[] = [];
+let upstreamBodies: string[] = [];
 let reserveCalls = 0;
 let settlements: (number | null)[] = [];
 let channelReleases = 0;
@@ -78,8 +79,9 @@ mock.module("./user-quota", () => ({
   effectiveUserLimitsAsync: async () => ({ rateLimitTpm: 0, rateLimitRpm: 0, maxConcurrency: 0 }),
 }));
 mock.module("./upstream", () => ({
-  callUpstream: async (input: { baseUrl: string }) => {
+  callUpstream: async (input: { baseUrl: string; body: string }) => {
     upstreamCalls.push(input.baseUrl);
+    upstreamBodies.push(input.body);
     return upstreamResponses.shift();
   },
 }));
@@ -106,6 +108,7 @@ beforeEach(() => {
     proxyTreatEmptyOutputAsFailure: false, recordAllRequestDetails: false, bridgeCapabilityAudit: false,
   };
   upstreamCalls = [];
+  upstreamBodies = [];
   reserveCalls = 0;
   settlements = [];
   channelReleases = 0;
@@ -135,6 +138,16 @@ function streamResponse(text: string) {
 }
 
 describe("proxy TPM reservation lifecycle", () => {
+  test("preserves native OpenAI request controls upstream", async () => {
+    upstreamResponses = [response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })];
+    const body = { model: "gpt-test", messages: [{ role: "user", content: "hi" }], temperature: 0.25, response_format: { type: "json_object" }, metadata: { trace: "native" } };
+
+    const result = await proxyOnce({ ...request(), body: JSON.stringify(body) });
+
+    expect(result.kind).toBe("success");
+    expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
+  });
+
   test("rejects unsupported bridge fields before upstream dispatch", async () => {
     mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
     channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "structured_output"] }];
