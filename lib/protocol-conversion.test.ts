@@ -146,3 +146,31 @@ describe("Claude to Responses SSE conversion", () => {
     expect(output).toContain("\"reason\":\"max_output_tokens\"");
   });
 });
+
+describe("Responses to Claude SSE conversion", () => {
+  test("converts text, tool arguments, and completion", () => {
+    const convert = createSseResponseConverter({
+      sourceType: "claude", targetType: "openai", openAiEndpoint: "responses", model: "claude-opus-4-8",
+    });
+    const output = convert?.([
+      "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+      "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\"}}\n\n",
+      "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"call_1\",\"delta\":\"{\\\"q\\\":\\\"hi\\\"}\"}\n\n",
+      "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}\n\n",
+    ].join(""), true) ?? "";
+    expect(output).toContain("event: message_start");
+    expect(output).toContain("\"text\":\"hello\"");
+    expect(output).toContain("\"name\":\"lookup\"");
+    expect(output).toContain("\"partial_json\":\"{\\\"q\\\":\\\"hi\\\"}\"");
+    expect(output).toContain("event: message_stop");
+  });
+
+  test("converts failed Responses streams to a Claude error", () => {
+    const convert = createSseResponseConverter({
+      sourceType: "claude", targetType: "openai", openAiEndpoint: "responses", model: "claude-opus-4-8",
+    });
+    const output = convert?.("event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"bad upstream\"}}}\n\n", true) ?? "";
+    expect(output).toContain("event: error");
+    expect(output).toContain("bad upstream");
+  });
+});

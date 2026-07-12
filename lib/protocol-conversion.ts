@@ -49,7 +49,7 @@ export function createSseResponseConverter(input: {
       ? createClaudeToOpenAiResponsesSseConverter(input.model)
       : createClaudeToOpenAiSseConverter(input.model);
   }
-  return createOpenAiToClaudeSseConverter(input.model);
+  return createOpenAiToClaudeSseConverter(input.model, input.openAiEndpoint);
 }
 
 function openAiChatToClaudeMessages(body: Json, model: string, stream: boolean): Json {
@@ -482,7 +482,10 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
   };
 }
 
-function createOpenAiToClaudeSseConverter(model: string) {
+function createOpenAiToClaudeSseConverter(
+  model: string,
+  openAiEndpoint?: OpenAiEndpoint,
+) {
   let buffer = "";
   const id = `msg_${crypto.randomUUID()}`;
   let started = false;
@@ -550,6 +553,53 @@ function createOpenAiToClaudeSseConverter(model: string) {
       }
       try {
         const event = JSON.parse(data) as Json;
+        if (openAiEndpoint === "responses") {
+          const type = event.type;
+          if (type === "response.output_text.delta" && typeof event.delta === "string") {
+            out += start() + startContent();
+            out += claudeSse("content_block_delta", { type: "content_block_delta", index: textBlockIndex ?? 0, delta: { type: "text_delta", text: event.delta } });
+            continue;
+          }
+          if (type === "response.output_item.added" && isRecord(event.item) && event.item.type === "function_call") {
+            const outputIndex = typeof event.output_index === "number" ? event.output_index : nextContentIndex;
+            out += start() + emitToolDelta({
+              index: outputIndex,
+              id: event.item.call_id,
+              function: { name: event.item.name },
+            });
+            continue;
+          }
+          if (type === "response.function_call_arguments.delta") {
+            const outputIndex = typeof event.output_index === "number" ? event.output_index : null;
+            if (outputIndex !== null) {
+              out += start() + emitToolDelta({
+                index: outputIndex,
+                id: event.item_id,
+                function: { arguments: event.delta },
+              });
+            }
+            continue;
+          }
+          if (type === "response.completed" || type === "response.incomplete") {
+            pendingStopReason = type === "response.incomplete" ? "length" : "stop";
+            pendingUsage = isRecord(event.response) ? event.response.usage : null;
+            out += start() + stop();
+            continue;
+          }
+          if (type === "response.failed") {
+            const error = isRecord(event.response) && isRecord(event.response.error)
+              ? event.response.error
+              : { type: "api_error", message: "OpenAI Responses stream failed" };
+            out += claudeSse("error", { type: "error", error });
+            continue;
+          }
+          if (type === "response.cancelled") {
+            pendingStopReason = "stop";
+            out += start() + stop();
+            continue;
+          }
+          continue;
+        }
         const choice = Array.isArray(event.choices) && isRecord(event.choices[0]) ? event.choices[0] : null;
         if (choice) {
           out += start();
