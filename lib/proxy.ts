@@ -240,7 +240,7 @@ async function channelByIdAsync(id: string): Promise<ChannelCandidate | null> {
 
 export type ProxyRequest = {
   type: Provider;
-  openAiEndpoint?: "chat_completions" | "responses";
+  openAiEndpoint?: "chat_completions" | "responses" | "embeddings";
   body: string;
   requestHeaders?: Headers;
   stream: boolean;
@@ -526,11 +526,13 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     return { kind: "client_error", requestId, status: 403, error: "模型已停用" };
   }
 
+  const openAiOnly = req.openAiEndpoint === "embeddings";
   const routes: RouteCandidate[] = [];
   if (mappings.length) {
     const seen = new Set<string>();
     for (const mapping of mappings) {
       const targetProvider = (mapping.targetProvider ?? mapping.provider) as Provider;
+      if (openAiOnly && targetProvider !== "openai") continue;
       const upstreamModel = appendModelVariant(model, mappingMatchedModel, mapping.upstreamModel);
       const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
       const { catalog: upstreamCatalog } = await modelConfigCandidateAsync(targetProvider, upstreamModelCandidates);
@@ -544,8 +546,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       }
     }
   } else {
-    const channels = await selectChannelsAsync(req.type, modelCandidates);
-    routes.push(...channels.map(channel => ({ channel, targetProvider: req.type, upstreamModel: model, mapping: null, mappedChannelIds: [] })));
+    const targetProvider = openAiOnly ? "openai" : req.type;
+    const channels = await selectChannelsAsync(targetProvider, modelCandidates);
+    routes.push(...channels.map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [] })));
   }
 
   async function routeBody(route: RouteCandidate) {
@@ -556,7 +559,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   async function tryFallbackOnce(reason: "no_regular_channel" | "regular_attempts_failed", previousAttempts: { channel: string; error: string; status: number }[] = []): Promise<ProxyResult | null> {
     if (!settings.fallbackEnabled || !settings.fallbackChannelId || !settings.fallbackModel) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
-    if (!fallbackChannel?.enabled) return null;
+    if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
 
     let fallbackBody: string;
     try {
@@ -1468,10 +1471,20 @@ type EmptyOutputVerdict =
  */
 function isEmptyUpstreamOutput(text: string, usage: UsageTokens | null, provider: Provider): EmptyOutputVerdict {
   if (!usage) return { empty: false };
-  if (usage.out > 0) return { empty: false };
+  if (usage.out > 0 || hasOpenAiData(text, provider)) return { empty: false };
   const visible = extractOutputText(text, provider).trim();
   if (visible.length > 0) return { empty: false };
   return { empty: true, reason: "empty_text_and_zero_usage", message: ZERO_OUTPUT_TOKEN_ERROR };
+}
+
+function hasOpenAiData(text: string, provider: Provider) {
+  if (provider !== "openai") return false;
+  try {
+    const data = JSON.parse(text).data;
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** 从非流式响应体抽取 assistant 可见文本。仅作空输出判定用途，不用于回显。 */

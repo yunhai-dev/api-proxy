@@ -4,7 +4,7 @@ Claude / OpenAI API 中转站，内置用户、密钥、渠道、模型、定价
 
 ## Features
 
-- **Claude / OpenAI 兼容代理**：支持 Anthropic Messages API、OpenAI Chat Completions API 和 Responses API 风格入口。
+- **Claude / OpenAI 兼容代理**：支持 Anthropic Messages API、OpenAI Chat Completions、Embeddings 和 Responses API 风格入口。
 - **多渠道路由与故障转移**：按模型、渠道状态、权重和可用性选择上游，支持 429、5xx、网络错误自动 fallback。
 - **用户与 API Key 管理**：支持用户角色、状态、Key 生成/停用/删除、Key 级限额、RPM/TPM 和最大并发。
 - **账户余额与续费**：用户额度耗尽后返回 `402`，管理员可调整额度，用户可通过礼品卡充值。
@@ -175,6 +175,20 @@ curl -X POST http://localhost:3000/v1/chat/completions \
     "messages": [{ "role": "user", "content": "hello" }]
   }'
 ```
+
+### OpenAI-compatible Embeddings API
+
+```bash
+curl -X POST http://localhost:3000/v1/embeddings \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer $KEY" \
+  -d '{
+    "model": "text-embedding-3-small",
+    "input": "hello"
+  }'
+```
+
+For OpenAI-compatible upstream channels, set `baseUrl` to the API root such as `https://api.openai.com`; do not append `/v1` or `/embeddings`. The proxy adds `/v1/embeddings` automatically.
 
 ### Usage query
 

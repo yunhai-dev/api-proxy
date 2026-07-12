@@ -145,6 +145,7 @@ function DocsBody() {
             <tr><td>Base URL</td><td className="mono">{baseUrl || "正在读取浏览器地址"}</td></tr>
             <tr><td>鉴权方式</td><td className="mono">Authorization: Bearer {API_KEY}</td></tr>
             <tr><td>OpenAI 入口</td><td className="mono">POST /v1/chat/completions</td></tr>
+            <tr><td>Embedding 入口</td><td className="mono">POST /v1/embeddings</td></tr>
             <tr><td>Claude 入口</td><td className="mono">POST /v1/messages</td></tr>
             <tr><td>模型列表</td><td className="mono">GET /v1/models</td></tr>
             <tr><td>用量查询</td><td className="mono">GET /api/v1/usage/:key?range=24h|7d|30d</td></tr>
@@ -156,6 +157,14 @@ function DocsBody() {
         <h2>OpenAI 接口示例</h2>
         <p>将客户端的基础地址指向本站的 <span className="mono">/v1</span>，并使用本站生成的 API 密钥。</p>
         <CodeTabs tabs={openaiTabs(baseUrl)} />
+        <h3>Embedding</h3>
+        <Code lang="bash">{`curl -X POST ${baseUrl}/v1/embeddings \\
+  -H "content-type: application/json" \\
+  -H "authorization: Bearer ${API_KEY}" \\
+  -d '{
+    "model": "text-embedding-3-small",
+    "input": "hello"
+  }'`}</Code>
       </section>
 
       <section className="docs-section">

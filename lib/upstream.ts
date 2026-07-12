@@ -9,7 +9,7 @@ export type Provider = "claude" | "openai";
 
 export type UpstreamOptions = {
   channelType: Provider;
-  openAiEndpoint?: "chat_completions" | "responses";
+  openAiEndpoint?: "chat_completions" | "responses" | "embeddings";
   baseUrl: string;        // 不带尾斜杠
   upstreamKey: string;    // 上游 API 密钥
   model: string;          // 上游模型名
@@ -41,6 +41,7 @@ export function endpointFor(provider: Provider, baseUrl: string, openAiEndpoint:
   const base = baseUrl.replace(/\/$/, "");
   if (provider === "claude") return `${base}/v1/messages`;
   if (openAiEndpoint === "responses") return `${base}/v1/responses`;
+  if (openAiEndpoint === "embeddings") return `${base}/v1/embeddings`;
   return `${base}/v1/chat/completions`;
 }
 
