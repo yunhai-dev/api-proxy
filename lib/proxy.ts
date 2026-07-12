@@ -12,7 +12,7 @@ import { getSettingsAsync } from "./settings";
 import { modelConfigAsync } from "./model-catalog";
 import { recordChannelObservation } from "./channel-health";
 import { effectiveUserLimits, effectiveUserLimitsAsync } from "./user-quota";
-import { checkTpm, consumeRpm } from "./rate-limit";
+import { checkTpm, consumeRpm, reserveTpm, settleTpmReservation, type TpmReservation } from "./rate-limit";
 import { usePostgres } from "./db/runtime";
 import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
@@ -140,6 +140,21 @@ async function checkUserQuota(key: typeof schema.keys.$inferSelect): Promise<Ext
     if (limits.rateLimitTpm > 0 && tokens >= limits.rateLimitTpm) return { ok: false, status: 429, error: "用户已超出每分钟 Token 限制" };
   }
   return null;
+}
+
+async function effectiveUserTpmLimit(userId: string) {
+  if (!userId) return 0;
+  if (usePostgres()) {
+    const { pgDb, pgSchema } = await import("./db/pg");
+    const quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
+    return (await effectiveUserLimitsAsync(quota)).rateLimitTpm;
+  }
+  return effectiveUserLimits(db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, userId)).get()).rateLimitTpm;
+}
+
+function numericField(body: Record<string, unknown>, name: string) {
+  const value = body[name];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 async function userMaxConcurrency(userId: string) {
@@ -551,6 +566,13 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
   }
   const releaseAllKeySlots = () => { releaseKeySlot(); releaseUserSlot(); };
+  let tpmReservation: TpmReservation | null = null;
+  let tpmSettled = false;
+  const settleTpm = async (actualTokens: number | null) => {
+    if (!tpmReservation || tpmSettled) return;
+    tpmSettled = true;
+    await settleTpmReservation(tpmReservation, actualTokens).catch(() => null);
+  };
 
   // 2) 解析 body / model
   let parsed: Record<string, unknown>;
@@ -650,6 +672,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
+      await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };
     }
@@ -660,6 +683,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
+      await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
     }
@@ -681,7 +705,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok && prepared.reason === "empty") {
@@ -690,6 +714,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: "warn" });
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+          await settleTpm(0);
           return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
         }
         if (!prepared.ok) {
@@ -697,6 +722,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           releaseAllKeySlots();
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+          await settleTpm(0);
           return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
         }
         await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
@@ -706,10 +732,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason,
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, settleTpm,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
+        await settleTpm(null);
         const attempts = [...previousAttempts, { channel: fallbackChannel.name, error, status: 502 }];
         await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error }, { failureStatus: "err" });
         await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
@@ -740,10 +767,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = processed.ok ? null : (processed.message ?? null);
       await recordChannelObservation(fallbackChannel, { ok: processed.ok, latencyMs: Date.now() - attemptStart, error: errorMsg ?? undefined }, { failureStatus: processed.ok ? undefined : "warn" });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason },
+        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, settleTpm },
         processed.info,
         errorMsg,
       );
+      await settleTpm(processed.info.tokensIn + processed.info.tokensOut);
       return { kind: "success", requestId, response, logged: { ...processed.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
     }
 
@@ -752,9 +780,34 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     const fallbackStatus = result.status > 0 ? result.status : 502;
     const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: result.errorMsg, status: result.status }];
     await recordFailure({ requestId, ts: t0, type: req.type, status: fallbackStatus, error: `fallback ${fallbackChannel.name}: ${result.errorMsg}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+    await settleTpm(0);
     releaseAllKeySlots();
     return { kind: "upstream_error", requestId, status: fallbackStatus, error: USER_UPSTREAM_ERROR, attempts };
   }
+
+  const requestedOutputTokens = numericField(parsed, req.type === "claude" ? "max_tokens" : req.openAiEndpoint === "responses" ? "max_output_tokens" : "max_completion_tokens")
+    ?? numericField(parsed, "max_tokens")
+    ?? 0;
+  const userTpmLimit = await effectiveUserTpmLimit(key.userId);
+  const configuredTpmLimits = [key.rateLimitTpm, userTpmLimit].filter(limit => limit > 0);
+  const inputTokenUpperBound = new TextEncoder().encode(req.body).byteLength;
+  const estimatedTokens = requestedOutputTokens > 0
+    ? inputTokenUpperBound + requestedOutputTokens
+    : Math.min(...configuredTpmLimits);
+  const reservation = await reserveTpm({
+    requestId,
+    keyId: key.id,
+    keyLimit: key.rateLimitTpm,
+    userId: key.userId,
+    userLimit: userTpmLimit,
+    tokens: estimatedTokens,
+  });
+  if (reservation === false) {
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: "已超出每分钟 Token 限制", body: req.body, requestHeaders: req.incomingHeaders, model, key });
+    releaseAllKeySlots();
+    return { kind: "client_error", requestId, status: 429, error: "已超出每分钟 Token 限制" };
+  }
+  tpmReservation = reservation;
 
   // 3) 选渠道
   if (routes.length === 0) {
@@ -763,6 +816,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     const status = mappings.length ? 503 : 404;
     const error = mappings.length ? NO_LIVE_CHANNEL_ERROR : upstreamModelError(model);
     await recordFailure({ requestId, ts: t0, type: req.type, status, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: primaryMapping?.upstreamModel ?? model, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key });
+    await settleTpm(0);
     releaseAllKeySlots();
     if (mappings.length) return { kind: "upstream_error", requestId, status, error, attempts: [] };
     return { kind: "client_error", requestId, status: 404, error };
@@ -794,6 +848,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+      await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };
     }
@@ -805,6 +860,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const error = e instanceof Error ? e.message : String(e);
       if (req.signal?.aborted) {
         await recordFailure({ requestId, ts: t0, type: req.type, status: 499, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+        await settleTpm(0);
         releaseAllKeySlots();
         return { kind: "client_error", requestId, status: 429, error: "请求已取消" };
       }
@@ -832,7 +888,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok && prepared.reason === "empty") {
@@ -861,7 +917,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders,
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, settleTpm,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
@@ -897,10 +953,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = null;
       await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders },
+        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, settleTpm },
         processed.info,
         errorMsg,
       );
+      await settleTpm(processed.info.tokensIn + processed.info.tokensOut);
       releaseAllKeySlots();
       return { kind: "success", requestId, response, logged: { ...processed.info, channelId: route.channel.id, channelName: route.channel.name } };
     }
@@ -936,6 +993,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     ? unsupportedModelMessage(lastStatus, lastError, finalModel)
     : NO_LIVE_CHANNEL_ERROR;
   await recordFailure({ requestId, ts: t0, type: req.type, status: finalStatus, error: internalError, body: req.body, requestHeaders: req.incomingHeaders, model: finalModel, inboundModel: model, upstreamModel: finalModel, mappingId: lastRoute?.mapping?.id ?? primaryMapping?.id, mappedChannelIds: lastRoute?.mappedChannelIds ?? primaryMapping?.channelIds ?? [], key, channel: lastRoute?.channel, attempts });
+  await settleTpm(0);
   releaseAllKeySlots();
   return {
     kind: "upstream_error",
@@ -966,6 +1024,7 @@ type Ctx = {
   body: string;
   requestHeaders?: Headers;
   releaseSlot?: () => void;
+  settleTpm?: (actualTokens: number | null) => Promise<void>;
   fallbackReason?: string;
   attempts?: { channel: string; error: string; status: number }[];
 };
@@ -1202,6 +1261,7 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
     logged = true;
     const id = await ensureInitialLog();
     await recordStreamFinal(id, ctx, status, Date.now() - ctx.t0, prelude, errorMsg);
+    await ctx.settleTpm?.(errorMsg ? null : prelude.tokensIn + prelude.tokensOut);
     releaseSlot();
   }
 

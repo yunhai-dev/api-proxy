@@ -1,7 +1,6 @@
 import { db, schema } from "./db";
 import { eq, sql } from "drizzle-orm";
 import type { LogEntry, LogListEntry } from "./types";
-import { addTpm } from "@/lib/rate-limit";
 import { getRedis } from "@/lib/redis";
 import { usePostgres } from "@/lib/db/runtime";
 import { modelLookupCandidates } from "@/lib/model-variants";
@@ -67,7 +66,6 @@ class LogHub {
         .where(eq(schema.keys.id, e.keyId))
         .run();
       addUserUsage(key?.userId, e.tokensIn + e.tokensOut, cost);
-      void addTokenUsage(e.keyId, key?.userId, e.tokensIn + e.tokensOut);
     }
 
     const entry: LogEntry = {
@@ -127,7 +125,6 @@ class LogHub {
       const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
       await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
       await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost);
-      void addTokenUsage(e.keyId, key?.userId, e.tokensIn + e.tokensOut);
     }
 
     const rawLogId = Number(inserted[0]?.id ?? 0);
@@ -177,7 +174,6 @@ class LogHub {
           .where(eq(schema.keys.id, e.keyId))
           .run();
           addUserUsage(key?.userId, newTokens - oldTokens, newCost - oldCost);
-          void addTokenUsage(e.keyId, key?.userId, newTokens - oldTokens);
       }
     }
 
@@ -246,7 +242,6 @@ class LogHub {
       if (addTok !== 0) {
         await pgDb.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
         await addUserUsageAsync(key?.userId, newTokens - oldTokens, newCost - oldCost);
-        void addTokenUsage(e.keyId, key?.userId, newTokens - oldTokens);
       }
     }
 
@@ -348,12 +343,6 @@ async function addUserUsageAsync(userId: string | undefined, tokens: number, usd
       updatedAt: Date.now(),
     })
     .where(eq(pgSchema.userQuotas.userId, userId));
-}
-
-async function addTokenUsage(keyId: string, userId: string | undefined, tokens: number) {
-  if (tokens <= 0) return;
-  await addTpm("key", keyId, tokens);
-  if (userId) await addTpm("user", userId, tokens);
 }
 
 function logCost(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
