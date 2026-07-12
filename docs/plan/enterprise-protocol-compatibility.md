@@ -78,7 +78,7 @@ Capability data is managed at channel and model scope. The profile uses validate
   - Add atomic quota reservation/reconciliation, bounded cancellation-aware admission, and circuit-breaker behavior using the existing health records. Completed: Redis TPM reservation/reconciliation keeps a request's reservation conservative when any post-acceptance path has unknown usage, bounded cancellation-aware queues, lease renewal, a 30-second closed/open/half-open circuit cooldown, and PostgreSQL transactions covering request logs, Key/user usage, and request statistics. A partial unique index on Key + request ID prevents duplicate billing; complete integration coverage remains pending.
   - Validate upstream URLs/HTTPS policy and extend request-detail redaction for media/tool data.
 - **Validation**:
-  - Mock upstream retry/timeout/429/SSE tests; contention and cancellation tests; circuit state tests; header/redaction checks.
+  - Mock upstream retry/timeout/429/SSE tests; contention and cancellation tests; circuit state tests; header/redaction checks. Completed: isolated proxy fixtures prove retry and fallback share one TPM reservation and settle actual successful usage; stream/cancellation integration coverage remains pending.
 
 ### Stage 5: Observability, conformance, and rollout
 
