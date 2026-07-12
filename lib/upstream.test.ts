@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { headersFor, validateUpstreamBaseUrl } from "./upstream";
+import { callUpstream, endpointFor, headersFor, validateUpstreamBaseUrl } from "./upstream";
 
 describe("upstream headers", () => {
   test("replaces credentials and forwards only allowlisted OpenAI headers", () => {
@@ -27,6 +27,29 @@ describe("upstream headers", () => {
     expect(headers.get("x-api-key")).toBe("upstream-secret");
     expect(headers.get("anthropic-version")).toBe("2026-01-01");
     expect(headers.get("anthropic-beta")).toBe("feature-2026-01-01");
+  });
+});
+
+describe("upstream transport", () => {
+  test("uses endpoint-native paths and preserves Retry-After", async () => {
+    expect(endpointFor("openai", "https://api.example.com", "responses")).toBe("https://api.example.com/v1/responses");
+    expect(endpointFor("claude", "https://api.example.com/v1")).toBe("https://api.example.com/v1/messages");
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("busy", { status: 429, headers: { "retry-after": "3" } });
+    try {
+      const result = await callUpstream({
+        channelType: "openai",
+        baseUrl: "https://api.example.com",
+        upstreamKey: "upstream-secret",
+        model: "gpt-5",
+        body: "{}",
+        stream: false,
+      });
+      expect(result).toEqual({ ok: false, status: 429, errorMsg: "busy (retry-after: 3)" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
