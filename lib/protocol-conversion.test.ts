@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { convertRequestBody } from "./protocol-conversion";
+import { convertRequestBody, createSseResponseConverter } from "./protocol-conversion";
 
 function chat(effort: unknown, model = "claude-opus-4-8") {
   return convertRequestBody({
@@ -113,5 +113,36 @@ describe("strict OpenAI to Claude conversion", () => {
       { role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "lookup", input: { q: "hello" } }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "result" }] },
     ]);
+  });
+});
+
+describe("Claude to Responses SSE conversion", () => {
+  test("emits a complete terminal response with usage", () => {
+    const convert = createSseResponseConverter({
+      sourceType: "openai", targetType: "claude", openAiEndpoint: "responses", model: "gpt-5",
+    });
+    const output = convert?.([
+      "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\"}}\n\n",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n",
+      "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}\n\n",
+      "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    ].join(""), true) ?? "";
+    expect(output).toContain("event: response.completed");
+    expect(output).toContain("\"output_tokens\":2");
+    expect(output).toContain("\"text\":\"hello\"");
+  });
+
+  test("marks max_tokens termination as incomplete", () => {
+    const convert = createSseResponseConverter({
+      sourceType: "openai", targetType: "claude", openAiEndpoint: "responses", model: "gpt-5",
+    });
+    const output = convert?.([
+      "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n",
+      "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}\n\n",
+      "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    ].join(""), true) ?? "";
+    expect(output).toContain("event: response.incomplete");
+    expect(output).not.toContain("event: response.completed");
+    expect(output).toContain("\"reason\":\"max_output_tokens\"");
   });
 });

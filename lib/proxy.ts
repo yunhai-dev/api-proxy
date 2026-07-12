@@ -268,6 +268,26 @@ function appendCapped(current: string, chunk: string, maxChars: number) {
   return next.length > maxChars ? next.slice(next.length - maxChars) : next;
 }
 
+function redactBody(value: string) {
+  try {
+    return JSON.stringify(redactValue(JSON.parse(value)));
+  } catch {
+    return truncateLogText(value);
+  }
+}
+
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactValue);
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(record).map(([key, child]) => [
+    key,
+    key === "arguments" || key === "input" || key === "output" || key === "data"
+      ? "[redacted]"
+      : redactValue(child),
+  ]));
+}
+
 function failureDetail(input: {
   requestId: string;
   type: Provider;
@@ -292,7 +312,7 @@ function failureDetail(input: {
     key_prefix: input.keyPrefix || null,
     channel: input.channelName || null,
     attempts: input.attempts ?? [],
-    body: truncateLogText(input.body),
+    body: redactBody(input.body),
   });
 }
 
@@ -323,8 +343,8 @@ async function requestDetail(input: {
     channel: input.channelName ?? null,
     fallback: input.fallbackReason ? { reason: input.fallbackReason } : null,
     request_headers: sanitizeHeaders(input.requestHeaders),
-    request_body: truncateLogText(input.requestBody),
-    response_body: input.responseBody == null ? null : truncateLogText(input.responseBody),
+    request_body: redactBody(input.requestBody),
+    response_body: input.responseBody == null ? null : redactBody(input.responseBody),
     tokens: {
       input: input.tokensIn ?? 0,
       output: input.tokensOut ?? 0,

@@ -377,9 +377,25 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
   let nextOutputIndex = 0;
   let textOutput: { outputIndex: number; contentIndex: number; id: string; text: string } | null = null;
   const toolOutputs = new Map<number, { outputIndex: number; id: string; callId: string; name: string; arguments: string }>();
+  let stopReason: unknown = null;
+  let usage: Json | null = null;
 
   function response(status: "in_progress" | "completed" | "incomplete") {
-    return { id, object: "response", created_at: Math.floor(Date.now() / 1000), status, model, output: [] };
+    const output = status === "in_progress" ? [] : [
+      ...(textOutput ? [{ id: textOutput.id, type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: textOutput.text, annotations: [] }] }] : []),
+      ...[...toolOutputs.values()].map(tool => ({ id: tool.id, type: "function_call", status: "completed", call_id: tool.callId, name: tool.name, arguments: tool.arguments })),
+    ];
+    const incomplete = status === "incomplete" ? { reason: "max_output_tokens" } : null;
+    return {
+      id,
+      object: "response",
+      created_at: Math.floor(Date.now() / 1000),
+      status,
+      model,
+      output,
+      ...(usage ? { usage: claudeUsageToResponses(usage) } : {}),
+      ...(incomplete ? { incomplete_details: incomplete } : {}),
+    };
   }
 
   function start() {
@@ -438,6 +454,11 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
           }
           continue;
         }
+        if (event.type === "message_delta") {
+          stopReason = isRecord(event.delta) ? event.delta.stop_reason : null;
+          usage = isRecord(event.usage) ? event.usage : null;
+          continue;
+        }
         if (event.type === "message_stop" && !completed) {
           completed = true;
           if (textOutput) {
@@ -445,8 +466,15 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
             out += responsesSse("response.content_part.done", { type: "response.content_part.done", output_index: textOutput.outputIndex, content_index: textOutput.contentIndex, part });
             out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: textOutput.outputIndex, item: { id: textOutput.id, type: "message", status: "completed", role: "assistant", content: [part] } });
           }
-          for (const tool of toolOutputs.values()) out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: tool.outputIndex, item: { id: tool.id, type: "function_call", status: "completed", call_id: tool.callId, name: tool.name, arguments: tool.arguments } });
-          out += responsesSse("response.completed", { type: "response.completed", response: response("completed") });
+          for (const tool of toolOutputs.values()) {
+            out += responsesSse("response.function_call_arguments.done", { type: "response.function_call_arguments.done", output_index: tool.outputIndex, item_id: tool.id, arguments: tool.arguments });
+            out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: tool.outputIndex, item: { id: tool.id, type: "function_call", status: "completed", call_id: tool.callId, name: tool.name, arguments: tool.arguments } });
+          }
+          const incomplete = stopReason === "max_tokens";
+          out += responsesSse(incomplete ? "response.incomplete" : "response.completed", {
+            type: incomplete ? "response.incomplete" : "response.completed",
+            response: response(incomplete ? "incomplete" : "completed"),
+          });
         }
       } catch { /* ignore malformed upstream event */ }
     }
@@ -585,6 +613,12 @@ function claudeUsageToOpenAi(usage: Json) {
   const promptTokens = numberOrDefault(usage.input_tokens, 0) + numberOrDefault(usage.cache_read_input_tokens, 0) + numberOrDefault(usage.cache_creation_input_tokens, 0);
   const completionTokens = numberOrDefault(usage.output_tokens, 0);
   return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
+}
+
+function claudeUsageToResponses(usage: Json) {
+  const inputTokens = numberOrDefault(usage.input_tokens, 0) + numberOrDefault(usage.cache_read_input_tokens, 0) + numberOrDefault(usage.cache_creation_input_tokens, 0);
+  const outputTokens = numberOrDefault(usage.output_tokens, 0);
+  return { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens };
 }
 
 function openAiUsageToClaude(usage: unknown) {
