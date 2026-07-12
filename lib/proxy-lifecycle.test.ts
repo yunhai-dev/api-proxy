@@ -181,4 +181,22 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(channelReleases).toBe(1);
     expect(keyReleases).toBe(2);
   });
+
+  test("retains stream TPM reservation and releases slots on cancellation", async () => {
+    upstreamResponses = [streamResponse(
+      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+    )];
+
+    const result = await proxyOnce(request(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success" || !result.response.body) throw new Error("expected stream body");
+    const reader = result.response.body.getReader();
+    await reader.read();
+    await reader.cancel();
+    await flush();
+    expect(settlements).toEqual([null]);
+    expect(channelReleases).toBe(1);
+    expect(keyReleases).toBe(2);
+  });
 });
