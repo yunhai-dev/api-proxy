@@ -296,6 +296,7 @@ try {
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);
+      await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS request_logs_key_request_id_idx ON request_logs (key_id, request_id) WHERE key_id <> '' AND request_id <> ''`);
       await applyRequestStatsMigration(sql);
     } else {
       console.log(`[schema] initializing PostgreSQL schema, missing: ${missing.join(", ")}`);
