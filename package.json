@@ -19,7 +19,8 @@
     "compose:dev:down": "docker compose -f docker-compose.dev.yml down",
     "compose:dev:logs": "docker compose -f docker-compose.dev.yml logs -f app",
     "compose:dev:pg:push": "docker compose -f docker-compose.dev.yml exec app bun run db:pg:push",
-    "verify:multi-instance": "node scripts/verify-multi-instance.mjs"
+    "verify:multi-instance": "node scripts/verify-multi-instance.mjs",
+    "smoke:native": "node scripts/smoke-native-endpoints.mjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.7",
