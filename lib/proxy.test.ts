@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { protocolDirection, upstreamRequestId } from "./proxy";
+import { protocolDirection, selectedCapabilityProfile, upstreamRequestId } from "./proxy";
 
 describe("protocol observability", () => {
   test("labels native and bridged routes", () => {
@@ -13,5 +13,11 @@ describe("protocol observability", () => {
     expect(upstreamRequestId(new Headers({ "x-request-id": "openai-123" }))).toBe("openai-123");
     expect(upstreamRequestId(new Headers({ "request-id": "request-456" }))).toBe("request-456");
     expect(upstreamRequestId(new Headers({ "authorization": "secret" }))).toBeNull();
+  });
+
+  test("combines selected channel and model capabilities without duplicates", () => {
+    expect(selectedCapabilityProfile(["messages", "streaming"], ["streaming", "tools"])).toEqual([
+      "messages", "streaming", "tools",
+    ]);
   });
 });
