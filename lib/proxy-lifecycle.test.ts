@@ -19,6 +19,7 @@ const fallback: Channel = {
 };
 
 let channels: Channel[] = [];
+let mappings: Record<string, unknown>[] = [];
 let settings: Record<string, unknown> = {};
 let upstreamCalls: string[] = [];
 let reserveCalls = 0;
@@ -41,7 +42,7 @@ mock.module("./db", () => ({
       from: (table: { name: string }) => ({
         where: () => ({
           get: () => table.name === "keys" ? key : table.name === "channels" ? fallback : undefined,
-          all: () => table.name === "channels" ? channels : [],
+          all: () => table.name === "channels" ? channels : table.name === "modelMappings" ? mappings : [],
         }),
         all: () => table.name === "channels" ? channels : [],
       }),
@@ -98,6 +99,7 @@ function response(body: unknown) {
 
 beforeEach(() => {
   channels = [primary];
+  mappings = [];
   settings = {
     maintenanceMode: false, fallbackEnabled: false, fallbackChannelId: "", fallbackModel: "",
     proxyMaxRetries: 2, proxyRetryNetwork: true, proxyRetry429: false, proxyRetry5xx: true,
@@ -133,6 +135,19 @@ function streamResponse(text: string) {
 }
 
 describe("proxy TPM reservation lifecycle", () => {
+  test("rejects unsupported bridge fields before upstream dispatch", async () => {
+    mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "structured_output"] }];
+
+    const result = await proxyOnce({
+      ...request(),
+      body: JSON.stringify({ model: "gpt-test", messages: [{ role: "user", content: "hi" }], response_format: { type: "json_object" } }),
+    });
+
+    expect(result).toMatchObject({ kind: "client_error", status: 400 });
+    expect(upstreamCalls).toEqual([]);
+  });
+
   test("shares one reservation across a retry and settles actual usage", async () => {
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
