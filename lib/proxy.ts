@@ -322,9 +322,19 @@ function failureDetail(input: {
   });
 }
 
+export function protocolDirection(
+  sourceType: Provider,
+  targetType?: Provider,
+) {
+  if (!targetType) return null;
+  return sourceType === targetType ? "native" : `${sourceType}_to_${targetType}`;
+}
+
 async function requestDetail(input: {
   requestId: string;
   type: Provider;
+  targetType?: Provider;
+  openAiEndpoint?: ProxyRequest["openAiEndpoint"];
   status: number;
   inboundModel: string;
   upstreamModel: string;
@@ -343,6 +353,9 @@ async function requestDetail(input: {
   return JSON.stringify({
     request_id: input.requestId,
     type: input.type,
+    protocol: input.targetType
+      ? { direction: protocolDirection(input.type, input.targetType), endpoint: input.openAiEndpoint ?? null }
+      : null,
     status: input.status,
     inbound_model: input.inboundModel,
     upstream_model: input.upstreamModel,
@@ -1105,7 +1118,7 @@ async function recordStreamFinal(logId: number, ctx: Ctx, status: number, latenc
     ttftMs: prelude.ttftMs || latency, durationMs: latency,
     tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
     cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
-    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: prelude.detailBuffer, tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
+    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: prelude.detailBuffer, tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
     errorMsg: detail,
   });
 }
@@ -1136,7 +1149,7 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
       ttftMs: prelude.ttftMs, durationMs: 0,
       tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
       cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
-      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status: prelude.upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, fallbackReason: ctx.fallbackReason }),
+      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status: prelude.upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, fallbackReason: ctx.fallbackReason }),
       errorMsg: null,
     });
     logId = row.id;
@@ -1292,7 +1305,7 @@ async function pipeStreamResponse(
       inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, mappingId: ctx.mappingId, mappedChannelIds: ctx.mappedChannelIds,
       ttftMs: ttftMs || latency, durationMs: latency,
       tokensIn, tokensOut, cacheTokens, cacheReadTokens, cacheCreationTokens,
-      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: detailBuffer, tokensIn, tokensOut, cacheReadTokens, cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
+      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: detailBuffer, tokensIn, tokensOut, cacheReadTokens, cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
       errorMsg: detail,
     });
     releaseSlot();
@@ -1436,7 +1449,7 @@ async function recordSuccessOrAcceptedEmpty(ctx: Ctx, info: ProxyResponseInfo, e
     cacheReadTokens: info.cacheReadTokens,
     cacheCreationTokens: info.cacheCreationTokens,
     requestDetail: await requestDetail({
-      requestId: ctx.requestId, type: ctx.type, status: info.status,
+      requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status: info.status,
       inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel,
       channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders,
       requestBody: ctx.body, responseBody: info.responseBody,
