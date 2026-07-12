@@ -24,6 +24,15 @@ end
 return 1
 `;
 
+const REFRESH_SCRIPT = `
+if redis.call('ZSCORE', KEYS[1], ARGV[1]) then
+  redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+  redis.call('PEXPIRE', KEYS[1], ARGV[3])
+  return 1
+end
+return 0
+`;
+
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const RETRY_MS = 50;
 
@@ -51,10 +60,18 @@ export async function acquireRedisSemaphore(
       arguments: [token, String(limit), String(options.ttlMs ?? DEFAULT_TTL_MS), String(Date.now())],
     });
     if (acquired === 1) {
+      const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+      const refresh = setInterval(() => {
+        void redis.eval(REFRESH_SCRIPT, {
+          keys: [key],
+          arguments: [token, String(Date.now()), String(ttlMs)],
+        });
+      }, Math.max(1_000, Math.floor(ttlMs / 2)));
       let released = false;
       return async () => {
         if (released) return;
         released = true;
+        clearInterval(refresh);
         await redis.eval(RELEASE_SCRIPT, { keys: [key], arguments: [token] });
       };
     }
