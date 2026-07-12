@@ -57,6 +57,14 @@ async function verifyPostgres() {
   for (const table of ["request_logs", "channels", "keys", "model_mappings"]) {
     if (!names.has(table)) throw new Error(`missing table: ${table}`);
   }
+  const indexes = await pg`
+    select indexname
+    from pg_indexes
+    where schemaname = 'public' and tablename = 'request_logs'
+  `;
+  if (!indexes.some(row => row.indexname === "request_logs_key_request_id_idx")) {
+    throw new Error("missing request usage idempotency index");
+  }
   console.log("postgres: ok");
 }
 
