@@ -1,5 +1,5 @@
 import { db, schema } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { LogEntry, LogListEntry } from "./types";
 import { addTpm } from "@/lib/rate-limit";
 import { getRedis } from "@/lib/redis";
@@ -125,7 +125,7 @@ class LogHub {
     if (e.keyId) {
       const cost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
-      await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: (key?.used ?? 0) + addTok }).where(eq(pgSchema.keys.id, e.keyId));
+      await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
       await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost);
       void addTokenUsage(e.keyId, key?.userId, e.tokensIn + e.tokensOut);
     }
@@ -244,7 +244,7 @@ class LogHub {
       const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
       const addTok = (newTokens - oldTokens) / 1_000_000;
       if (addTok !== 0) {
-        await pgDb.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: (key?.used ?? 0) + addTok }).where(eq(pgSchema.keys.id, e.keyId));
+        await pgDb.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
         await addUserUsageAsync(key?.userId, newTokens - oldTokens, newCost - oldCost);
         void addTokenUsage(e.keyId, key?.userId, newTokens - oldTokens);
       }
@@ -340,11 +340,11 @@ async function addUserUsageAsync(userId: string | undefined, tokens: number, usd
   if (!quota) return;
   await pgDb.update(pgSchema.userQuotas)
     .set({
-      dailyUsedTokens: Math.max(0, quota.dailyUsedTokens + tokens),
-      monthlyUsedTokens: Math.max(0, quota.monthlyUsedTokens + tokens),
-      dailyUsedUsd: Math.max(0, quota.dailyUsedUsd + usd),
-      monthlyUsedUsd: Math.max(0, quota.monthlyUsedUsd + usd),
-      usedUsd: Math.max(0, quota.usedUsd + usd),
+      dailyUsedTokens: sql`GREATEST(0, ${pgSchema.userQuotas.dailyUsedTokens} + ${tokens})`,
+      monthlyUsedTokens: sql`GREATEST(0, ${pgSchema.userQuotas.monthlyUsedTokens} + ${tokens})`,
+      dailyUsedUsd: sql`GREATEST(0, ${pgSchema.userQuotas.dailyUsedUsd} + ${usd})`,
+      monthlyUsedUsd: sql`GREATEST(0, ${pgSchema.userQuotas.monthlyUsedUsd} + ${usd})`,
+      usedUsd: sql`GREATEST(0, ${pgSchema.userQuotas.usedUsd} + ${usd})`,
       updatedAt: Date.now(),
     })
     .where(eq(pgSchema.userQuotas.userId, userId));
