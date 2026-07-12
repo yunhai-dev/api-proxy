@@ -60,6 +60,19 @@ await post("embeddings", "/v1/embeddings", {
   input: "ping",
 });
 
+if (process.env.API_PROXY_SMOKE_BRIDGE === "1") {
+  await post("chat to Claude bridge", "/v1/chat/completions", {
+    model: required("API_PROXY_SMOKE_CHAT_TO_CLAUDE_MODEL", process.env.API_PROXY_SMOKE_CHAT_TO_CLAUDE_MODEL),
+    max_completion_tokens: 1,
+    messages: [{ role: "user", content: "ping" }],
+  });
+  await post("Messages to OpenAI bridge", "/v1/messages", {
+    model: required("API_PROXY_SMOKE_MESSAGES_TO_OPENAI_MODEL", process.env.API_PROXY_SMOKE_MESSAGES_TO_OPENAI_MODEL),
+    max_tokens: 1,
+    messages: [{ role: "user", content: "ping" }],
+  }, { "anthropic-version": "2023-06-01" });
+}
+
 if (process.env.API_PROXY_SMOKE_STREAM === "1") {
   await stream("messages stream", "/v1/messages", {
     model: process.env.API_PROXY_SMOKE_CLAUDE_MODEL,
