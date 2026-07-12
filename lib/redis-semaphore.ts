@@ -27,15 +27,28 @@ return 1
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const RETRY_MS = 50;
 
-export async function acquireRedisSemaphore(key: string, limit: number, ttlMs = DEFAULT_TTL_MS): Promise<(() => Promise<void>) | null> {
+export class SemaphoreAcquireError extends Error {
+  constructor(message: "semaphore wait aborted" | "semaphore wait timed out") {
+    super(message);
+  }
+}
+
+export async function acquireRedisSemaphore(
+  key: string,
+  limit: number,
+  options: { ttlMs?: number; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<(() => Promise<void>) | null> {
   if (limit <= 0) return async () => {};
   const redis = await getRedis();
   if (!redis) return null;
   const token = crypto.randomUUID();
+  const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : 0;
   while (true) {
+    if (options.signal?.aborted) throw new SemaphoreAcquireError("semaphore wait aborted");
+    if (deadline && Date.now() >= deadline) throw new SemaphoreAcquireError("semaphore wait timed out");
     const acquired = await redis.eval(ACQUIRE_SCRIPT, {
       keys: [key],
-      arguments: [token, String(limit), String(ttlMs), String(Date.now())],
+      arguments: [token, String(limit), String(options.ttlMs ?? DEFAULT_TTL_MS), String(Date.now())],
     });
     if (acquired === 1) {
       let released = false;

@@ -537,8 +537,17 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     await recordFailure({ requestId, ts: t0, type: req.type, status: rateLimited.status, error: rateLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
     return { kind: "client_error", requestId, status: rateLimited.status, error: rateLimited.error };
   }
-  const releaseUserSlot = await acquireKeySlot(`user:${key.userId}`, await userMaxConcurrency(key.userId));
-  const releaseKeySlot = await acquireKeySlot(key.id, key.maxConcurrency ?? 0);
+  let releaseUserSlot = () => {};
+  let releaseKeySlot = () => {};
+  try {
+    releaseUserSlot = await acquireKeySlot(`user:${key.userId}`, await userMaxConcurrency(key.userId), req.signal);
+    releaseKeySlot = await acquireKeySlot(key.id, key.maxConcurrency ?? 0, req.signal);
+  } catch (e: unknown) {
+    releaseUserSlot();
+    const error = e instanceof Error ? e.message : String(e);
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error, body: req.body, requestHeaders: req.incomingHeaders, key });
+    return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
+  }
   const releaseAllKeySlots = () => { releaseKeySlot(); releaseUserSlot(); };
 
   // 2) 解析 body / model
@@ -643,7 +652,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       return { kind: "client_error", requestId, status: 400, error };
     }
 
-    const releaseSlot = await acquireChannelSlot(fallbackChannel.id, fallbackChannel.maxConcurrency ?? 0);
+    let releaseSlot: () => void;
+    try {
+      releaseSlot = await acquireChannelSlot(fallbackChannel.id, fallbackChannel.maxConcurrency ?? 0, req.signal);
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e.message : String(e);
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
+      releaseAllKeySlots();
+      return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
+    }
     const attemptStart = Date.now();
     const result = await callUpstream({
       channelType: fallbackChannel.type,
@@ -779,7 +796,17 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       return { kind: "client_error", requestId, status: 400, error };
     }
 
-    const releaseSlot = await acquireChannelSlot(route.channel.id, route.channel.maxConcurrency ?? 0);
+    let releaseSlot: () => void;
+    try {
+      releaseSlot = await acquireChannelSlot(route.channel.id, route.channel.maxConcurrency ?? 0, req.signal);
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e.message : String(e);
+      attempts.push({ channel: route.channel.name, error, status: 429 });
+      lastError = `${route.channel.name}: ${error}`;
+      lastStatus = 429;
+      tried.add(routeKey(route));
+      continue;
+    }
     const attemptStart = Date.now();
     const result = await callUpstream({
       channelType: route.targetProvider,
