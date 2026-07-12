@@ -741,7 +741,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: "warn" });
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
-          await settleTpm(0);
+          await settleTpm(null);
           return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
         }
         if (!prepared.ok) {
@@ -749,7 +749,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           releaseAllKeySlots();
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
-          await settleTpm(0);
+          await settleTpm(null);
           return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
         }
         await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
