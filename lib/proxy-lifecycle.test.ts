@@ -23,10 +23,16 @@ let settings: Record<string, unknown> = {};
 let upstreamCalls: string[] = [];
 let reserveCalls = 0;
 let settlements: (number | null)[] = [];
+let channelReleases = 0;
+let keyReleases = 0;
 
 const schema = Object.fromEntries([
   "keys", "channels", "modelMappings", "userQuotas", "requestLogs",
 ].map(name => [name, { name, id: name, prefix: name, fullKey: name, userId: name, type: name, enabled: name, ts: name, keyId: name, tokensIn: name, tokensOut: name }]));
+
+async function flush() {
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
 
 mock.module("./db", () => ({
   schema,
@@ -34,7 +40,7 @@ mock.module("./db", () => ({
     select: () => ({
       from: (table: { name: string }) => ({
         where: () => ({
-          get: () => table.name === "keys" ? key : table.name === "channels" ? channels.find(row => row.id === "fallback") : undefined,
+          get: () => table.name === "keys" ? key : table.name === "channels" ? fallback : undefined,
           all: () => table.name === "channels" ? channels : [],
         }),
         all: () => table.name === "channels" ? channels : [],
@@ -50,10 +56,10 @@ mock.module("./channel-health", () => ({
   recordChannelObservation: async (channel: Channel) => ({ status: channel.status }),
 }));
 mock.module("./channel-queue", () => ({
-  acquireChannelSlot: async () => () => {},
+  acquireChannelSlot: async () => () => { channelReleases += 1; },
   isChannelSaturated: async () => false,
 }));
-mock.module("./key-queue", () => ({ acquireKeySlot: async () => () => {} }));
+mock.module("./key-queue", () => ({ acquireKeySlot: async () => () => { keyReleases += 1; } }));
 mock.module("./rate-limit", () => ({
   checkTpm: async () => true,
   consumeRpm: async () => true,
@@ -100,17 +106,29 @@ beforeEach(() => {
   upstreamCalls = [];
   reserveCalls = 0;
   settlements = [];
+  channelReleases = 0;
+  keyReleases = 0;
   upstreamResponses = [];
 });
 
-function request() {
+function request(stream = false) {
   return {
     type: "openai" as const,
     openAiEndpoint: "chat_completions" as const,
     rawAuth: "Bearer sk-relay-test-secret",
-    stream: false,
+    stream,
     incomingHeaders: new Headers({ "x-request-id": "request-1" }),
     body: JSON.stringify({ model: "gpt-test", messages: [{ role: "user", content: "hi" }], max_completion_tokens: 40 }),
+  };
+}
+
+function streamResponse(text: string) {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "text/event-stream" }),
+    contentType: "text/event-stream",
+    body: new Response(text).body!,
   };
 }
 
@@ -130,7 +148,7 @@ describe("proxy TPM reservation lifecycle", () => {
   });
 
   test("shares one reservation with a successful fallback", async () => {
-    channels = [primary, fallback];
+    channels = [{ ...primary }, { ...fallback, weight: 1 }];
     settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
@@ -143,5 +161,24 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
     expect(reserveCalls).toBe(1);
     expect(settlements).toEqual([9]);
+  });
+
+  test("settles stream usage and releases slots after completion", async () => {
+    upstreamResponses = [streamResponse(
+      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+      + 'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":5}}\n\n'
+      + "data: [DONE]\n\n",
+    )];
+
+    const result = await proxyOnce(request(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    await result.response.text();
+    await flush();
+    expect(reserveCalls).toBe(1);
+    expect(settlements).toEqual([8]);
+    expect(channelReleases).toBe(1);
+    expect(keyReleases).toBe(2);
   });
 });
