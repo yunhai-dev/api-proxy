@@ -76,10 +76,16 @@ export async function POST(req: NextRequest) {
       const rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
       const rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
       const maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
-      const channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
+      let channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
+      const channelId = isAdmin(currentUser) && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
+      if (channelId) {
+        const channel = (await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.id, channelId)).limit(1))[0];
+        if (!channel?.enabled) return NextResponse.json({ error: "供应商渠道不存在或已停用" }, { status: 400 });
+        channelScope = channel.type;
+      }
       const prefix = sk();
       const fullKey = prefix + "-" + nanoid(16);
-      const row = { id: "k_" + nanoid(8), name, userId, prefix, fullKey, channelScope, status: "active", quota, rateLimitRpm, rateLimitTpm, maxConcurrency, used: 0, createdAt: Date.now(), lastUsedAt: null };
+      const row = { id: "k_" + nanoid(8), name, userId, prefix, fullKey, channelId, channelScope, status: "active", quota, rateLimitRpm, rateLimitTpm, maxConcurrency, used: 0, createdAt: Date.now(), lastUsedAt: null };
       await pgDb.insert(pgSchema.keys).values(row);
       await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `生成新密钥：${name}`, actor: currentUser.username });
       return NextResponse.json({ ...row, fullKey }, { status: 201 });
@@ -89,7 +95,13 @@ export async function POST(req: NextRequest) {
     const rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
     const rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
     const maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
-    const channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
+    let channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
+    const channelId = isAdmin(currentUser) && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
+    if (channelId) {
+      const channel = db.select().from(schema.channels).where(eq(schema.channels.id, channelId)).get();
+      if (!channel?.enabled) return NextResponse.json({ error: "供应商渠道不存在或已停用" }, { status: 400 });
+      channelScope = channel.type;
+    }
     const prefix = sk();
     const fullKey = prefix + "-" + nanoid(16);
 
@@ -99,6 +111,7 @@ export async function POST(req: NextRequest) {
       userId,
       prefix,
       fullKey,
+      channelId,
       channelScope,
       status: "active" as const,
       quota,

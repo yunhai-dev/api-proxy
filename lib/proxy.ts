@@ -537,7 +537,10 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
       const { catalog: upstreamCatalog } = await modelConfigCandidateAsync(targetProvider, upstreamModelCandidates);
       if (upstreamCatalog && !upstreamCatalog.enabled) continue;
-      const channels = applyMappedChannelScope(await selectChannelsAsync(targetProvider, upstreamModelCandidates), mapping.channelIds);
+      const channels = applyMappedChannelScope(
+        applyMappedChannelScope(await selectChannelsAsync(targetProvider, upstreamModelCandidates), mapping.channelIds),
+        key.channelId ? [key.channelId] : undefined,
+      );
       for (const channel of channels) {
         const key = `${channel.id}:${mapping.id}:${targetProvider}:${upstreamModel}`;
         if (seen.has(key)) continue;
@@ -547,7 +550,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     }
   } else {
     const targetProvider = openAiOnly ? "openai" : req.type;
-    const channels = await selectChannelsAsync(targetProvider, modelCandidates);
+    const channels = applyMappedChannelScope(await selectChannelsAsync(targetProvider, modelCandidates), key.channelId ? [key.channelId] : undefined);
     routes.push(...channels.map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [] })));
   }
 
@@ -558,6 +561,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
   async function tryFallbackOnce(reason: "no_regular_channel" | "regular_attempts_failed", previousAttempts: { channel: string; error: string; status: number }[] = []): Promise<ProxyResult | null> {
     if (!settings.fallbackEnabled || !settings.fallbackChannelId || !settings.fallbackModel) return null;
+    if (key.channelId && key.channelId !== settings.fallbackChannelId) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
     if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
 

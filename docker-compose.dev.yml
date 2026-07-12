@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile.dev
     image: api-proxy-dev:latest
     working_dir: /app
-    command: ["sh", "-lc", "bun install --frozen-lockfile && node node_modules/next/dist/bin/next dev -p 3000 -H 0.0.0.0"]
+    command: ["sh", "-lc", "bun install --frozen-lockfile && node scripts/init-postgres-schema.mjs && node node_modules/next/dist/bin/next dev -p 3000 -H 0.0.0.0"]
     ports:
       - "3000:3000"
     environment:

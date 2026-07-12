@@ -61,6 +61,7 @@ const statements = [
     user_id text NOT NULL DEFAULT '',
     prefix text NOT NULL,
     full_key text NOT NULL,
+    channel_id text,
     channel_scope text NOT NULL DEFAULT 'all',
     status text NOT NULL DEFAULT 'active',
     quota integer NOT NULL DEFAULT 0,
@@ -71,6 +72,7 @@ const statements = [
     created_at bigint NOT NULL,
     last_used_at bigint
   )`,
+  `ALTER TABLE keys ADD COLUMN IF NOT EXISTS channel_id text`,
   `CREATE TABLE IF NOT EXISTS channels (
     id text PRIMARY KEY,
     name text NOT NULL UNIQUE,

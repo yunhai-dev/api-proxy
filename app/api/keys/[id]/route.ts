@@ -19,6 +19,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const update: Partial<typeof pgSchema.keys.$inferInsert> = {};
       if (body.status === "active" || body.status === "disabled") update.status = body.status;
       if (body.channelScope === "all" || body.channelScope === "claude" || body.channelScope === "openai") update.channelScope = body.channelScope;
+      if (isAdmin(user) && body.channelId !== undefined) {
+        const channelId = typeof body.channelId === "string" && body.channelId ? body.channelId : null;
+        const channel = channelId ? (await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.id, channelId)).limit(1))[0] : null;
+        if (channelId && !channel?.enabled) return NextResponse.json({ error: "供应商渠道不存在或已停用" }, { status: 400 });
+        update.channelId = channelId;
+        if (channel) update.channelScope = channel.type;
+      }
       if (body.rateLimitRpm !== undefined) update.rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
       if (body.rateLimitTpm !== undefined) update.rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
       if (body.maxConcurrency !== undefined) update.maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
@@ -38,6 +45,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const update: Partial<typeof schema.keys.$inferInsert> = {};
     if (body.status === "active" || body.status === "disabled") update.status = body.status;
     if (body.channelScope === "all" || body.channelScope === "claude" || body.channelScope === "openai") update.channelScope = body.channelScope;
+    if (isAdmin(user) && body.channelId !== undefined) {
+      const channelId = typeof body.channelId === "string" && body.channelId ? body.channelId : null;
+      const channel = channelId ? db.select().from(schema.channels).where(eq(schema.channels.id, channelId)).get() : null;
+      if (channelId && !channel?.enabled) return NextResponse.json({ error: "供应商渠道不存在或已停用" }, { status: 400 });
+      update.channelId = channelId;
+      if (channel) update.channelScope = channel.type;
+    }
     if (body.rateLimitRpm !== undefined) update.rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
     if (body.rateLimitTpm !== undefined) update.rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
     if (body.maxConcurrency !== undefined) update.maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);

@@ -10,6 +10,7 @@ type Key = {
   userId: string;
   prefix: string;
   channelScope: "all" | "claude" | "openai";
+  channelId: string | null;
   status: "active" | "disabled";
   quota: number;
   used: number;
@@ -18,6 +19,7 @@ type Key = {
 };
 
 type User = { id: string; username: string; displayName: string };
+type Channel = { id: string; name: string; type: "claude" | "openai"; enabled: boolean };
 
 export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: { onCreated: (k: Key & { fullKey: string }) => void; allowUserSelect?: boolean; inline?: boolean }) {
   const toast = useToast();
@@ -25,6 +27,8 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
   const [name, setName] = useState("");
   const [quota, setQuota] = useState("");
   const [channelScope, setChannelScope] = useState("all");
+  const [channelId, setChannelId] = useState("");
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [userId, setUserId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -32,6 +36,11 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
   useEffect(() => {
     if (!allowUserSelect) return;
     fetch("/api/users").then(r => r.ok ? r.json() : []).then(setUsers).catch(() => null);
+  }, [allowUserSelect]);
+
+  useEffect(() => {
+    if (!allowUserSelect) return;
+    fetch("/api/channels").then(r => r.ok ? r.json() : []).then(setChannels).catch(() => null);
   }, [allowUserSelect]);
 
   async function submit() {
@@ -45,6 +54,7 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
           name,
           quota: quota ? Number(quota) : 0,
           channelScope,
+          channelId: allowUserSelect ? channelId || null : undefined,
           userId: allowUserSelect ? userId : undefined,
         }),
       });
@@ -55,6 +65,7 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
       setName("");
       setQuota("");
       setChannelScope("all");
+      setChannelId("");
       setUserId("");
       setOpen(false);
     } finally {
@@ -133,6 +144,20 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
                   />
                 </div>
               </div>
+              {allowUserSelect && <div className="field">
+                <label>供应商</label>
+                <Select
+                  className="fill-select"
+                  value={channelId || "__all"}
+                  onChange={value => {
+                    const next = value === "__all" ? "" : value;
+                    setChannelId(next);
+                    const channel = channels.find(item => item.id === next);
+                    if (channel) setChannelScope(channel.type);
+                  }}
+                  options={[{ value: "__all", label: "不指定供应商" }, ...channels.filter(channel => channel.enabled).map(channel => ({ value: channel.id, label: `${channel.name} (${channel.type})` }))]}
+                />
+              </div>}
             </div>
             <div className="modal-foot">
               <button className="btn ghost" onClick={() => setOpen(false)}>取消</button>

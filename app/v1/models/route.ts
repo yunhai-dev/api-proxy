@@ -112,7 +112,22 @@ export async function GET(req: NextRequest) {
   }
 
   let models = await configuredModels(source);
-  if (format === "openai" && source === "openai" && models.length === 0 && !hasExplicitModelFormat(req)) {
+  if (resolved.key.channelId) {
+    const channel = usePostgres()
+      ? (await (async () => {
+        const { pgDb, pgSchema } = await import("@/lib/db/pg");
+        return (await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.id, resolved.key.channelId!)).limit(1))[0];
+      })())
+      : db.select().from(schema.channels).where(eq(schema.channels.id, resolved.key.channelId)).get();
+    if (!channel?.enabled || channel.type !== source) {
+      const message = "供应商渠道不可用";
+      if (format === "claude") return NextResponse.json({ type: "error", error: { type: "invalid_request_error", message } }, { status: 403 });
+      return NextResponse.json({ error: { message, type: "invalid_request_error" } }, { status: 403 });
+    }
+    const allowed = new Set(uniqueModels(channel.models));
+    models = models.filter(model => allowed.has(model.id));
+  }
+  if (format === "openai" && source === "openai" && models.length === 0 && !hasExplicitModelFormat(req) && !resolved.key.channelId) {
     const claudeModels = await configuredModels("claude");
     if (claudeModels.length > 0) {
       models = claudeModels;

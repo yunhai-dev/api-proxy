@@ -6,6 +6,7 @@ export const keys = pgTable("keys", {
   userId: text("user_id").notNull().default(""),
   prefix: text("prefix").notNull(),
   fullKey: text("full_key").notNull(),
+  channelId: text("channel_id"),
   channelScope: text("channel_scope").notNull().default("all"),
   status: text("status").notNull().default("active"),
   quota: integer("quota").notNull().default(0),

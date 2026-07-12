@@ -5,9 +5,9 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "node scripts/init-postgres-schema.mjs && next dev -p 3000",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "node scripts/init-postgres-schema.mjs && next start -p 3000",
     "db:studio": "drizzle-kit studio --config drizzle.pg.config.ts",
     "db:pg:generate": "drizzle-kit generate --config drizzle.pg.config.ts",
     "db:pg:migrate": "drizzle-kit migrate --config drizzle.pg.config.ts",
