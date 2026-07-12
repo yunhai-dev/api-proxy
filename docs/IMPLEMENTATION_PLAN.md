@@ -264,8 +264,8 @@
 
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | 原生/桥接协议契约与严格预检 | [ ] | 详见 [`docs/plan/enterprise-protocol-compatibility.md`](./plan/enterprise-protocol-compatibility.md) |
-| 2 | 支持子集转换与 SSE 完整性 | [ ] | |
-| 3 | 渠道与模型能力路由 | [ ] | |
-| 4 | 上游传输、配额与可靠性加固 | [ ] | |
-| 5 | 可观测性、契约测试与分批发布 | [ ] | |
+| 1 | 原生/桥接协议契约与严格预检 | [x] | 详见 [`docs/plan/enterprise-protocol-compatibility.md`](./plan/enterprise-protocol-compatibility.md) |
+| 2 | 支持子集转换与 SSE 完整性 | [x] | 覆盖 Chat/Responses ↔ Messages 的已支持子集及终止事件 |
+| 3 | 渠道与模型能力路由 | [x] | 渠道/模型 capability profile 已参与常规和回退选路 |
+| 4 | 上游传输、配额与可靠性加固 | [ ] | 传输边界与重试已加固；原子配额、队列与熔断演进待补 |
+| 5 | 可观测性、契约测试与分批发布 | [ ] | 已记录协议方向并覆盖核心契约；指标和分批开关待补 |
