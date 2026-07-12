@@ -16,6 +16,7 @@ export type UpstreamOptions = {
   body: string;           // 已序列化的 JSON body
   stream: boolean;
   signal?: AbortSignal;
+  incomingHeaders?: Headers;
   timeoutMs?: number;
 };
 
@@ -54,18 +55,21 @@ export function modelsEndpointFor(baseUrl: string): string {
   return apiUrl(baseUrl, "models");
 }
 
-export function headersFor(provider: Provider, upstreamKey: string): HeadersInit {
+export function headersFor(provider: Provider, upstreamKey: string, incoming?: Headers): Headers {
+  const headers = new Headers({ "content-type": "application/json" });
   if (provider === "claude") {
-    return {
-      "content-type": "application/json",
-      "x-api-key": upstreamKey,
-      "anthropic-version": "2023-06-01",
-    };
+    headers.set("x-api-key", upstreamKey);
+    headers.set("anthropic-version", incoming?.get("anthropic-version") || "2023-06-01");
+    const beta = incoming?.get("anthropic-beta");
+    if (beta) headers.set("anthropic-beta", beta);
+  } else {
+    headers.set("authorization", `Bearer ${upstreamKey}`);
+    for (const name of ["idempotency-key", "openai-organization", "openai-project"]) {
+      const value = incoming?.get(name);
+      if (value) headers.set(name, value);
+    }
   }
-  return {
-    "content-type": "application/json",
-    "authorization": `Bearer ${upstreamKey}`,
-  };
+  return headers;
 }
 
 /**
@@ -73,13 +77,17 @@ export function headersFor(provider: Provider, upstreamKey: string): HeadersInit
  */
 export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResult> {
   const url = endpointFor(opts.channelType, opts.baseUrl, opts.openAiEndpoint);
-  const headers = headersFor(opts.channelType, opts.upstreamKey);
+  const headers = headersFor(opts.channelType, opts.upstreamKey, opts.incomingHeaders);
 
   const controller = new AbortController();
+  let timedOut = false;
   const abortUpstream = () => {
     try { controller.abort(); } catch { /* already aborted */ }
   };
-  const timeout = setTimeout(abortUpstream, opts.timeoutMs ?? DEFAULT_TIMEOUT);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    abortUpstream();
+  }, opts.timeoutMs ?? DEFAULT_TIMEOUT);
   if (opts.signal) {
     opts.signal.addEventListener("abort", abortUpstream, { once: true });
   }
@@ -93,7 +101,9 @@ export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResul
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      return { ok: false, status: res.status, errorMsg: text.slice(0, 200) || `HTTP ${res.status}` };
+      const retryAfter = res.headers.get("retry-after");
+      const suffix = retryAfter ? ` (retry-after: ${retryAfter})` : "";
+      return { ok: false, status: res.status, errorMsg: `${text.slice(0, 200) || `HTTP ${res.status}`}${suffix}` };
     }
     if (!res.body) return { ok: false, status: res.status, errorMsg: "empty body" };
     return {
@@ -106,7 +116,7 @@ export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResul
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("abort") || msg.includes("AbortError")) {
-      return { ok: false, status: 0, errorMsg: "timeout" };
+      return { ok: false, status: 0, errorMsg: timedOut ? "timeout" : "client aborted" };
     }
     return { ok: false, status: 0, errorMsg: `network: ${msg.slice(0, 100)}` };
   } finally {

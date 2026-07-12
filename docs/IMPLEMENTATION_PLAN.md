@@ -241,3 +241,31 @@
 | 3 | 请求与非流式响应转换 | 完成 | MVP 覆盖文本和 base64 图片输入 |
 | 4 | 代理按目标服务商选择渠道并转发 | 完成 | 同协议与跨协议路径均支持；非流式与 SSE 流式转换已接入 |
 | 5 | 类型检查与代表性验证 | 完成 | `npx tsc --noEmit` 通过 |
+
+## OpenAI Responses → Claude 兼容
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | Endpoint 上下文贯穿跨协议转换 | [x] | 详见 [`docs/plan/openai-responses-claude-compatibility.md`](./plan/openai-responses-claude-compatibility.md) |
+| 2 | Responses 请求与推理强度映射 | [x] | `reasoning.effort`/`reasoning_effort` 使用 adaptive thinking + output effort，不生成 `budget_tokens` |
+| 3 | Responses JSON 与 SSE 输出转换 | [x] | Claude 上游返回 Responses 对象与事件序列 |
+| 4 | 转换前置校验与 fallback 一致性 | [x] | 不支持字段返回 400，不调用上游或 fallback |
+| 5 | 类型检查与构建验证 | [x] | `bunx tsc --noEmit` / `bun run build` 通过 |
+
+## OpenAI → Claude 推理强度映射
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 完整 OpenAI effort 枚举与模型兼容映射 | [x] | 详见 [`docs/plan/openai-responses-claude-compatibility.md`](./plan/openai-responses-claude-compatibility.md) |
+| 2 | Chat 与 Responses 共用映射路径 | [x] | 支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` |
+| 3 | 表驱动转换测试与构建验证 | [x] | `bun test lib/protocol-conversion.test.ts` / `bunx tsc --noEmit` / `bun run build` 通过 |
+
+## 企业级原生协议与跨协议桥接
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 原生/桥接协议契约与严格预检 | [ ] | 详见 [`docs/plan/enterprise-protocol-compatibility.md`](./plan/enterprise-protocol-compatibility.md) |
+| 2 | 支持子集转换与 SSE 完整性 | [ ] | |
+| 3 | 渠道与模型能力路由 | [ ] | |
+| 4 | 上游传输、配额与可靠性加固 | [ ] | |
+| 5 | 可观测性、契约测试与分批发布 | [ ] | |

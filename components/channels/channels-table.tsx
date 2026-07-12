@@ -24,6 +24,7 @@ type Channel = {
   p50Ms: number;
   errRate: number;
   enabled: boolean;
+  capabilities: string[];
 };
 
 type EditTarget = "add" | { kind: "edit"; channel: Channel } | null;

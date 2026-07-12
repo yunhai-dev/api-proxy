@@ -16,6 +16,7 @@ import { checkTpm, consumeRpm } from "./rate-limit";
 import { usePostgres } from "./db/runtime";
 import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
+import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
 
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
@@ -527,6 +528,24 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   }
 
   const openAiOnly = req.openAiEndpoint === "embeddings";
+  const routeCapabilities = (targetType: Provider) => requiredCapabilities({
+    sourceType: req.type,
+    targetType,
+    openAiEndpoint: req.openAiEndpoint,
+    body: parsed,
+    stream: req.stream,
+  });
+  const supportsRequest = (
+    channel: ChannelCandidate,
+    targetType: Provider,
+    catalog: { capabilities: string[] } | null,
+  ) => routeSupportsCapabilities({
+    channelCapabilities: channel.capabilities ?? [],
+    modelCapabilities: catalog?.capabilities ?? [],
+    sourceType: req.type,
+    targetType,
+    required: routeCapabilities(targetType),
+  });
   const routes: RouteCandidate[] = [];
   if (mappings.length) {
     const seen = new Set<string>();
@@ -542,6 +561,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         key.channelId ? [key.channelId] : undefined,
       );
       for (const channel of channels) {
+        if (!supportsRequest(channel, targetProvider, upstreamCatalog)) continue;
         const key = `${channel.id}:${mapping.id}:${targetProvider}:${upstreamModel}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -550,12 +570,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     }
   } else {
     const targetProvider = openAiOnly ? "openai" : req.type;
+    const { catalog: upstreamCatalog } = await modelConfigCandidateAsync(targetProvider, modelCandidates);
     const channels = applyMappedChannelScope(await selectChannelsAsync(targetProvider, modelCandidates), key.channelId ? [key.channelId] : undefined);
-    routes.push(...channels.map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [] })));
+    routes.push(...channels
+      .filter(channel => supportsRequest(channel, targetProvider, upstreamCatalog))
+      .map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [] })));
   }
 
   async function routeBody(route: RouteCandidate) {
-    const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, body: parsed, model: route.upstreamModel, stream: req.stream }));
+    const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, body: parsed, model: route.upstreamModel, stream: req.stream }));
     return req.stream && route.targetProvider === "openai" && req.openAiEndpoint !== "responses" ? withOpenAiStreamUsage(converted) : converted;
   }
 
@@ -564,17 +587,21 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     if (key.channelId && key.channelId !== settings.fallbackChannelId) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
     if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
+    const { catalog: fallbackCatalog } = await modelConfigCandidateAsync(
+      fallbackChannel.type,
+      modelLookupCandidates(settings.fallbackModel),
+    );
+    if (!supportsRequest(fallbackChannel, fallbackChannel.type, fallbackCatalog)) return null;
 
     let fallbackBody: string;
     try {
-      fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, body: parsed, model: settings.fallbackModel, stream: req.stream }));
+      fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, body: parsed, model: settings.fallbackModel, stream: req.stream }));
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      const attempts = [...previousAttempts, { channel: fallbackChannel.name, error, status: 0 }];
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
       releaseAllKeySlots();
-      return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+      return { kind: "client_error", requestId, status: 400, error };
     }
 
     const releaseSlot = await acquireChannelSlot(fallbackChannel.id, fallbackChannel.maxConcurrency ?? 0);
@@ -588,6 +615,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       body: fallbackBody,
       stream: req.stream,
       signal: req.signal,
+      incomingHeaders: req.incomingHeaders,
       timeoutMs: MAX_LATENCY_MS,
     });
 
@@ -595,7 +623,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok && prepared.reason === "empty") {
@@ -620,7 +648,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason,
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
@@ -654,7 +682,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = processed.ok ? null : (processed.message ?? null);
       await recordChannelObservation(fallbackChannel, { ok: processed.ok, latencyMs: Date.now() - attemptStart, error: errorMsg ?? undefined }, { failureStatus: processed.ok ? undefined : "warn" });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason },
+        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason },
         processed.info,
         errorMsg,
       );
@@ -707,11 +735,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       upstreamBody = await routeBody(route);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      attempts.push({ channel: route.channel.name, error, status: 0 });
-      lastError = `${route.channel.name}: ${error}`;
-      lastStatus = 0;
-      tried.add(routeKey(route));
-      continue;
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+      releaseAllKeySlots();
+      return { kind: "client_error", requestId, status: 400, error };
     }
 
     const releaseSlot = await acquireChannelSlot(route.channel.id, route.channel.maxConcurrency ?? 0);
@@ -725,6 +751,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       body: upstreamBody,
       stream: req.stream,
       signal: req.signal,
+      incomingHeaders: req.incomingHeaders,
       timeoutMs: MAX_LATENCY_MS,
     });
 
@@ -732,7 +759,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok && prepared.reason === "empty") {
@@ -761,7 +788,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders,
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
@@ -797,7 +824,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = null;
       await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, requestId, body: req.body, requestHeaders: req.incomingHeaders },
+        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders },
         processed.info,
         errorMsg,
       );
@@ -861,6 +888,7 @@ type Ctx = {
   t0: number;
   type: Provider;
   targetType: Provider;
+  openAiEndpoint?: ProxyRequest["openAiEndpoint"];
   body: string;
   requestHeaders?: Headers;
   releaseSlot?: () => void;
@@ -913,7 +941,7 @@ async function prepareStreamResponse(
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const reader = upstream.body.getReader();
-  const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, model: ctx.inboundModel });
+  const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, model: ctx.inboundModel });
   const initialChunks: Uint8Array[] = [];
   let usageBuffer = "";
   let detailBuffer = "";
@@ -1172,7 +1200,7 @@ async function pipeStreamResponse(
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const reader = upstream.body.getReader();
-  const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, model: ctx.inboundModel });
+  const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, model: ctx.inboundModel });
   let buffer = "";
   let detailBuffer = "";
   let tokensIn = 0;
@@ -1331,7 +1359,7 @@ async function collectResponse(
   let responseText = text;
   let responseContentType = upstream.contentType;
   if (ctx.type !== ctx.targetType) {
-    responseText = convertResponseBody({ sourceType: ctx.type, targetType: ctx.targetType, body: text, model: ctx.inboundModel });
+    responseText = convertResponseBody({ sourceType: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, body: text, model: ctx.inboundModel });
     responseContentType = "application/json";
   }
   const tokensIn = usage?.in ?? 0;

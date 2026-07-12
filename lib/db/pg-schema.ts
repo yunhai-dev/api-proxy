@@ -33,6 +33,7 @@ export const channels = pgTable("channels", {
   p50Ms: integer("p50_ms").notNull().default(0),
   errRate: real("err_rate").notNull().default(0),
   enabled: boolean("enabled").notNull().default(true),
+  capabilities: text("capabilities").array().notNull().default([]),
 });
 
 export const requestLogs = pgTable("request_logs", {
@@ -118,6 +119,7 @@ export const modelCatalog = pgTable("model_catalog", {
   upstreamModel: text("upstream_model").notNull().default(""),
   visible: boolean("visible").notNull().default(true),
   enabled: boolean("enabled").notNull().default(true),
+  capabilities: text("capabilities").array().notNull().default([]),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, table => [uniqueIndex("model_catalog_provider_model_unique").on(table.provider, table.model)]);

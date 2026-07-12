@@ -6,6 +6,7 @@ import { db, schema } from "@/lib/db";
 import { listedModels, listedModelsAsync } from "@/lib/model-catalog";
 import { usePostgres } from "@/lib/db/runtime";
 import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
+import { validateCapabilities } from "@/lib/protocol-capabilities";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,8 @@ export async function POST(req: NextRequest) {
     if (!provider) return NextResponse.json({ error: "请选择服务商" }, { status: 400 });
     const model = typeof body.model === "string" ? body.model.trim() : "";
     if (!model) return NextResponse.json({ error: "请输入模型名称" }, { status: 400 });
+    const capabilities = validateCapabilities(body.capabilities);
+    if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
     const now = Date.now();
     const value = {
       provider,
@@ -75,6 +78,7 @@ export async function POST(req: NextRequest) {
       displayName: typeof body.displayName === "string" ? body.displayName.trim() : "",
       visible: body.visible !== false,
       enabled: body.enabled !== false,
+      capabilities: capabilities.capabilities ?? [],
       updatedAt: now,
     };
     if (usePostgres()) {

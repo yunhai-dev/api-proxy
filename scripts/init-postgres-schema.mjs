@@ -87,7 +87,8 @@ const statements = [
     status text NOT NULL DEFAULT 'ok',
     p50_ms integer NOT NULL DEFAULT 0,
     err_rate real NOT NULL DEFAULT 0,
-    enabled boolean NOT NULL DEFAULT true
+    enabled boolean NOT NULL DEFAULT true,
+    capabilities text[] NOT NULL DEFAULT '{}'
   )`,
   `CREATE TABLE IF NOT EXISTS request_logs (
     id serial PRIMARY KEY,
@@ -191,6 +192,7 @@ const statements = [
     upstream_model text NOT NULL DEFAULT '',
     visible boolean NOT NULL DEFAULT true,
     enabled boolean NOT NULL DEFAULT true,
+    capabilities text[] NOT NULL DEFAULT '{}',
     created_at bigint NOT NULL,
     updated_at bigint NOT NULL
   )`,
@@ -280,6 +282,8 @@ try {
     const missing = requiredTables.filter(table => !present.has(table));
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
+      await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
+      await sql.unsafe(`ALTER TABLE model_catalog ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`);
       await sql.unsafe(`UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`);

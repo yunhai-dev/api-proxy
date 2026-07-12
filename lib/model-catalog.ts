@@ -10,6 +10,7 @@ export type ListedModel = {
   visible: boolean;
   enabled: boolean;
   configured: boolean;
+  capabilities: string[];
 };
 
 export type PublicModel = {
@@ -67,6 +68,7 @@ export function listedModels(provider: Provider): ListedModel[] {
       visible: row?.visible ?? true,
       enabled: row?.enabled ?? true,
       configured: !!row,
+      capabilities: row?.capabilities ?? [],
     };
   });
 }
@@ -87,6 +89,7 @@ export async function listedModelsAsync(provider: Provider): Promise<ListedModel
       visible: row?.visible ?? true,
       enabled: row?.enabled ?? true,
       configured: !!row,
+      capabilities: row?.capabilities ?? [],
     };
   });
 }

@@ -12,6 +12,11 @@ const PREDEFINED: Record<"claude" | "openai", string[]> = {
   openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"],
 };
 
+const CAPABILITIES = [
+  "chat_completions", "responses", "embeddings", "messages", "streaming",
+  "tools", "tool_replay", "vision", "reasoning", "structured_output",
+];
+
 type Channel = {
   id: string;
   name: string;
@@ -26,6 +31,7 @@ type Channel = {
   p50Ms: number;
   errRate: number;
   enabled: boolean;
+  capabilities: string[];
 };
 
 export function ChannelForm({
@@ -47,6 +53,7 @@ export function ChannelForm({
   const [testModel, setTestModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
   const [customModel, setCustomModel] = useState("");
   const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
   const [selectedFetchedModels, setSelectedFetchedModels] = useState<string[]>([]);
@@ -62,7 +69,7 @@ export function ChannelForm({
     if (trigger === "add") {
       setEditingId(null);
       setName(""); setType("claude"); setBaseUrl(""); setWeight("1"); setMaxConcurrency("0"); setMonitorIntervalSec("0");
-      setApiKey(""); setModels([]); setCustomModel(""); setTestModel("");
+      setApiKey(""); setModels([]); setCapabilities([]); setCustomModel(""); setTestModel("");
       setOpen(true);
     } else if (trigger.kind === "edit") {
       const c = trigger.channel;
@@ -76,6 +83,7 @@ export function ChannelForm({
       setTestModel(c.testModel ?? "");
       setApiKey("");            // 不回显密钥，留空保持原值
       setModels(c.models);
+      setCapabilities(c.capabilities ?? []);
       setCustomModel("");
       setOpen(true);
     }
@@ -125,6 +133,7 @@ export function ChannelForm({
         monitorIntervalSec: Math.max(0, Number(monitorIntervalSec) || 0),
         testModel,
         models,
+        capabilities,
       };
       if (apiKey) payload.apiKey = apiKey; // 仅当用户输入了新密钥
 
@@ -284,6 +293,22 @@ export function ChannelForm({
                 />
                 {isEdit && <div className="hint">出于安全，编辑时不回显现有密钥。</div>}
               </div>
+              <fieldset className="model-picker">
+                <legend>桥接能力 <span className="dim mono text-[10px] font-normal">仅跨协议路由使用</span></legend>
+                <div className="model-custom-list">
+                  {CAPABILITIES.map(capability => (
+                    <label key={capability} className="chip-removable">
+                      <Checkbox
+                        checked={capabilities.includes(capability)}
+                        onCheckedChange={() => setCapabilities(current => current.includes(capability)
+                          ? current.filter(value => value !== capability)
+                          : [...current, capability])}
+                      />
+                      <span className="mono">{capability}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <ModelMultiSelect
                 value={models}
                 onChange={setModels}

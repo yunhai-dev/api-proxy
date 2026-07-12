@@ -1,17 +1,21 @@
 import type { Provider } from "./upstream";
 
 type Json = Record<string, unknown>;
+type OpenAiEndpoint = "chat_completions" | "responses" | "embeddings";
 
 export function convertRequestBody(input: {
   sourceType: Provider;
   targetType: Provider;
+  openAiEndpoint?: OpenAiEndpoint;
   body: Json;
   model: string;
   stream: boolean;
 }): Json {
   if (input.sourceType === input.targetType) return { ...input.body, model: input.model };
   if (input.sourceType === "openai" && input.targetType === "claude") {
-    return openAiChatToClaudeMessages(input.body, input.model, input.stream);
+    return input.openAiEndpoint === "responses"
+      ? openAiResponsesToClaudeMessages(input.body, input.model, input.stream)
+      : openAiChatToClaudeMessages(input.body, input.model, input.stream);
   }
   return claudeMessagesToOpenAiChat(input.body, input.model, input.stream);
 }
@@ -19,13 +23,16 @@ export function convertRequestBody(input: {
 export function convertResponseBody(input: {
   sourceType: Provider;
   targetType: Provider;
+  openAiEndpoint?: OpenAiEndpoint;
   body: string;
   model: string;
 }): string {
   if (input.sourceType === input.targetType) return input.body;
   const parsed = JSON.parse(input.body) as Json;
   const converted = input.sourceType === "openai"
-    ? claudeMessageToOpenAiChat(parsed, input.model)
+    ? input.openAiEndpoint === "responses"
+      ? claudeMessageToOpenAiResponse(parsed, input.model)
+      : claudeMessageToOpenAiChat(parsed, input.model)
     : openAiChatToClaudeMessage(parsed, input.model);
   return JSON.stringify(converted);
 }
@@ -33,40 +40,180 @@ export function convertResponseBody(input: {
 export function createSseResponseConverter(input: {
   sourceType: Provider;
   targetType: Provider;
+  openAiEndpoint?: OpenAiEndpoint;
   model: string;
 }) {
   if (input.sourceType === input.targetType) return null;
-  return input.sourceType === "openai"
-    ? createClaudeToOpenAiSseConverter(input.model)
-    : createOpenAiToClaudeSseConverter(input.model);
+  if (input.sourceType === "openai") {
+    return input.openAiEndpoint === "responses"
+      ? createClaudeToOpenAiResponsesSseConverter(input.model)
+      : createClaudeToOpenAiSseConverter(input.model);
+  }
+  return createOpenAiToClaudeSseConverter(input.model);
 }
 
 function openAiChatToClaudeMessages(body: Json, model: string, stream: boolean): Json {
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const system: unknown[] = [];
+  rejectUnsupportedOpenAiChat(body);
+  if (!Array.isArray(body.messages)) throw new Error("Chat Completions messages must be an array");
+  const system: string[] = [];
   const claudeMessages: unknown[] = [];
-  for (const item of messages) {
-    if (!isRecord(item)) continue;
-    const role = item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user";
-    const content = openAiMessageContentToClaude(item);
-    if (role === "system") system.push(content);
-    else claudeMessages.push({ role, content });
+  for (const item of body.messages) {
+    if (!isRecord(item)) throw new Error("Chat Completions messages must be objects");
+    const role = item.role;
+    if (role === "system" || role === "developer") {
+      system.push(systemTextFromOpenAiContent(item.content, String(role)));
+      continue;
+    }
+    if (role !== "assistant" && role !== "user" && role !== "tool") {
+      throw new Error(`Chat Completions role '${String(role)}' is not supported for Claude channels`);
+    }
+    claudeMessages.push({ role: role === "tool" ? "user" : role, content: openAiMessageContentToClaude(item) });
   }
   const out: Json = {
     model,
     messages: claudeMessages,
-    max_tokens: numberOrDefault(body.max_tokens, 1024),
+    max_tokens: openAiMaxTokens(body),
     stream,
   };
-  if (system.length === 1) out.system = system[0];
-  if (system.length > 1) out.system = system.map(textFromContent).join("\n\n");
+  if (system.length) out.system = system.join("\n\n");
   copyIfPresent(body, out, "temperature");
   copyIfPresent(body, out, "top_p");
   if (body.stop !== undefined) out.stop_sequences = body.stop;
   const tools = openAiToolsToClaude(body.tools);
   if (tools.length) out.tools = tools;
   if (body.tool_choice !== undefined) out.tool_choice = openAiToolChoiceToClaude(body.tool_choice);
+  applyOpenAiReasoning(body.reasoning_effort, model, out);
   return out;
+}
+
+function openAiResponsesToClaudeMessages(body: Json, model: string, stream: boolean): Json {
+  rejectUnsupportedResponses(body);
+  const messages = responsesInputToClaudeMessages(body.input);
+  const out: Json = {
+    model,
+    messages,
+    max_tokens: numberOrDefault(body.max_output_tokens, 1024),
+    stream,
+  };
+  if (typeof body.instructions === "string" && body.instructions) out.system = body.instructions;
+  copyIfPresent(body, out, "temperature");
+  copyIfPresent(body, out, "top_p");
+  const tools = openAiToolsToClaude(body.tools);
+  if (tools.length) out.tools = tools;
+  if (body.tool_choice !== undefined) out.tool_choice = openAiToolChoiceToClaude(body.tool_choice);
+  const reasoning = isRecord(body.reasoning) ? body.reasoning.effort : undefined;
+  applyOpenAiReasoning(reasoning, model, out);
+  return out;
+}
+
+function rejectUnsupportedOpenAiChat(body: Json) {
+  for (const key of ["response_format", "parallel_tool_calls", "stream_options", "logprobs", "top_logprobs", "n", "seed", "presence_penalty", "frequency_penalty", "modalities", "audio", "prediction", "service_tier", "store", "metadata"]) {
+    if (body[key] !== undefined) throw new Error(`Chat Completions field '${key}' is not supported for Claude channels`);
+  }
+  if (body.max_completion_tokens !== undefined && body.max_tokens !== undefined) {
+    throw new Error("Only one of max_tokens and max_completion_tokens may be set for Claude channels");
+  }
+  if (Array.isArray(body.tools) && body.tools.some(tool => !isRecord(tool) || tool.type !== "function")) {
+    throw new Error("Only function tools are supported for Claude channels");
+  }
+}
+
+function rejectUnsupportedResponses(body: Json) {
+  for (const key of ["previous_response_id", "conversation", "background", "text", "max_tool_calls", "parallel_tool_calls", "metadata", "store", "include", "service_tier", "truncation", "prompt", "prompt_cache_key", "safety_identifier", "user"]) {
+    if (body[key] !== undefined && body[key] !== false) throw new Error(`Responses field '${key}' is not supported for Claude channels`);
+  }
+  if (Array.isArray(body.tools) && body.tools.some(tool => !isRecord(tool) || tool.type !== "function")) {
+    throw new Error("Only function tools are supported for Claude channels");
+  }
+}
+
+function openAiMaxTokens(body: Json) {
+  const maxTokens = body.max_tokens;
+  const maxCompletionTokens = body.max_completion_tokens;
+  if (maxTokens !== undefined) return numberOrDefault(maxTokens, 1024);
+  if (maxCompletionTokens !== undefined) return numberOrDefault(maxCompletionTokens, 1024);
+  return 1024;
+}
+
+function systemTextFromOpenAiContent(content: unknown, role: string) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) throw new Error(`Chat Completions ${role} content must be text for Claude channels`);
+  return content.map(part => {
+    if (!isRecord(part) || (part.type !== "text" && part.type !== "input_text") || typeof part.text !== "string") {
+      throw new Error(`Chat Completions ${role} content must contain only text for Claude channels`);
+    }
+    return part.text;
+  }).join("");
+}
+
+function responsesInputToClaudeMessages(input: unknown): Json[] {
+  if (typeof input === "string") return [{ role: "user", content: input }];
+  if (!Array.isArray(input)) throw new Error("Responses input must be a string or array");
+  const messages: Json[] = [];
+  for (const item of input) {
+    if (!isRecord(item)) throw new Error("Responses input items must be objects");
+    if (item.type === "function_call") {
+      const callId = requiredString(item.call_id, "Responses function_call call_id");
+      const name = requiredString(item.name, "Responses function_call name");
+      messages.push({ role: "assistant", content: [{ type: "tool_use", id: callId, name, input: parseRequiredJsonObject(item.arguments, "Responses function_call arguments") }] });
+      continue;
+    }
+    if (item.type === "function_call_output") {
+      const callId = requiredString(item.call_id, "Responses function_call_output call_id");
+      messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: callId, content: textFromContent(item.output) }] });
+      continue;
+    }
+    if (item.type === "message" || item.role !== undefined) {
+      const role = item.role === "assistant" ? "assistant" : item.role === "user" || item.role === "system" ? item.role : null;
+      if (!role) throw new Error(`Responses message role '${String(item.role)}' is not supported`);
+      const content = responsesContentToClaude(item.content);
+      if (role === "system") throw new Error("Responses system messages must use instructions for Claude channels");
+      messages.push({ role, content });
+      continue;
+    }
+    throw new Error(`Responses input item type '${String(item.type ?? "unknown")}' is not supported`);
+  }
+  return messages;
+}
+
+function responsesContentToClaude(content: unknown): unknown {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) throw new Error("Responses message content must be a string or array");
+  return content.map(part => {
+    if (!isRecord(part)) throw new Error("Responses content parts must be objects");
+    if (part.type === "input_text" || part.type === "text") return { type: "text", text: String(part.text ?? "") };
+    if (part.type === "input_image") {
+      const parsed = parseDataUrl(typeof part.image_url === "string" ? part.image_url : "");
+      if (!parsed) throw new Error("Only base64 data URL input images are supported for Claude channels");
+      return { type: "image", source: { type: "base64", media_type: parsed.mediaType, data: parsed.data } };
+    }
+    throw new Error(`Responses content part type '${String(part.type ?? "unknown")}' is not supported`);
+  });
+}
+
+function applyOpenAiReasoning(value: unknown, model: string, out: Json) {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value)) {
+    throw new Error("reasoning effort must be none, minimal, low, medium, high, xhigh, or max");
+  }
+  const capabilities = claudeReasoningCapabilities(model);
+  if (value === "none") {
+    if (capabilities.canDisableThinking) out.thinking = { type: "disabled" };
+    return;
+  }
+  const effort = value === "minimal" ? "low" : value;
+  out.thinking = { type: "adaptive" };
+  const needsCompatibilityFallback = (effort === "xhigh" && !capabilities.supportsXhigh)
+    || (effort === "max" && !capabilities.supportsMax);
+  out.output_config = { effort: needsCompatibilityFallback ? "high" : effort };
+}
+
+function claudeReasoningCapabilities(model: string) {
+  const normalized = model.toLowerCase();
+  const alwaysAdaptive = normalized.includes("claude-fable-5") || normalized.includes("claude-mythos-5") || normalized.includes("claude-mythos-preview");
+  const supportsAdaptive = alwaysAdaptive || normalized.includes("claude-opus-4-8") || normalized.includes("claude-opus-4-7") || normalized.includes("claude-opus-4-6") || normalized.includes("claude-sonnet-5") || normalized.includes("claude-sonnet-4-6");
+  const supportsXhigh = alwaysAdaptive || normalized.includes("claude-opus-4-8") || normalized.includes("claude-opus-4-7") || normalized.includes("claude-sonnet-5");
+  return { canDisableThinking: supportsAdaptive && !alwaysAdaptive, supportsXhigh, supportsMax: supportsAdaptive };
 }
 
 function claudeMessagesToOpenAiChat(body: Json, model: string, stream: boolean): Json {
@@ -103,6 +250,37 @@ function claudeMessageToOpenAiChat(body: Json, model: string): Json {
     model,
     choices: [{ index: 0, message, finish_reason: claudeStopReasonToOpenAi(body.stop_reason) }],
     usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
+  };
+}
+
+function claudeMessageToOpenAiResponse(body: Json, model: string): Json {
+  const contentBlocks = Array.isArray(body.content) ? body.content.filter(isRecord) : [];
+  const output: Json[] = [];
+  let outputIndex = 0;
+  for (const block of contentBlocks) {
+    if (block.type === "text") {
+      output.push({ id: `msg_${crypto.randomUUID()}`, type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: String(block.text ?? ""), annotations: [] }] });
+      outputIndex++;
+      continue;
+    }
+    if (block.type === "tool_use") {
+      output.push({ id: String(block.id ?? `fc_${crypto.randomUUID()}`), type: "function_call", status: "completed", call_id: String(block.id ?? `call_${crypto.randomUUID()}`), name: String(block.name ?? ""), arguments: JSON.stringify(isRecord(block.input) ? block.input : {}) });
+      outputIndex++;
+    }
+  }
+  const usage = isRecord(body.usage) ? body.usage : {};
+  const inputTokens = numberOrDefault(usage.input_tokens, 0) + numberOrDefault(usage.cache_read_input_tokens, 0) + numberOrDefault(usage.cache_creation_input_tokens, 0);
+  const outputTokens = numberOrDefault(usage.output_tokens, 0);
+  const incomplete = body.stop_reason === "max_tokens" ? { reason: "max_output_tokens" } : null;
+  return {
+    id: typeof body.id === "string" ? body.id : `resp_${crypto.randomUUID()}`,
+    object: "response",
+    created_at: Math.floor(Date.now() / 1000),
+    status: incomplete ? "incomplete" : "completed",
+    ...(incomplete ? { incomplete_details: incomplete } : {}),
+    model,
+    output,
+    usage: { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
   };
 }
 
@@ -185,6 +363,91 @@ function createClaudeToOpenAiSseConverter(model: string) {
           continue;
         }
         if (event.type === "message_stop") out += "data: [DONE]\n\n";
+      } catch { /* ignore malformed upstream event */ }
+    }
+    return out;
+  };
+}
+
+function createClaudeToOpenAiResponsesSseConverter(model: string) {
+  let buffer = "";
+  let id = `resp_${crypto.randomUUID()}`;
+  let started = false;
+  let completed = false;
+  let nextOutputIndex = 0;
+  let textOutput: { outputIndex: number; contentIndex: number; id: string; text: string } | null = null;
+  const toolOutputs = new Map<number, { outputIndex: number; id: string; callId: string; name: string; arguments: string }>();
+
+  function response(status: "in_progress" | "completed" | "incomplete") {
+    return { id, object: "response", created_at: Math.floor(Date.now() / 1000), status, model, output: [] };
+  }
+
+  function start() {
+    if (started) return "";
+    started = true;
+    return responsesSse("response.created", { type: "response.created", response: response("in_progress") })
+      + responsesSse("response.in_progress", { type: "response.in_progress", response: response("in_progress") });
+  }
+
+  function startText() {
+    if (textOutput) return "";
+    const id = `msg_${crypto.randomUUID()}`;
+    textOutput = { outputIndex: nextOutputIndex++, contentIndex: 0, id, text: "" };
+    const item = { id, type: "message", status: "in_progress", role: "assistant", content: [] };
+    return responsesSse("response.output_item.added", { type: "response.output_item.added", output_index: textOutput.outputIndex, item })
+      + responsesSse("response.content_part.added", { type: "response.content_part.added", item_id: item.id, output_index: textOutput.outputIndex, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
+  }
+
+  return (chunk: string, flush = false) => {
+    buffer += chunk;
+    const blocks = splitSseBlocks(buffer, flush);
+    buffer = blocks.remainder;
+    let out = "";
+    for (const block of blocks.complete) {
+      const data = sseData(block);
+      if (!data) continue;
+      try {
+        const event = JSON.parse(data) as Json;
+        if (event.type === "message_start" && isRecord(event.message)) {
+          if (typeof event.message.id === "string") id = event.message.id;
+          out += start();
+          continue;
+        }
+        if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "text_delta") {
+          out += start() + startText();
+          if (textOutput) {
+            const delta = String(event.delta.text ?? "");
+            textOutput.text += delta;
+            out += responsesSse("response.output_text.delta", { type: "response.output_text.delta", output_index: textOutput.outputIndex, content_index: textOutput.contentIndex, delta });
+          }
+          continue;
+        }
+        if (event.type === "content_block_start" && typeof event.index === "number" && isRecord(event.content_block) && event.content_block.type === "tool_use") {
+          out += start();
+          const tool = { outputIndex: nextOutputIndex++, id: String(event.content_block.id ?? `fc_${crypto.randomUUID()}`), callId: String(event.content_block.id ?? `call_${crypto.randomUUID()}`), name: String(event.content_block.name ?? ""), arguments: "" };
+          toolOutputs.set(event.index, tool);
+          out += responsesSse("response.output_item.added", { type: "response.output_item.added", output_index: tool.outputIndex, item: { id: tool.id, type: "function_call", status: "in_progress", call_id: tool.callId, name: tool.name, arguments: "" } });
+          continue;
+        }
+        if (event.type === "content_block_delta" && typeof event.index === "number" && isRecord(event.delta) && event.delta.type === "input_json_delta") {
+          const tool = toolOutputs.get(event.index);
+          if (tool) {
+            const delta = String(event.delta.partial_json ?? "");
+            tool.arguments += delta;
+            out += responsesSse("response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", output_index: tool.outputIndex, item_id: tool.id, delta });
+          }
+          continue;
+        }
+        if (event.type === "message_stop" && !completed) {
+          completed = true;
+          if (textOutput) {
+            const part = { type: "output_text", text: textOutput.text, annotations: [] };
+            out += responsesSse("response.content_part.done", { type: "response.content_part.done", output_index: textOutput.outputIndex, content_index: textOutput.contentIndex, part });
+            out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: textOutput.outputIndex, item: { id: textOutput.id, type: "message", status: "completed", role: "assistant", content: [part] } });
+          }
+          for (const tool of toolOutputs.values()) out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: tool.outputIndex, item: { id: tool.id, type: "function_call", status: "completed", call_id: tool.callId, name: tool.name, arguments: tool.arguments } });
+          out += responsesSse("response.completed", { type: "response.completed", response: response("completed") });
+        }
       } catch { /* ignore malformed upstream event */ }
     }
     return out;
@@ -305,6 +568,10 @@ function openAiSse(body: Json) {
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
+function responsesSse(event: string, body: Json) {
+  return `event: ${event}\ndata: ${JSON.stringify(body)}\n\n`;
+}
+
 function claudeSse(event: string, body: Json) {
   return `event: ${event}\ndata: ${JSON.stringify(body)}\n\n`;
 }
@@ -350,7 +617,7 @@ function claudeMessageToOpenAiMessages(message: Json): Json[] {
 
 function openAiMessageContentToClaude(message: Json): unknown {
   if (message.role === "tool") {
-    return [{ type: "tool_result", tool_use_id: String(message.tool_call_id ?? ""), content: textFromContent(message.content) }];
+    return [{ type: "tool_result", tool_use_id: requiredString(message.tool_call_id, "Chat Completions tool_call_id"), content: textFromContent(message.content) }];
   }
   if (message.role === "assistant") return openAiAssistantContentToClaude(message);
   return openAiContentToClaude(message.content);
@@ -362,13 +629,14 @@ function openAiAssistantContentToClaude(message: Json): unknown[] {
   if (text) content.push({ type: "text", text });
   if (Array.isArray(message.tool_calls)) {
     for (const call of message.tool_calls) {
-      if (!isRecord(call)) continue;
-      const fn = isRecord(call.function) ? call.function : {};
+      if (!isRecord(call) || call.type !== "function" || !isRecord(call.function)) {
+        throw new Error("Chat Completions assistant tool_calls must be function calls");
+      }
       content.push({
         type: "tool_use",
-        id: String(call.id ?? `call_${crypto.randomUUID()}`),
-        name: String(fn.name ?? ""),
-        input: parseJsonObject(fn.arguments),
+        id: requiredString(call.id, "Chat Completions tool_call id"),
+        name: requiredString(call.function.name, "Chat Completions tool_call function name"),
+        input: parseRequiredJsonObject(call.function.arguments, "Chat Completions tool_call arguments"),
       });
     }
   }
@@ -376,30 +644,34 @@ function openAiAssistantContentToClaude(message: Json): unknown[] {
 }
 
 function openAiToolsToClaude(tools: unknown): unknown[] {
-  if (!Array.isArray(tools)) return [];
+  if (tools === undefined) return [];
+  if (!Array.isArray(tools)) throw new Error("OpenAI tools must be an array");
   return tools.map(tool => {
-    if (!isRecord(tool) || tool.type !== "function" || !isRecord(tool.function)) return null;
+    if (!isRecord(tool) || tool.type !== "function" || !isRecord(tool.function)) {
+      throw new Error("Only function tools are supported for Claude channels");
+    }
     return {
-      name: String(tool.function.name ?? ""),
+      name: requiredString(tool.function.name, "OpenAI function tool name"),
       description: typeof tool.function.description === "string" ? tool.function.description : undefined,
-      input_schema: isRecord(tool.function.parameters) ? tool.function.parameters : { type: "object", properties: {} },
+      input_schema: requiredJsonObject(tool.function.parameters, "OpenAI function tool parameters"),
     };
-  }).filter(Boolean);
+  });
 }
 
 function claudeToolsToOpenAi(tools: unknown): unknown[] {
-  if (!Array.isArray(tools)) return [];
+  if (tools === undefined) return [];
+  if (!Array.isArray(tools)) throw new Error("Claude tools must be an array");
   return tools.map(tool => {
-    if (!isRecord(tool)) return null;
+    if (!isRecord(tool)) throw new Error("Claude tools must be objects");
     return {
       type: "function",
       function: {
-        name: String(tool.name ?? ""),
+        name: requiredString(tool.name, "Claude tool name"),
         description: typeof tool.description === "string" ? tool.description : undefined,
-        parameters: isRecord(tool.input_schema) ? tool.input_schema : { type: "object", properties: {} },
+        parameters: requiredJsonObject(tool.input_schema, "Claude tool input_schema"),
       },
     };
-  }).filter(Boolean);
+  });
 }
 
 function openAiToolChoiceToClaude(choice: unknown): unknown {
@@ -426,37 +698,60 @@ function claudeToolUseToOpenAi(block: Json): Json | null {
   };
 }
 
-function parseJsonObject(value: unknown) {
+function requiredString(value: unknown, label: string) {
+  if (typeof value !== "string" || !value) throw new Error(`${label} must be a non-empty string`);
+  return value;
+}
+
+function requiredJsonObject(value: unknown, label: string) {
+  if (!isRecord(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+
+function parseRequiredJsonObject(value: unknown, label: string) {
   if (isRecord(value)) return value;
-  if (typeof value !== "string" || !value.trim()) return {};
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a JSON object`);
   try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch { return {}; }
+    return requiredJsonObject(JSON.parse(value), label);
+  } catch (error) {
+    if (error instanceof Error && error.message === `${label} must be an object`) throw error;
+    throw new Error(`${label} must be a JSON object`);
+  }
 }
 
 function openAiContentToClaude(content: unknown): unknown {
-  if (!Array.isArray(content)) return typeof content === "string" ? content : String(content ?? "");
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) throw new Error("Chat Completions content must be a string or array");
   return content.map(part => {
-    if (!isRecord(part)) return { type: "text", text: String(part ?? "") };
+    if (!isRecord(part)) throw new Error("Chat Completions content parts must be objects");
+    if (part.type === "text" || part.type === "input_text") {
+      if (typeof part.text !== "string") throw new Error("Chat Completions text content must be a string");
+      return { type: "text", text: part.text };
+    }
     if (part.type === "image_url" && isRecord(part.image_url)) {
       const parsed = parseDataUrl(typeof part.image_url.url === "string" ? part.image_url.url : "");
-      return parsed ? { type: "image", source: { type: "base64", media_type: parsed.mediaType, data: parsed.data } } : { type: "text", text: "" };
+      if (!parsed) throw new Error("Only base64 data URL images are supported for Claude channels");
+      return { type: "image", source: { type: "base64", media_type: parsed.mediaType, data: parsed.data } };
     }
-    return { type: "text", text: String(part.text ?? "") };
+    throw new Error(`Chat Completions content part type '${String(part.type ?? "unknown")}' is not supported for Claude channels`);
   });
 }
 
 function claudeContentToOpenAi(content: unknown): unknown {
-  if (!Array.isArray(content)) return typeof content === "string" ? content : String(content ?? "");
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) throw new Error("Claude content must be a string or array");
   return content.map(part => {
-    if (!isRecord(part)) return { type: "text", text: String(part ?? "") };
+    if (!isRecord(part)) throw new Error("Claude content blocks must be objects");
+    if (part.type === "text") {
+      if (typeof part.text !== "string") throw new Error("Claude text blocks must contain text");
+      return { type: "text", text: part.text };
+    }
     if (part.type === "image" && isRecord(part.source)) {
-      const mediaType = typeof part.source.media_type === "string" ? part.source.media_type : "image/png";
-      const data = typeof part.source.data === "string" ? part.source.data : "";
+      const mediaType = requiredString(part.source.media_type, "Claude image media_type");
+      const data = requiredString(part.source.data, "Claude image data");
       return { type: "image_url", image_url: { url: `data:${mediaType};base64,${data}` } };
     }
-    return { type: "text", text: String(part.text ?? "") };
+    throw new Error(`Claude content block type '${String(part.type ?? "unknown")}' is not supported for OpenAI channels`);
   });
 }
 

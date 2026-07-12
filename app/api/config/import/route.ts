@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { usePostgres } from "@/lib/db/runtime";
+import { validateCapabilities } from "@/lib/protocol-capabilities";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -10,6 +11,8 @@ export async function POST(req: NextRequest) {
 
   for (const row of Array.isArray(body.channels) ? body.channels : []) {
     if (!row?.id || !row.name || !row.type || !row.baseUrl) continue;
+    const capabilities = validateCapabilities(row.capabilities);
+    if (!capabilities.ok) continue;
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.channels).where(eq(pg.pgSchema.channels.id, row.id)).limit(1))[0]
       : db.select().from(schema.channels).where(eq(schema.channels.id, row.id)).get();
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
       p50Ms: Number(row.p50Ms) || 0,
       errRate: Number(row.errRate) || 0,
       enabled: row.enabled !== false,
+      capabilities: capabilities.capabilities ?? [],
     };
     if (pg) {
       if (current) await pg.pgDb.update(pg.pgSchema.channels).set(value).where(eq(pg.pgSchema.channels.id, row.id));
@@ -62,6 +66,8 @@ export async function POST(req: NextRequest) {
 
   for (const row of Array.isArray(body.modelCatalog) ? body.modelCatalog : []) {
     if (!row?.id || !row.provider || !row.model) continue;
+    const capabilities = validateCapabilities(row.capabilities);
+    if (!capabilities.ok) continue;
     const now = Date.now();
     const value = {
       id: row.id,
@@ -71,6 +77,7 @@ export async function POST(req: NextRequest) {
       displayName: typeof row.displayName === "string" ? row.displayName : "",
       visible: row.visible !== false,
       enabled: row.enabled !== false,
+      capabilities: capabilities.capabilities ?? [],
       createdAt: Number(row.createdAt) || now,
       updatedAt: now,
     };

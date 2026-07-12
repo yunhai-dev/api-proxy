@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
 import { pageParams, pageRows, queryText, sortRows } from "@/lib/pagination";
+import { validateCapabilities } from "@/lib/protocol-capabilities";
 
 export async function GET(req: NextRequest) {
   try {
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
   if (!["claude", "openai"].includes(body.type)) {
     return NextResponse.json({ error: "无效 type" }, { status: 400 });
   }
+  const capabilities = validateCapabilities(body.capabilities);
+  if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
   const row = {
     id: "c_" + nanoid(8),
     name: body.name.trim(),
@@ -81,6 +84,7 @@ export async function POST(req: NextRequest) {
     p50Ms: 0,
     errRate: 0,
     enabled: true,
+    capabilities: capabilities.capabilities ?? [],
   };
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");

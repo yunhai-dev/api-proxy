@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
+import { validateCapabilities } from "@/lib/protocol-capabilities";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -24,6 +25,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
       if (body.type === "claude" || body.type === "openai") update.type = body.type;
       if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;
+      const capabilities = validateCapabilities(body.capabilities);
+      if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
+      if (capabilities.capabilities) update.capabilities = capabilities.capabilities;
       if (Object.keys(update).length === 0) return NextResponse.json({ error: "无更新字段" }, { status: 400 });
       await pgDb.update(pgSchema.channels).set(update).where(eq(pgSchema.channels.id, id));
       if (update.type && update.type !== row.type) {
@@ -52,6 +56,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
     if (body.type === "claude" || body.type === "openai") update.type = body.type;
     if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;
+    const capabilities = validateCapabilities(body.capabilities);
+    if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
+    if (capabilities.capabilities) update.capabilities = capabilities.capabilities;
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: "无更新字段" }, { status: 400 });

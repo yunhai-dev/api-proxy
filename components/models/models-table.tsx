@@ -7,8 +7,13 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type Provider = "claude" | "openai";
+const CAPABILITIES = [
+  "chat_completions", "responses", "embeddings", "messages", "streaming",
+  "tools", "tool_replay", "vision", "reasoning", "structured_output",
+];
 
 type ModelRow = {
   provider: Provider;
@@ -18,6 +23,7 @@ type ModelRow = {
   visible: boolean;
   enabled: boolean;
   configured: boolean;
+  capabilities: string[];
 };
 
 type Channel = { type: Provider; enabled: boolean; models: string[] };
@@ -36,6 +42,7 @@ export function ModelsTable() {
   const [displayName, setDisplayName] = useState("");
   const [visible, setVisible] = useState(true);
   const [enabled, setEnabled] = useState(true);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [visibleFilter, setVisibleFilter] = useState("all");
@@ -109,6 +116,7 @@ export function ModelsTable() {
     setDisplayName("");
     setVisible(true);
     setEnabled(true);
+    setCapabilities([]);
   }
 
   function openCreate() {
@@ -128,12 +136,13 @@ export function ModelsTable() {
     setDisplayName(row.displayName === row.id ? "" : row.displayName);
     setVisible(row.visible);
     setEnabled(row.enabled);
+    setCapabilities(row.capabilities ?? []);
     setOpen(true);
   }
 
   async function save() {
     if (!model.trim()) { toast("请输入模型名称"); return; }
-    const body = { provider, model: model.trim(), displayName, visible, enabled };
+    const body = { provider, model: model.trim(), displayName, visible, enabled, capabilities };
     const r = editing?.catalogId
       ? await fetch(`/api/models/${editing.catalogId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       : await fetch("/api/models", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -261,6 +270,22 @@ export function ModelsTable() {
                 <button type="button" className={visible ? "active" : ""} onClick={() => setVisible(v => !v)}>{visible ? "展示" : "隐藏"}</button>
                 <button type="button" className={enabled ? "active" : ""} onClick={() => setEnabled(v => !v)}>{enabled ? "启用" : "停用"}</button>
               </div>
+              <fieldset className="model-picker">
+                <legend>桥接能力 <span className="dim mono text-[10px] font-normal">仅跨协议路由使用</span></legend>
+                <div className="model-custom-list">
+                  {CAPABILITIES.map(capability => (
+                    <label key={capability} className="chip-removable">
+                      <Checkbox
+                        checked={capabilities.includes(capability)}
+                        onCheckedChange={() => setCapabilities(current => current.includes(capability)
+                          ? current.filter(value => value !== capability)
+                          : [...current, capability])}
+                      />
+                      <span className="mono">{capability}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <div className="hint">隐藏只影响模型列表；停用会拒绝调用该模型。模型映射请继续在“映射”页面维护，入站模型和上游模型都会作为独立模型出现在这里。</div>
             </div>
             <div className="modal-foot">
