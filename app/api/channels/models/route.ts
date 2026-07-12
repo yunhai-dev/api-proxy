@@ -2,16 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { usePostgres } from "@/lib/db/runtime";
+import { modelsEndpointFor } from "@/lib/upstream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type Provider = "claude" | "openai";
-
-function modelEndpoint(type: Provider, baseUrl: string) {
-  const base = baseUrl.replace(/\/$/, "");
-  return `${base}/v1/models`;
-}
 
 function modelHeaders(type: Provider, apiKey: string): HeadersInit {
   if (type === "claude") {
@@ -69,7 +65,7 @@ export async function POST(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(modelEndpoint(type, baseUrl), {
+    const res = await fetch(modelsEndpointFor(baseUrl), {
       method: "GET",
       headers: modelHeaders(type, apiKey),
       signal: controller.signal,

@@ -37,12 +37,21 @@ export type UpstreamResult = UpstreamOk | UpstreamErr;
 
 const DEFAULT_TIMEOUT = 60_000;
 
+export function apiUrl(baseUrl: string, endpoint: string): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  const version = /\/v\d+$/.test(base) ? "" : "/v1";
+  return `${base}${version}/${endpoint.replace(/^\/+/, "")}`;
+}
+
 export function endpointFor(provider: Provider, baseUrl: string, openAiEndpoint: UpstreamOptions["openAiEndpoint"] = "chat_completions"): string {
-  const base = baseUrl.replace(/\/$/, "");
-  if (provider === "claude") return `${base}/v1/messages`;
-  if (openAiEndpoint === "responses") return `${base}/v1/responses`;
-  if (openAiEndpoint === "embeddings") return `${base}/v1/embeddings`;
-  return `${base}/v1/chat/completions`;
+  if (provider === "claude") return apiUrl(baseUrl, "messages");
+  if (openAiEndpoint === "responses") return apiUrl(baseUrl, "responses");
+  if (openAiEndpoint === "embeddings") return apiUrl(baseUrl, "embeddings");
+  return apiUrl(baseUrl, "chat/completions");
+}
+
+export function modelsEndpointFor(baseUrl: string): string {
+  return apiUrl(baseUrl, "models");
 }
 
 export function headersFor(provider: Provider, upstreamKey: string): HeadersInit {

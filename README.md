@@ -188,7 +188,7 @@ curl -X POST http://localhost:3000/v1/embeddings \
   }'
 ```
 
-For OpenAI-compatible upstream channels, set `baseUrl` to the API root such as `https://api.openai.com`; do not append `/v1` or `/embeddings`. The proxy adds `/v1/embeddings` automatically.
+For upstream channels, set `baseUrl` to the API root such as `https://api.openai.com`; the proxy adds `/v1` automatically. If the provider requires another version, include its terminal version path in the URL, such as `https://provider.example/v3`; the proxy then appends only the endpoint.
 
 ### Usage query
 
@@ -205,7 +205,7 @@ Supported ranges depend on the usage route implementation. Common values include
 Add upstream providers in **渠道**:
 
 - `type`: `claude` or `openai`
-- `baseUrl`: upstream API base URL
+- `baseUrl`: upstream API root URL; use a terminal version path such as `/v3` when required by the provider
 - `apiKey`: upstream provider key
 - `models`: accepted model list, or `*` for all models
 - `weight`: weighted routing priority
