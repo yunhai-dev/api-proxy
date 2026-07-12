@@ -85,6 +85,8 @@ const statements = [
     test_model text NOT NULL DEFAULT '',
     models text[] NOT NULL DEFAULT '{}',
     status text NOT NULL DEFAULT 'ok',
+    circuit_state text NOT NULL DEFAULT 'closed',
+    circuit_opened_at bigint NOT NULL DEFAULT 0,
     p50_ms integer NOT NULL DEFAULT 0,
     err_rate real NOT NULL DEFAULT 0,
     enabled boolean NOT NULL DEFAULT true,
@@ -283,6 +285,8 @@ try {
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
+      await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_state text NOT NULL DEFAULT 'closed'`);
+      await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_opened_at bigint NOT NULL DEFAULT 0`);
       await sql.unsafe(`ALTER TABLE model_catalog ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`);

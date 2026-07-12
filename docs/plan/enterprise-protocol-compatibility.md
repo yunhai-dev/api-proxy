@@ -75,7 +75,7 @@ Capability data is managed at channel and model scope. The profile uses validate
   - Use a controlled header allowlist with credential replacement and configurable provider version/beta handling.
   - Classify aborts, transport errors, timeouts, throttling, 5xx, malformed responses, conversion errors, and empty output.
   - Restrict retries/fallback to the period before client-visible stream commitment; honor idempotency/retry hints.
-  - Add atomic quota reservation/reconciliation, bounded cancellation-aware admission, and circuit-breaker behavior using the existing health records.
+  - Add atomic quota reservation/reconciliation, bounded cancellation-aware admission, and circuit-breaker behavior using the existing health records. Completed: Redis TPM reservation/reconciliation, bounded cancellation-aware queues, lease renewal, and a 30-second closed/open/half-open circuit cooldown; a durable idempotent billing ledger remains pending.
   - Validate upstream URLs/HTTPS policy and extend request-detail redaction for media/tool data.
 - **Validation**:
   - Mock upstream retry/timeout/429/SSE tests; contention and cancellation tests; circuit state tests; header/redaction checks.

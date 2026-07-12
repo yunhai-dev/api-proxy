@@ -10,7 +10,7 @@ import { acquireChannelSlot, isChannelSaturated } from "./channel-queue";
 import { acquireKeySlot } from "./key-queue";
 import { getSettingsAsync } from "./settings";
 import { modelConfigAsync } from "./model-catalog";
-import { recordChannelObservation } from "./channel-health";
+import { circuitAllows, recordChannelObservation } from "./channel-health";
 import { effectiveUserLimits, effectiveUserLimitsAsync } from "./user-quota";
 import { checkTpm, consumeRpm, reserveTpm, settleTpmReservation, type TpmReservation } from "./rate-limit";
 import { usePostgres } from "./db/runtime";
@@ -192,8 +192,9 @@ export function selectChannels(
     if (c.models.includes("*")) return true;
     return false;
   });
-  const healthy = matched.filter(c => c.status !== "err");
-  return healthy.length ? healthy : matched;
+  const available = matched.filter(c => circuitAllows(c));
+  const healthy = available.filter(c => c.status !== "err");
+  return healthy.length ? healthy : available;
 }
 
 export async function selectChannelsAsync(
@@ -212,8 +213,9 @@ export async function selectChannelsAsync(
     if (c.models.includes("*")) return true;
     return false;
   });
-  const healthy = matched.filter(c => c.status !== "err");
-  return healthy.length ? healthy : matched;
+  const available = matched.filter(c => circuitAllows(c));
+  const healthy = available.filter(c => c.status !== "err");
+  return healthy.length ? healthy : available;
 }
 
 function pickPriorityRandom(channels: ChannelCandidate[]): ChannelCandidate | null {
@@ -658,7 +660,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     if (!settings.fallbackEnabled || !settings.fallbackChannelId || !settings.fallbackModel) return null;
     if (key.channelId && key.channelId !== settings.fallbackChannelId) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
-    if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
+    if (!fallbackChannel?.enabled || !circuitAllows(fallbackChannel) || (openAiOnly && fallbackChannel.type !== "openai")) return null;
     const { catalog: fallbackCatalog } = await modelConfigCandidateAsync(
       fallbackChannel.type,
       modelLookupCandidates(settings.fallbackModel),

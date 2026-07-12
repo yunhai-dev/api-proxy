@@ -4,6 +4,49 @@ import { endpointFor, headersFor } from "./upstream";
 import { usePostgres } from "./db/runtime";
 
 const TIMEOUT_MS = 15_000;
+const CIRCUIT_COOLDOWN_MS = 30_000;
+
+type CircuitState = "closed" | "open" | "half_open";
+
+type CircuitChannel = {
+  circuitState?: string;
+  circuitOpenedAt?: number;
+};
+
+type HealthChannel = typeof schema.channels.$inferSelect & CircuitChannel;
+
+export function circuitAllows(channel: CircuitChannel) {
+  return channel.circuitState !== "open";
+}
+
+async function markCircuitHalfOpen(channel: HealthChannel) {
+  if (channel.circuitState !== "open" || Date.now() - (channel.circuitOpenedAt ?? 0) < CIRCUIT_COOLDOWN_MS) return;
+  if (usePostgres()) {
+    const { pgDb, pgSchema } = await import("./db/pg");
+    await pgDb.update(pgSchema.channels)
+      .set({ circuitState: "half_open" })
+      .where(eq(pgSchema.channels.id, channel.id));
+    return;
+  }
+  db.update(schema.channels)
+    .set({ circuitState: "half_open" })
+    .where(eq(schema.channels.id, channel.id))
+    .run();
+}
+
+export function nextCircuitState(input: {
+  state?: CircuitState;
+  openedAt?: number;
+  ok: boolean;
+  now?: number;
+}) {
+  const now = input.now ?? Date.now();
+  if (input.ok) return { state: "closed" as const, openedAt: 0 };
+  if (input.state === "open" && now - (input.openedAt ?? 0) < CIRCUIT_COOLDOWN_MS) {
+    return { state: "open" as const, openedAt: input.openedAt ?? now };
+  }
+  return { state: "open" as const, openedAt: now };
+}
 
 function testModelFor(channel: typeof schema.channels.$inferSelect) {
   return channel.testModel || channel.models.find(model => model && model !== "*") || "";
@@ -66,34 +109,38 @@ function isErrorBody(text: string) {
   }
 }
 
-export async function testChannel(channel: typeof schema.channels.$inferSelect) {
+export async function testChannel(channel: HealthChannel) {
+  await markCircuitHalfOpen(channel);
   const ping = await pingChannel(channel);
-  return recordChannelObservation(channel, ping, { failureStatus: "err" });
+  return recordChannelObservation({ ...channel, circuitState: channel.circuitState === "open" ? "half_open" : channel.circuitState }, ping, { failureStatus: "err" });
 }
 
 export async function recordChannelObservation(
-  channel: typeof schema.channels.$inferSelect,
+  channel: HealthChannel,
   ping: { ok: boolean; latencyMs: number; error?: string },
   opts: { failureStatus?: "warn" | "err" } = {},
 ) {
   const p50 = Math.round(0.7 * channel.p50Ms + 0.3 * ping.latencyMs);
   const err = Math.round((0.7 * channel.errRate + 0.3 * (ping.ok ? 0 : 100)) * 10) / 10;
-  const status: "ok" | "warn" | "err" = ping.ok
-    ? (err > 5 ? "warn" : "ok")
-    : opts.failureStatus === "err" || err >= 50 ? "err" : "warn";
+  const circuit = opts.failureStatus === "err"
+    ? nextCircuitState({ state: channel.circuitState as CircuitState | undefined, openedAt: channel.circuitOpenedAt, ok: ping.ok })
+    : { state: (channel.circuitState as CircuitState | undefined) ?? "closed", openedAt: channel.circuitOpenedAt ?? 0 };
+  const status: "ok" | "warn" | "err" = circuit.state === "open"
+    ? "err"
+    : ping.ok ? (err > 5 ? "warn" : "ok") : "warn";
   const ts = Date.now();
 
   if (usePostgres()) {
     const { pgDb, pgSchema } = await import("./db/pg");
     await pgDb.update(pgSchema.channels)
-      .set({ p50Ms: p50, errRate: err, status })
+      .set({ p50Ms: p50, errRate: err, status, circuitState: circuit.state, circuitOpenedAt: circuit.openedAt })
       .where(eq(pgSchema.channels.id, channel.id));
     await pgDb.insert(pgSchema.channelTestLogs).values({ channelId: channel.id, ts, ok: ping.ok, latencyMs: ping.latencyMs, errorMsg: ping.error ?? null });
-    return { ping, p50, err, status };
+    return { ping, p50, err, status, circuit };
   }
 
   db.update(schema.channels)
-    .set({ p50Ms: p50, errRate: err, status })
+    .set({ p50Ms: p50, errRate: err, status, circuitState: circuit.state, circuitOpenedAt: circuit.openedAt })
     .where(eq(schema.channels.id, channel.id))
     .run();
   db.insert(schema.channelTestLogs).values({
@@ -104,5 +151,5 @@ export async function recordChannelObservation(
     errorMsg: ping.error ?? null,
   }).run();
 
-  return { ping, p50, err, status };
+  return { ping, p50, err, status, circuit };
 }

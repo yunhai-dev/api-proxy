@@ -30,6 +30,8 @@ export const channels = pgTable("channels", {
   testModel: text("test_model").notNull().default(""),
   models: text("models").array().notNull().default([]),
   status: text("status").notNull().default("ok"),
+  circuitState: text("circuit_state").notNull().default("closed"),
+  circuitOpenedAt: bigint("circuit_opened_at", { mode: "number" }).notNull().default(0),
   p50Ms: integer("p50_ms").notNull().default(0),
   errRate: real("err_rate").notNull().default(0),
   enabled: boolean("enabled").notNull().default(true),
