@@ -347,6 +347,7 @@ async function requestDetail(input: {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   fallbackReason?: string;
+  attempts?: { channel: string; error: string; status: number }[];
 }) {
   const settings = await getSettingsAsync();
   if (!settings.recordAllRequestDetails) return null;
@@ -361,6 +362,7 @@ async function requestDetail(input: {
     upstream_model: input.upstreamModel,
     channel: input.channelName ?? null,
     fallback: input.fallbackReason ? { reason: input.fallbackReason } : null,
+    attempts: input.attempts ?? [],
     request_headers: sanitizeHeaders(input.requestHeaders),
     request_body: redactBody(input.requestBody),
     response_body: input.responseBody == null ? null : redactBody(input.responseBody),
@@ -424,7 +426,7 @@ async function recordFailure(input: {
     cacheTokens: 0,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
-    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body }),
+    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body, attempts: input.attempts }),
     errorMsg: failureDetail({
       requestId: input.requestId,
       type: input.type,
@@ -965,6 +967,7 @@ type Ctx = {
   requestHeaders?: Headers;
   releaseSlot?: () => void;
   fallbackReason?: string;
+  attempts?: { channel: string; error: string; status: number }[];
 };
 
 type ProxyResponseInfo = {
@@ -1150,7 +1153,7 @@ async function recordStreamFinal(logId: number, ctx: Ctx, status: number, latenc
     ttftMs: prelude.ttftMs || latency, durationMs: latency,
     tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
     cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
-    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: prelude.detailBuffer, tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens, fallbackReason: ctx.fallbackReason }),
+    requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.openAiEndpoint, status, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, responseBody: prelude.detailBuffer, tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens, fallbackReason: ctx.fallbackReason, attempts: ctx.attempts }),
     errorMsg: detail,
   });
 }
@@ -1488,6 +1491,7 @@ async function recordSuccessOrAcceptedEmpty(ctx: Ctx, info: ProxyResponseInfo, e
       tokensIn: info.tokensIn, tokensOut: info.tokensOut,
       cacheReadTokens: info.cacheReadTokens, cacheCreationTokens: info.cacheCreationTokens,
       fallbackReason: ctx.fallbackReason,
+      attempts: ctx.attempts,
     }),
     errorMsg,
   });
