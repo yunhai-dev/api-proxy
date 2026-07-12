@@ -779,7 +779,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = processed.ok ? null : (processed.message ?? null);
       await recordChannelObservation(fallbackChannel, { ok: processed.ok, latencyMs: Date.now() - attemptStart, error: errorMsg ?? undefined }, { failureStatus: processed.ok ? undefined : "warn" });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, settleTpm },
+        { key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), settleTpm },
         processed.info,
         errorMsg,
       );
@@ -965,7 +965,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = null;
       await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, settleTpm },
+        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), settleTpm },
         processed.info,
         errorMsg,
       );
