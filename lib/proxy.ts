@@ -23,6 +23,12 @@ const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
 const USER_UPSTREAM_ERROR = "平台暂时无法处理请求，请稍后重试";
 const ZERO_OUTPUT_TOKEN_ERROR = "上游返回 200 但输出 Token 为 0";
 
+function shouldRetryUpstream(status: number, settings: Awaited<ReturnType<typeof getSettingsAsync>>) {
+  if (status === 0) return settings.proxyRetryNetwork;
+  if (status === 429) return settings.proxyRetry429;
+  return status >= 500 && settings.proxyRetry5xx;
+}
+
 export type ResolveKey =
   | { ok: true; key: typeof schema.keys.$inferSelect }
   | { ok: false; status: 401 | 402 | 403 | 429; error: string };
@@ -866,10 +872,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     const keyForRoute = routeKey(route);
     const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
     attemptCounts.set(keyForRoute, count);
-    if (count < 2 && i + 1 < settings.proxyMaxRetries) {
+    if (shouldRetryUpstream(result.status, settings) && count < 2 && i + 1 < settings.proxyMaxRetries) {
       retryRoute = route;
     } else {
       tried.add(keyForRoute);
+      if (!shouldRetryUpstream(result.status, settings)) break;
     }
   }
 
