@@ -114,6 +114,36 @@ describe("strict OpenAI to Claude conversion", () => {
       { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "result" }] },
     ]);
   });
+
+  test("preserves every accepted Chat request control", () => {
+    const converted = convertChat({
+      max_tokens: 123,
+      temperature: 0.25,
+      top_p: 0.75,
+      stop: ["END"],
+      tool_choice: "auto",
+      tools: [{ type: "function", function: { name: "lookup", description: "find", parameters: { type: "object", properties: { q: { type: "string" } } } } }],
+    });
+    expect(converted).toMatchObject({
+      max_tokens: 123,
+      temperature: 0.25,
+      top_p: 0.75,
+      stop_sequences: ["END"],
+      tool_choice: { type: "auto" },
+      tools: [{ name: "lookup", description: "find", input_schema: { type: "object", properties: { q: { type: "string" } } } }],
+    });
+  });
+
+  test.each(["previous_response_id", "conversation", "background", "text", "metadata"])("rejects unsupported Responses field %s", (field: string) => {
+    expect(() => convertRequestBody({
+      sourceType: "openai",
+      targetType: "claude",
+      openAiEndpoint: "responses",
+      body: { model: "gpt-5", input: "hi", [field]: field === "background" ? true : "value" },
+      model: "claude-opus-4-8",
+      stream: false,
+    })).toThrow(field);
+  });
 });
 
 describe("Claude to Responses SSE conversion", () => {
