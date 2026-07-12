@@ -16,6 +16,7 @@ type AppSettings = {
   fallbackChannelId: string;
   fallbackModel: string;
   recordAllRequestDetails: boolean;
+  bridgeCapabilityAudit: boolean;
   maintenanceMode: boolean;
   maintenanceMessage: string;
   defaultRateLimitRpm: number;
@@ -307,6 +308,7 @@ export function SettingsForm() {
         <div className="settings-card" hidden={activeTab !== "requests"}>
           <h2>请求详情</h2>
           <Toggle label="保留所有请求详情" hint="开启后成功请求也会记录脱敏请求头、原始完整请求/响应内容、模型、渠道和 token 信息。" checked={settings.recordAllRequestDetails} onChange={recordAllRequestDetails => setSettings({ ...settings, recordAllRequestDetails })} />
+          <Toggle label="桥接能力审计" hint="只记录跨协议请求的方向、能力需求/选中画像与兼容性拒绝；不保存请求或响应内容，也不会放行不兼容的转换。" checked={settings.bridgeCapabilityAudit} onChange={bridgeCapabilityAudit => setSettings({ ...settings, bridgeCapabilityAudit })} />
           {renderSaveButton()}
         </div>
 

@@ -87,7 +87,7 @@ Capability data is managed at channel and model scope. The profile uses validate
   - Log native/bridge mode, feature requirements/rejections, capability profile, per-attempt result, upstream request ID, retry/fallback reason, and timing without sensitive values. Completed: opt-in request details include direction, successful attempt chains, allowlisted upstream request IDs, selected capability profiles, and bridge conversion rejection facts; aggregate metrics and rollout controls remain pending.
   - Track compatibility errors separately from channel-health failures.
   - Add contract and property-style tests proving accepted bridge inputs preserve required semantics.
-  - Roll out in report-only mode, populate profiles, enable strict bridge handling per cohort, then remove report-only behavior after monitoring.
+  - Provide a reversible bridge-capability audit mode that records only safe bridge facts without request/response payloads and never dispatches incompatible conversions. Strict conversion rejection remains mandatory; forwarding an incompatible request as "report-only" is prohibited.
 - **Validation**:
   - Run focused Bun fixtures, `bunx tsc --noEmit`, `bun run build`, multi-instance verification, configured-channel smoke tests, and synthetic bridge matrix checks.
 

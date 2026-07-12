@@ -384,7 +384,8 @@ async function requestDetail(input: {
   compatibilityRejection?: string;
 }) {
   const settings = await getSettingsAsync();
-  if (!settings.recordAllRequestDetails) return null;
+  const auditBridge = settings.bridgeCapabilityAudit && input.targetType && input.type !== input.targetType;
+  if (!settings.recordAllRequestDetails && !auditBridge) return null;
   return JSON.stringify({
     request_id: input.requestId,
     type: input.type,
@@ -402,15 +403,15 @@ async function requestDetail(input: {
     compatibility_rejection: input.compatibilityRejection ?? null,
     fallback: input.fallbackReason ? { reason: input.fallbackReason } : null,
     attempts: input.attempts ?? [],
-    request_headers: sanitizeHeaders(input.requestHeaders),
-    request_body: redactBody(input.requestBody),
-    response_body: input.responseBody == null ? null : redactBody(input.responseBody),
-    tokens: {
+    request_headers: settings.recordAllRequestDetails ? sanitizeHeaders(input.requestHeaders) : null,
+    request_body: settings.recordAllRequestDetails ? redactBody(input.requestBody) : null,
+    response_body: settings.recordAllRequestDetails && input.responseBody != null ? redactBody(input.responseBody) : null,
+    tokens: settings.recordAllRequestDetails ? {
       input: input.tokensIn ?? 0,
       output: input.tokensOut ?? 0,
       cache_read: input.cacheReadTokens ?? 0,
       cache_creation: input.cacheCreationTokens ?? 0,
-    },
+    } : null,
   });
 }
 
@@ -428,6 +429,7 @@ async function recordFailure(input: {
   requestId: string;
   ts: number;
   type: Provider;
+  targetType?: Provider;
   status: number;
   error: string;
   body: string;
@@ -466,7 +468,7 @@ async function recordFailure(input: {
     cacheTokens: 0,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
-    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body, attempts: input.attempts, compatibilityRejection: input.compatibilityRejection }),
+    requestDetail: await requestDetail({ requestId: input.requestId, type: input.type, targetType: input.targetType, status: input.status, inboundModel: input.inboundModel || input.model || "—", upstreamModel: input.upstreamModel || input.model || "—", channelName: input.channel?.name, requestHeaders: input.requestHeaders, requestBody: input.body, attempts: input.attempts, compatibilityRejection: input.compatibilityRejection }),
     errorMsg: failureDetail({
       requestId: input.requestId,
       type: input.type,
@@ -696,7 +698,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], compatibilityRejection: req.type !== fallbackChannel.type ? error : undefined, key, channel: fallbackChannel });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], targetType: fallbackChannel.type, compatibilityRejection: req.type !== fallbackChannel.type ? error : undefined, key, channel: fallbackChannel });
       await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };
@@ -872,7 +874,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       upstreamBody = await routeBody(route);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, compatibilityRejection: req.type !== route.targetProvider ? error : undefined, key, channel: route.channel });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, targetType: route.targetProvider, compatibilityRejection: req.type !== route.targetProvider ? error : undefined, key, channel: route.channel });
       await settleTpm(0);
       releaseAllKeySlots();
       return { kind: "client_error", requestId, status: 400, error };

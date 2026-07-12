@@ -14,6 +14,7 @@ export type AppSettings = {
   fallbackChannelId: string;
   fallbackModel: string;
   recordAllRequestDetails: boolean;
+  bridgeCapabilityAudit: boolean;
   maintenanceMode: boolean;
   maintenanceMessage: string;
   defaultRateLimitRpm: number;
@@ -48,6 +49,7 @@ const defaults: AppSettings = {
   fallbackChannelId: "",
   fallbackModel: "",
   recordAllRequestDetails: false,
+  bridgeCapabilityAudit: false,
   maintenanceMode: false,
   maintenanceMessage: "系统维护中，请稍后再试。",
   defaultRateLimitRpm: 0,
@@ -85,6 +87,7 @@ export function getSettings(): AppSettings {
     fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
     fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
     recordAllRequestDetails: bool(values.get("recordAllRequestDetails"), defaults.recordAllRequestDetails),
+    bridgeCapabilityAudit: bool(values.get("bridgeCapabilityAudit"), defaults.bridgeCapabilityAudit),
     maintenanceMode: bool(values.get("maintenanceMode"), defaults.maintenanceMode),
     maintenanceMessage: values.get("maintenanceMessage") || defaults.maintenanceMessage,
     defaultRateLimitRpm: Math.max(0, Number(values.get("defaultRateLimitRpm")) || defaults.defaultRateLimitRpm),
@@ -129,6 +132,7 @@ export function updateSettings(input: Partial<AppSettings>) {
     fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
     fallbackModel: input.fallbackModel ?? current.fallbackModel,
     recordAllRequestDetails: input.recordAllRequestDetails ?? current.recordAllRequestDetails,
+    bridgeCapabilityAudit: input.bridgeCapabilityAudit ?? current.bridgeCapabilityAudit,
     maintenanceMode: input.maintenanceMode ?? current.maintenanceMode,
     maintenanceMessage: input.maintenanceMessage ?? current.maintenanceMessage,
     defaultRateLimitRpm: Math.max(0, Number(input.defaultRateLimitRpm) || current.defaultRateLimitRpm),
@@ -194,6 +198,7 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
     fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
     recordAllRequestDetails: bool(values.get("recordAllRequestDetails"), defaults.recordAllRequestDetails),
+    bridgeCapabilityAudit: bool(values.get("bridgeCapabilityAudit"), defaults.bridgeCapabilityAudit),
     maintenanceMode: bool(values.get("maintenanceMode"), defaults.maintenanceMode),
     maintenanceMessage: values.get("maintenanceMessage") || defaults.maintenanceMessage,
     defaultRateLimitRpm: Math.max(0, Number(values.get("defaultRateLimitRpm")) || defaults.defaultRateLimitRpm),
@@ -230,6 +235,7 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
     fallbackModel: input.fallbackModel ?? current.fallbackModel,
     recordAllRequestDetails: input.recordAllRequestDetails ?? current.recordAllRequestDetails,
+    bridgeCapabilityAudit: input.bridgeCapabilityAudit ?? current.bridgeCapabilityAudit,
     maintenanceMode: input.maintenanceMode ?? current.maintenanceMode,
     maintenanceMessage: input.maintenanceMessage ?? current.maintenanceMessage,
     defaultRateLimitRpm: Math.max(0, Number(input.defaultRateLimitRpm) || current.defaultRateLimitRpm),
