@@ -93,4 +93,23 @@ export type DashboardStats = {
   }[];
   userTokenUsers: { id: string; name: string; totalTokens: number }[];
   userTokenSeries: ({ ts: number } & Record<string, number>)[];
+  bridgeObservability: {
+    observedRequests: number;
+    unclassifiedRequests: number;
+    native: BridgeDirectionStats;
+    openaiToClaude: BridgeDirectionStats;
+    claudeToOpenai: BridgeDirectionStats;
+  };
+};
+
+export type BridgeDirectionStats = {
+  requests: number;
+  successes: number;
+  failures: number;
+  compatibilityRejections: number;
+  successRate: number;
+  ttftAvgMs: number;
+  ttftP50Ms: number;
+  durationAvgMs: number;
+  durationP50Ms: number;
 };

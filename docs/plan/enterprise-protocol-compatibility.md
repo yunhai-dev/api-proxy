@@ -84,7 +84,7 @@ Capability data is managed at channel and model scope. The profile uses validate
 
 - **Files modified**: `lib/log-generator.ts`, log schema/API/UI as needed, conversion/proxy/upstream/route fixtures, `scripts/verify-multi-instance.mjs`, settings and documentation.
 - **Specific logic**:
-  - Log native/bridge mode, feature requirements/rejections, capability profile, per-attempt result, upstream request ID, retry/fallback reason, and timing without sensitive values. Completed: opt-in request details include direction, successful attempt chains, allowlisted upstream request IDs, selected capability profiles, and bridge conversion rejection facts; aggregate metrics and rollout controls remain pending.
+  - Log native/bridge mode, feature requirements/rejections, capability profile, per-attempt result, upstream request ID, retry/fallback reason, and timing without sensitive values. Completed: opt-in request details include direction, successful attempt chains, allowlisted upstream request IDs, selected capability profiles, and bridge conversion rejection facts; Dashboard aggregates only auditable records by direction, outcome/rejection, and timing while explicitly reporting non-audited records as unclassified. Complete contract coverage and staged controls remain pending.
   - Track compatibility errors separately from channel-health failures.
   - Add contract and property-style tests proving accepted bridge inputs preserve required semantics.
   - Provide a reversible bridge-capability audit mode that records only safe bridge facts without request/response payloads and never dispatches incompatible conversions. Strict conversion rejection remains mandatory; forwarding an incompatible request as "report-only" is prohibited.

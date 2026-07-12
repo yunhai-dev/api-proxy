@@ -34,6 +34,82 @@ function percentile(sorted: number[], p: number) {
   return sorted[idx];
 }
 
+type BridgeMetricRow = {
+  requestDetail: string | null;
+  status: number;
+  latencyMs: number;
+  ttftMs: number;
+  durationMs: number;
+};
+
+type BridgeDirection = "native" | "openai_to_claude" | "claude_to_openai";
+
+function bridgeDirection(requestDetail: string | null): BridgeDirection | null {
+  if (!requestDetail) return null;
+  try {
+    const detail = JSON.parse(requestDetail) as { protocol?: { direction?: unknown } };
+    const direction = detail.protocol?.direction;
+    return direction === "native" || direction === "openai_to_claude" || direction === "claude_to_openai"
+      ? direction
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function bridgeObservability(rows: BridgeMetricRow[]) {
+  const groups = new Map<BridgeDirection, BridgeMetricRow[]>([
+    ["native", []],
+    ["openai_to_claude", []],
+    ["claude_to_openai", []],
+  ]);
+  let unclassifiedRequests = 0;
+
+  for (const row of rows) {
+    const direction = bridgeDirection(row.requestDetail);
+    if (!direction) {
+      unclassifiedRequests += 1;
+      continue;
+    }
+    groups.get(direction)?.push(row);
+  }
+
+  const summarize = (items: BridgeMetricRow[]) => {
+    const successes = items.filter(row => row.status >= 200 && row.status < 300);
+    const ttfts = successes.map(row => row.ttftMs || row.latencyMs).sort((a, b) => a - b);
+    const durations = successes.map(row => row.durationMs || row.latencyMs).sort((a, b) => a - b);
+    const average = (values: number[]) => values.length
+      ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+      : 0;
+    return {
+      requests: items.length,
+      successes: successes.length,
+      failures: items.length - successes.length,
+      compatibilityRejections: items.filter(row => {
+        try {
+          const detail = JSON.parse(row.requestDetail ?? "{}") as { compatibility_rejection?: unknown };
+          return typeof detail.compatibility_rejection === "string" && detail.compatibility_rejection.length > 0;
+        } catch {
+          return false;
+        }
+      }).length,
+      successRate: items.length ? (successes.length / items.length) * 100 : 100,
+      ttftAvgMs: average(ttfts),
+      ttftP50Ms: percentile(ttfts, 50),
+      durationAvgMs: average(durations),
+      durationP50Ms: percentile(durations, 50),
+    };
+  };
+
+  return {
+    observedRequests: rows.length - unclassifiedRequests,
+    unclassifiedRequests,
+    native: summarize(groups.get("native") ?? []),
+    openaiToClaude: summarize(groups.get("openai_to_claude") ?? []),
+    claudeToOpenai: summarize(groups.get("claude_to_openai") ?? []),
+  };
+}
+
 export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userId?: string } = {}): DashboardStats {
   const now = Date.now();
   cleanupStaleActiveRequests(now);
@@ -61,6 +137,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
       cacheTokens: schema.requestLogs.cacheTokens,
       cacheReadTokens: schema.requestLogs.cacheReadTokens,
       cacheCreationTokens: schema.requestLogs.cacheCreationTokens,
+      requestDetail: schema.requestLogs.requestDetail,
       channelId: schema.channels.id,
       channelName: schema.channels.name,
       channelType: schema.channels.type,
@@ -325,6 +402,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     cacheReadTokens,
     cacheCreationTokens,
     globalPerf,
+    bridgeObservability: bridgeObservability(rangeRows),
     throughputSeries,
     trafficByChannel: traffic,
     topKeys,
@@ -410,6 +488,22 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestStats.keyId))
     .leftJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.requestStats.userId))
     .where(ownerWhere ? and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until), ownerWhere) : and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until)));
+
+  const detailRows = await pgDb
+    .select({
+      rawLogId: pgSchema.requestLogs.id,
+      requestDetail: pgSchema.requestLogs.requestDetail,
+      status: pgSchema.requestLogs.status,
+      latencyMs: pgSchema.requestLogs.latencyMs,
+      ttftMs: pgSchema.requestLogs.ttftMs,
+      durationMs: pgSchema.requestLogs.durationMs,
+    })
+    .from(pgSchema.requestLogs)
+    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
+    .where(opts.userId
+      ? and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until), eq(pgSchema.keys.userId, opts.userId))
+      : and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until)));
+  const bridgeMetrics = bridgeObservability(detailRows);
 
   const prevRows = await pgDb
     .select({ id: pgSchema.requestStats.rawLogId })
@@ -532,7 +626,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((row.ts - since) / bucketMs)));
     userTokenSeries[idx][id] = (userTokenSeries[idx][id] ?? 0) + row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
   }
-  return { requests24h, activeConversations: activeRows.length, requestsDelta, successRate, successDelta: -0.3, p50, p50Delta: -44, tokensIn, tokensOut, cost, cacheHit, cacheTokens, cacheReadTokens, cacheCreationTokens, globalPerf, throughputSeries, trafficByChannel: [...trafficMap.values()].sort((a, b) => b.n - a.n), topKeys, topUsers, modelStats, userTokenUsers, userTokenSeries };
+  return { requests24h, activeConversations: activeRows.length, requestsDelta, successRate, successDelta: -0.3, p50, p50Delta: -44, tokensIn, tokensOut, cost, cacheHit, cacheTokens, cacheReadTokens, cacheCreationTokens, globalPerf, bridgeObservability: bridgeMetrics, throughputSeries, trafficByChannel: [...trafficMap.values()].sort((a, b) => b.n - a.n), topKeys, topUsers, modelStats, userTokenUsers, userTokenSeries };
 }
 
 export function getRecentActivity(limit = 10) {
