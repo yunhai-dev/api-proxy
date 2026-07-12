@@ -23,9 +23,10 @@ export async function acquireChannelSlot(
   channelId: string,
   maxConcurrency: number,
   signal?: AbortSignal,
+  timeoutMs = 30_000,
 ): Promise<() => void> {
   if (maxConcurrency <= 0) return () => {};
-  const redisRelease = await acquireRedisSemaphore(`sem:channel:${channelId}`, maxConcurrency, { signal });
+  const redisRelease = await acquireRedisSemaphore(`sem:channel:${channelId}`, maxConcurrency, { signal, timeoutMs });
   if (redisRelease) return () => { void redisRelease(); };
   if (signal?.aborted) throw new Error("channel queue wait aborted");
 

@@ -801,6 +801,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       releaseSlot = await acquireChannelSlot(route.channel.id, route.channel.maxConcurrency ?? 0, req.signal);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
+      if (req.signal?.aborted) {
+        await recordFailure({ requestId, ts: t0, type: req.type, status: 499, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+        releaseAllKeySlots();
+        return { kind: "client_error", requestId, status: 429, error: "请求已取消" };
+      }
       attempts.push({ channel: route.channel.name, error, status: 429 });
       lastError = `${route.channel.name}: ${error}`;
       lastStatus = 429;

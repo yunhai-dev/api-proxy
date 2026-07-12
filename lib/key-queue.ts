@@ -23,9 +23,10 @@ export async function acquireKeySlot(
   keyId: string,
   maxConcurrency: number,
   signal?: AbortSignal,
+  timeoutMs = 30_000,
 ): Promise<() => void> {
   if (maxConcurrency <= 0) return () => {};
-  const redisRelease = await acquireRedisSemaphore(`sem:key:${keyId}`, maxConcurrency, { signal });
+  const redisRelease = await acquireRedisSemaphore(`sem:key:${keyId}`, maxConcurrency, { signal, timeoutMs });
   if (redisRelease) return () => { void redisRelease(); };
   if (signal?.aborted) throw new Error("key queue wait aborted");
   const state = queues.get(keyId) ?? { active: 0, waiters: [] };
