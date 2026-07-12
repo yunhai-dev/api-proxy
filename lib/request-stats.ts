@@ -1,4 +1,7 @@
 import { sql } from "drizzle-orm";
+import type { pgDb } from "./db/pg";
+
+type PgWriter = Pick<typeof pgDb, "insert">;
 
 type RequestStatInput = {
   requestId: string;
@@ -19,9 +22,9 @@ type RequestStatInput = {
   cacheCreationTokens: number;
 };
 
-export async function upsertRequestStatAsync(rawLogId: number, input: RequestStatInput) {
+export async function upsertRequestStatAsync(rawLogId: number, input: RequestStatInput, writer?: PgWriter) {
   const { pgDb, pgSchema } = await import("@/lib/db/pg");
-  await pgDb.insert(pgSchema.requestStats).values({ rawLogId, ...input }).onConflictDoUpdate({
+  await (writer ?? pgDb).insert(pgSchema.requestStats).values({ rawLogId, ...input }).onConflictDoUpdate({
     target: pgSchema.requestStats.rawLogId,
     set: { ...input, userId: sql`coalesce(nullif(${pgSchema.requestStats.userId}, ''), ${input.userId})` },
   });

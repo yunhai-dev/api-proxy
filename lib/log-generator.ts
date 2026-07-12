@@ -6,7 +6,9 @@ import { usePostgres } from "@/lib/db/runtime";
 import { modelLookupCandidates } from "@/lib/model-variants";
 import { getSettings, getSettingsAsync } from "@/lib/settings";
 import { upsertRequestStatAsync } from "@/lib/request-stats";
+import type { pgDb } from "./db/pg";
 
+type PgWriter = Pick<typeof pgDb, "insert" | "select" | "update">;
 type Subscriber = (entry: LogListEntry) => void;
 type LogInput = Omit<LogEntry, "id" | "cacheTokens" | "cacheReadTokens" | "cacheCreationTokens" | "ttftMs" | "durationMs" | "cost"> & {
   cacheTokens?: number;
@@ -100,35 +102,36 @@ class LogHub {
     if (!usePostgres()) return this.record(e);
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
     const ts = e.ts || Date.now();
-    const inserted = await pgDb.insert(pgSchema.requestLogs).values({
-      ts,
-      requestId: e.requestId,
-      keyId: e.keyId, channelId: e.channelId, model: e.model,
-      inboundModel: e.inboundModel || e.model,
-      upstreamModel: e.upstreamModel || e.model,
-      mappingId: e.mappingId || "",
-      mappedChannelIds: e.mappedChannelIds ?? [],
-      status: e.status, latencyMs: e.latencyMs,
-      ttftMs: e.ttftMs ?? e.latencyMs,
-      durationMs: e.durationMs ?? e.latencyMs,
-      tokensIn: e.tokensIn, tokensOut: e.tokensOut,
-      cacheTokens: e.cacheTokens ?? 0,
-      cacheReadTokens: e.cacheReadTokens ?? 0,
-      cacheCreationTokens: e.cacheCreationTokens ?? 0,
-      requestDetail: e.requestDetail ?? null,
-      errorMsg: e.errorMsg,
-    }).returning({ id: pgSchema.requestLogs.id });
-
-    const key = e.keyId ? (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
-    if (e.keyId) {
-      const cost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
-      const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
-      await pgDb.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
-      await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost);
-    }
-
-    const rawLogId = Number(inserted[0]?.id ?? 0);
-    if (rawLogId) await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""));
+    const cost = e.keyId ? e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0) : 0;
+    let rawLogId = 0;
+    await pgDb.transaction(async tx => {
+      const inserted = await tx.insert(pgSchema.requestLogs).values({
+        ts,
+        requestId: e.requestId,
+        keyId: e.keyId, channelId: e.channelId, model: e.model,
+        inboundModel: e.inboundModel || e.model,
+        upstreamModel: e.upstreamModel || e.model,
+        mappingId: e.mappingId || "",
+        mappedChannelIds: e.mappedChannelIds ?? [],
+        status: e.status, latencyMs: e.latencyMs,
+        ttftMs: e.ttftMs ?? e.latencyMs,
+        durationMs: e.durationMs ?? e.latencyMs,
+        tokensIn: e.tokensIn, tokensOut: e.tokensOut,
+        cacheTokens: e.cacheTokens ?? 0,
+        cacheReadTokens: e.cacheReadTokens ?? 0,
+        cacheCreationTokens: e.cacheCreationTokens ?? 0,
+        requestDetail: e.requestDetail ?? null,
+        errorMsg: e.errorMsg,
+      }).returning({ id: pgSchema.requestLogs.id });
+      rawLogId = Number(inserted[0]?.id ?? 0);
+      const key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
+      if (e.keyId) {
+        const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
+        await tx.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
+        await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost, tx);
+      }
+      if (rawLogId) await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
+    });
     const entry = logEntryFromInput(rawLogId, ts, e);
     const listEntry = toLogListEntry(entry);
     this.emit(listEntry);
@@ -209,43 +212,42 @@ class LogHub {
     if (!usePostgres()) return this.update(id, e);
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
     const prev = (await pgDb.select().from(pgSchema.requestLogs).where(eq(pgSchema.requestLogs.id, id)).limit(1))[0];
-    await pgDb.update(pgSchema.requestLogs).set({
-      ts: e.ts,
-      requestId: e.requestId,
-      keyId: e.keyId,
-      channelId: e.channelId,
-      model: e.model,
-      inboundModel: e.inboundModel || e.model,
-      upstreamModel: e.upstreamModel || e.model,
-      mappingId: e.mappingId || "",
-      mappedChannelIds: e.mappedChannelIds ?? [],
-      status: e.status,
-      latencyMs: e.latencyMs,
-      ttftMs: e.ttftMs ?? e.latencyMs,
-      durationMs: e.durationMs ?? e.latencyMs,
-      tokensIn: e.tokensIn,
-      tokensOut: e.tokensOut,
-      cacheTokens: e.cacheTokens ?? 0,
-      cacheReadTokens: e.cacheReadTokens ?? 0,
-      cacheCreationTokens: e.cacheCreationTokens ?? 0,
-      requestDetail: e.requestDetail ?? null,
-      errorMsg: e.errorMsg,
-    }).where(eq(pgSchema.requestLogs.id, id));
-
-    const key = e.keyId ? (await pgDb.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
-    if (e.keyId) {
-      const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
-      const newTokens = e.tokensIn + e.tokensOut;
-      const oldCost = prev ? await logCostAsync(e.channelType, e.channelId, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
-      const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
-      const addTok = (newTokens - oldTokens) / 1_000_000;
-      if (addTok !== 0) {
-        await pgDb.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
-        await addUserUsageAsync(key?.userId, newTokens - oldTokens, newCost - oldCost);
+    const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
+    const newTokens = e.tokensIn + e.tokensOut;
+    const oldCost = prev ? await logCostAsync(e.channelType, e.channelId, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
+    const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
+    const addTokens = newTokens - oldTokens;
+    let key: typeof pgSchema.keys.$inferSelect | undefined;
+    await pgDb.transaction(async tx => {
+      await tx.update(pgSchema.requestLogs).set({
+        ts: e.ts,
+        requestId: e.requestId,
+        keyId: e.keyId,
+        channelId: e.channelId,
+        model: e.model,
+        inboundModel: e.inboundModel || e.model,
+        upstreamModel: e.upstreamModel || e.model,
+        mappingId: e.mappingId || "",
+        mappedChannelIds: e.mappedChannelIds ?? [],
+        status: e.status,
+        latencyMs: e.latencyMs,
+        ttftMs: e.ttftMs ?? e.latencyMs,
+        durationMs: e.durationMs ?? e.latencyMs,
+        tokensIn: e.tokensIn,
+        tokensOut: e.tokensOut,
+        cacheTokens: e.cacheTokens ?? 0,
+        cacheReadTokens: e.cacheReadTokens ?? 0,
+        cacheCreationTokens: e.cacheCreationTokens ?? 0,
+        requestDetail: e.requestDetail ?? null,
+        errorMsg: e.errorMsg,
+      }).where(eq(pgSchema.requestLogs.id, id));
+      key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
+      if (e.keyId && addTokens !== 0) {
+        await tx.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: sql`${pgSchema.keys.used} + ${addTokens / 1_000_000}` }).where(eq(pgSchema.keys.id, e.keyId));
+        await addUserUsageAsync(key?.userId, addTokens, newCost - oldCost, tx);
       }
-    }
-
-    await upsertRequestStatAsync(id, requestStatFromInput(e.ts, e, key?.userId ?? ""));
+      await upsertRequestStatAsync(id, requestStatFromInput(e.ts, e, key?.userId ?? ""), tx);
+    });
     const entry = logEntryFromInput(id, e.ts, e);
     const listEntry = toLogListEntry(entry);
     this.emit(listEntry);
@@ -328,12 +330,13 @@ function addUserUsage(userId: string | undefined, tokens: number, usd: number) {
     .run();
 }
 
-async function addUserUsageAsync(userId: string | undefined, tokens: number, usd: number) {
+async function addUserUsageAsync(userId: string | undefined, tokens: number, usd: number, writer?: PgWriter) {
   if (!userId || (tokens === 0 && usd === 0)) return;
   const { pgDb, pgSchema } = await import("@/lib/db/pg");
-  const quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0];
+  const db = writer ?? pgDb;
+  const quota = (await db.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0];
   if (!quota) return;
-  await pgDb.update(pgSchema.userQuotas)
+  await db.update(pgSchema.userQuotas)
     .set({
       dailyUsedTokens: sql`GREATEST(0, ${pgSchema.userQuotas.dailyUsedTokens} + ${tokens})`,
       monthlyUsedTokens: sql`GREATEST(0, ${pgSchema.userQuotas.monthlyUsedTokens} + ${tokens})`,
