@@ -57,7 +57,7 @@ function bridgeDirection(requestDetail: string | null): BridgeDirection | null {
   }
 }
 
-export function bridgeObservability(rows: BridgeMetricRow[]) {
+export function bridgeObservability(rows: BridgeMetricRow[], totalRequests = rows.length) {
   const groups = new Map<BridgeDirection, BridgeMetricRow[]>([
     ["native", []],
     ["openai_to_claude", []],
@@ -103,7 +103,7 @@ export function bridgeObservability(rows: BridgeMetricRow[]) {
 
   return {
     observedRequests: rows.length - unclassifiedRequests,
-    unclassifiedRequests,
+    unclassifiedRequests: totalRequests - (rows.length - unclassifiedRequests),
     native: summarize(groups.get("native") ?? []),
     openaiToClaude: summarize(groups.get("openai_to_claude") ?? []),
     claudeToOpenai: summarize(groups.get("claude_to_openai") ?? []),
@@ -503,7 +503,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     .where(opts.userId
       ? and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until), eq(pgSchema.keys.userId, opts.userId))
       : and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until)));
-  const bridgeMetrics = bridgeObservability(detailRows);
+  const bridgeMetrics = bridgeObservability(detailRows, rangeRows.length);
 
   const prevRows = await pgDb
     .select({ id: pgSchema.requestStats.rawLogId })

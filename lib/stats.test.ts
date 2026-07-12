@@ -26,12 +26,12 @@ describe("bridge observability", () => {
     expect(metrics.claudeToOpenai.compatibilityRejections).toBe(1);
   });
 
-  test("does not classify unknown protocol directions", () => {
+  test("does not classify unknown or missing audit records", () => {
     const metrics = bridgeObservability([
       { requestDetail: detail("unknown"), status: 200, latencyMs: 1, ttftMs: 1, durationMs: 1 },
-    ]);
+    ], 3);
 
     expect(metrics.observedRequests).toBe(0);
-    expect(metrics.unclassifiedRequests).toBe(1);
+    expect(metrics.unclassifiedRequests).toBe(3);
   });
 });
