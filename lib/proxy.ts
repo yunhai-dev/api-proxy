@@ -887,21 +887,18 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   // 4) 转发（带重试）
   const attempts: { channel: string; error: string; status: number }[] = [];
   const tried = new Set<string>();
-  const attemptCounts = new Map<string, number>();
-  let retryRoute: RouteCandidate | null = null;
   let lastError = "";
   let lastStatus = 0;
   let lastRoute: RouteCandidate | undefined;
 
   for (let i = 0; i < settings.proxyMaxRetries; i++) {
     const freshPool = routes.filter(route => !tried.has(routeKey(route)));
-    const pool = retryRoute ? [retryRoute] : freshPool.length ? freshPool : routes;
+    const pool = freshPool.length ? freshPool : routes;
     const saturation = await Promise.all(pool.map(async route => [routeKey(route), await isChannelSaturated(route.channel.id, route.channel.maxConcurrency ?? 0)] as const));
     const saturatedKeys = new Set(saturation.filter(([, saturated]) => saturated).map(([key]) => key));
     const availablePool = pool.filter(route => !saturatedKeys.has(routeKey(route)));
     const route = pickRoutePriorityRandom(availablePool.length ? availablePool : pool);
     if (!route) break;
-    retryRoute = null;
     lastRoute = route;
 
     let upstreamBody: string;
@@ -959,14 +956,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           attempts.push({ channel: route.channel.name, error: prepared.message, status: result.status });
           lastError = `${route.channel.name}: ${prepared.message}`;
           lastStatus = result.status;
-          const keyForRoute = routeKey(route);
-          const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
-          attemptCounts.set(keyForRoute, count);
-          if (count < 2 && i + 1 < settings.proxyMaxRetries) {
-            retryRoute = route;
-          } else {
-            tried.add(keyForRoute);
-          }
+          tried.add(routeKey(route));
           continue;
         }
 
@@ -999,14 +989,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         attempts.push({ channel: route.channel.name, error: processed.message, status: result.status });
         lastError = `${route.channel.name}: ${processed.message}`;
         lastStatus = result.status;
-        const keyForRoute = routeKey(route);
-        const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
-        attemptCounts.set(keyForRoute, count);
-        if (count < 2 && i + 1 < settings.proxyMaxRetries) {
-          retryRoute = route;
-        } else {
-          tried.add(keyForRoute);
-        }
+        tried.add(routeKey(route));
         continue;
       }
 
@@ -1036,15 +1019,8 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     attempts.push({ channel: route.channel.name, error: result.errorMsg, status: result.status });
     lastError = `${route.channel.name}: ${result.errorMsg}`;
     lastStatus = result.status;
-    const keyForRoute = routeKey(route);
-    const count = (attemptCounts.get(keyForRoute) ?? 0) + 1;
-    attemptCounts.set(keyForRoute, count);
-    if (shouldRetryUpstream(result.status, settings) && count < 2 && i + 1 < settings.proxyMaxRetries) {
-      retryRoute = route;
-    } else {
-      tried.add(keyForRoute);
-      if (!shouldRetryUpstream(result.status, settings)) break;
-    }
+    tried.add(routeKey(route));
+    if (!shouldRetryUpstream(result.status, settings)) break;
   }
 
   // 全部失败

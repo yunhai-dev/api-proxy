@@ -13,9 +13,7 @@ export function shouldNormalizeResponsesLite(input: {
   model: string;
 }) {
   return input.targetType === "openai"
-    && input.openAiEndpoint === "responses"
-    && !!input.incomingHeaders?.has(OPENAI_RESPONSES_LITE_HEADER)
-    && modelRequiresResponsesLiteSerialTools(input.model);
+    && input.openAiEndpoint !== "embeddings";
 }
 
 export function withResponsesLiteSerialTools<T>(body: T, input: Parameters<typeof shouldNormalizeResponsesLite>[0]): T {

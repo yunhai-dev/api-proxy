@@ -314,7 +314,7 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
   });
 
-  test("forces parallel_tool_calls off only for Codex Responses Lite models", async () => {
+  test("forces parallel_tool_calls off for native OpenAI text endpoints", async () => {
     channels = [{ ...primary, models: ["codex-mini", "gpt-test"] }];
     upstreamResponses = [
       response({ id: "resp_1", object: "response", status: "completed", output: [] }),
@@ -335,7 +335,7 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(codexResult.kind).toBe("success");
     expect(gptResult.kind).toBe("success");
     expect(JSON.parse(upstreamBodies[0]!).parallel_tool_calls).toBe(false);
-    expect(JSON.parse(upstreamBodies[1]!).parallel_tool_calls).toBe(true);
+    expect(JSON.parse(upstreamBodies[1]!).parallel_tool_calls).toBe(false);
   });
 
   test("records reasoning effort in request detail without full body logging", async () => {
@@ -419,7 +419,8 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(keyReleases).toBe(2);
   });
 
-  test("shares one reservation across a retry and settles actual usage", async () => {
+  test("shares one reservation across a retry and switches channels", async () => {
+    channels = [{ ...primary }, { ...fallback, weight: 1 }];
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
       response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 3, completion_tokens: 5 } }),
@@ -428,7 +429,7 @@ describe("proxy TPM reservation lifecycle", () => {
     const result = await proxyOnce(request());
 
     expect(result.kind).toBe("success");
-    expect(upstreamCalls).toEqual(["https://primary.test", "https://primary.test"]);
+    expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
     expect(reserveCalls).toBe(1);
     expect(settlements).toEqual([8]);
   });

@@ -17,6 +17,26 @@ describe("OpenAI Responses Lite normalization", () => {
       openAiEndpoint: "responses",
       incomingHeaders: headers,
       model: "gpt-test",
+    })).toEqual({ parallel_tool_calls: false });
+
+    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
+      targetType: "openai",
+      openAiEndpoint: "chat_completions",
+      incomingHeaders: headers,
+      model: "gpt-test",
+    })).toEqual({ parallel_tool_calls: false });
+
+    expect(withResponsesLiteSerialTools({ input: "hi" }, {
+      targetType: "openai",
+      openAiEndpoint: "responses",
+      model: "gpt-test",
+    })).toEqual({ input: "hi", parallel_tool_calls: false });
+
+    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
+      targetType: "openai",
+      openAiEndpoint: "embeddings",
+      incomingHeaders: headers,
+      model: "text-embedding-3-small",
     })).toEqual({ parallel_tool_calls: true });
   });
 });
