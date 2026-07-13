@@ -129,6 +129,7 @@ beforeEach(() => {
   key.status = "active";
   key.quota = 0;
   key.used = 0;
+  key.channelId = "";
 });
 
 function request(stream = false) {
@@ -313,6 +314,30 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
   });
 
+  test("forces parallel_tool_calls off only for Codex Responses Lite models", async () => {
+    channels = [{ ...primary, models: ["codex-mini", "gpt-test"] }];
+    upstreamResponses = [
+      response({ id: "resp_1", object: "response", status: "completed", output: [] }),
+      response({ id: "resp_2", object: "response", status: "completed", output: [] }),
+    ];
+
+    const codexResult = await proxyOnce({
+      ...responsesRequest(),
+      incomingHeaders: new Headers({ "x-request-id": "request-1", "x-openai-internal-codex-responses-lite": "1" }),
+      body: JSON.stringify({ model: "codex-mini", input: "hi", parallel_tool_calls: true }),
+    });
+    const gptResult = await proxyOnce({
+      ...responsesRequest(),
+      incomingHeaders: new Headers({ "x-request-id": "request-2", "x-openai-internal-codex-responses-lite": "1" }),
+      body: JSON.stringify({ model: "gpt-test", input: "hi", parallel_tool_calls: true }),
+    });
+
+    expect(codexResult.kind).toBe("success");
+    expect(gptResult.kind).toBe("success");
+    expect(JSON.parse(upstreamBodies[0]!).parallel_tool_calls).toBe(false);
+    expect(JSON.parse(upstreamBodies[1]!).parallel_tool_calls).toBe(true);
+  });
+
   test("records reasoning effort in request detail without full body logging", async () => {
     upstreamResponses = [response({ id: "resp_1", object: "response", status: "completed", output: [], usage: { input_tokens: 2, output_tokens: 3 } })];
     const body = { model: "gpt-test", input: "hi", max_output_tokens: 16, reasoning: { effort: "high" } };
@@ -370,14 +395,16 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(upstreamCalls).toEqual([]);
   });
 
-  test("excludes an open circuit before queue acquisition", async () => {
-    circuitAllowed = false;
+  test("uses fallback even when the key is bound to another channel", async () => {
+    channels = [{ ...primary, models: ["other-model"] }, { ...fallback }];
+    key.channelId = "primary";
+    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test" };
+    upstreamResponses = [response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } })];
 
     const result = await proxyOnce(request());
 
-    expect(result).toMatchObject({ kind: "client_error", status: 404 });
-    expect(upstreamCalls).toEqual([]);
-    expect(channelReleases).toBe(0);
+    expect(result.kind).toBe("success");
+    expect(upstreamCalls).toEqual(["https://fallback.test"]);
   });
 
   test("records an upstream failure and releases its slots", async () => {
@@ -420,6 +447,20 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
     expect(reserveCalls).toBe(1);
     expect(settlements).toEqual([9]);
+  });
+
+  test("falls back after an upstream model 404", async () => {
+    channels = [{ ...primary }, { ...fallback, weight: 1 }];
+    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    upstreamResponses = [
+      { ok: false, status: 404, errorMsg: "model not found" },
+      response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } }),
+    ];
+
+    const result = await proxyOnce(request());
+
+    expect(result.kind).toBe("success");
+    expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
   });
 
   test("settles stream usage and releases slots after completion", async () => {

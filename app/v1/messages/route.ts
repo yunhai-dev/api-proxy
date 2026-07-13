@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { proxyOnce } from "@/lib/proxy";
+import { proxyErrorSource, proxyOnce } from "@/lib/proxy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,18 +34,20 @@ export async function POST(req: NextRequest) {
 
   if (result.kind === "success") return result.response;
   if (result.kind === "client_error") {
-    return new Response(JSON.stringify({ type: "error", request_id: result.requestId, error: { type: "invalid_request_error", message: result.error } }), {
+    return new Response(JSON.stringify({ type: "error", request_id: result.requestId, error: { type: "invalid_request_error", message: result.error, source: "proxy" } }), {
       status: result.status,
-      headers: { "content-type": "application/json", "x-request-id": result.requestId },
+      headers: { "content-type": "application/json", "x-request-id": result.requestId, "x-proxy-error-source": "proxy" },
     });
   }
   // upstream_error
+  const errorSource = proxyErrorSource(result);
+  const errorType = errorSource === "proxy" ? "invalid_request_error" : "api_error";
   return new Response(JSON.stringify({
     type: "error",
     request_id: result.requestId,
-    error: { type: "api_error", message: result.error },
+    error: { type: errorType, message: result.error, source: errorSource },
   }), {
     status: result.status,
-    headers: { "content-type": "application/json", "x-request-id": result.requestId },
+    headers: { "content-type": "application/json", "x-request-id": result.requestId, "x-proxy-error-source": errorSource },
   });
 }

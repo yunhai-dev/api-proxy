@@ -54,11 +54,10 @@ describe("upstream transport", () => {
 });
 
 describe("upstream URL validation", () => {
-  test("accepts HTTPS URLs and rejects unsafe URLs", () => {
+  test("accepts HTTP(S) URLs and rejects unsafe URLs", () => {
     expect(validateUpstreamBaseUrl("https://api.example.com/v1")).toBeNull();
-    expect(validateUpstreamBaseUrl("http://api.example.com")).toBe(
-      process.env.NODE_ENV === "production" ? "生产环境渠道地址必须使用 HTTPS" : null,
-    );
+    expect(validateUpstreamBaseUrl("http://api.example.com")).toBeNull();
+    expect(validateUpstreamBaseUrl("ftp://api.example.com")).not.toBeNull();
     expect(validateUpstreamBaseUrl("https://user:pass@example.com")).not.toBeNull();
     expect(validateUpstreamBaseUrl("not a URL")).not.toBeNull();
   });

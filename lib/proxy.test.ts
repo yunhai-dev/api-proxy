@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { protocolDirection, selectedCapabilityProfile, upstreamRequestId } from "./proxy";
+import { protocolDirection, proxyErrorSource, selectedCapabilityProfile, upstreamRequestId } from "./proxy";
 
 describe("protocol observability", () => {
   test("labels native and bridged routes", () => {
@@ -19,5 +19,11 @@ describe("protocol observability", () => {
     expect(selectedCapabilityProfile(["messages", "streaming"], ["streaming", "tools"])).toEqual([
       "messages", "streaming", "tools",
     ]);
+  });
+
+  test("labels proxy-generated and upstream-generated errors", () => {
+    expect(proxyErrorSource({ kind: "client_error", requestId: "r1", status: 404, error: "x" })).toBe("proxy");
+    expect(proxyErrorSource({ kind: "upstream_error", requestId: "r2", status: 503, error: "x", attempts: [] })).toBe("proxy");
+    expect(proxyErrorSource({ kind: "upstream_error", requestId: "r3", status: 503, error: "x", attempts: [{ channel: "c", error: "e", status: 503 }] })).toBe("upstream");
   });
 });

@@ -18,4 +18,5 @@ describe("channel circuit state", () => {
     expect(nextCircuitState({ state: "half_open", openedAt: 1_000, ok: false, now: 31_001 }))
       .toEqual({ state: "open", openedAt: 31_001 });
   });
+
 });

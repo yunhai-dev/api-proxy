@@ -17,6 +17,7 @@ import { usePostgres } from "./db/runtime";
 import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
 import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
+import { withResponsesLiteSerialTools } from "./openai-responses-lite";
 
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
@@ -25,6 +26,7 @@ const ZERO_OUTPUT_TOKEN_ERROR = "上游返回 200 但输出 Token 为 0";
 
 function shouldRetryUpstream(status: number, settings: Awaited<ReturnType<typeof getSettingsAsync>>) {
   if (status === 0) return settings.proxyRetryNetwork;
+  if (status === 404) return true;
   if (status === 429) return settings.proxyRetry429;
   return status >= 500 && settings.proxyRetry5xx;
 }
@@ -282,6 +284,10 @@ export type ProxyResult =
   | { kind: "success"; requestId: string; response: Response; logged: { status: number; latencyMs: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; channelId: string; channelName: string } }
   | { kind: "client_error"; requestId: string; status: 400 | 401 | 402 | 403 | 404 | 429; error: string }
   | { kind: "upstream_error"; requestId: string; status: number; error: string; attempts: { channel: string; error: string; status: number }[] };
+
+export function proxyErrorSource(result: Exclude<ProxyResult, { kind: "success" }>) {
+  return result.kind === "upstream_error" && result.attempts.length ? "upstream" : "proxy";
+}
 
 const MAX_LOG_BODY_CHARS = 64 * 1024;
 const MAX_SSE_USAGE_BUFFER_CHARS = 256 * 1024;
@@ -694,13 +700,18 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   }
 
   async function routeBody(route: RouteCandidate) {
-    const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, body: parsed, model: route.upstreamModel, stream: req.stream }));
+    const body = withResponsesLiteSerialTools(parsed, {
+      targetType: route.targetProvider,
+      openAiEndpoint: req.openAiEndpoint,
+      incomingHeaders: req.incomingHeaders,
+      model: route.upstreamModel,
+    });
+    const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, body, model: route.upstreamModel, stream: req.stream }));
     return req.stream && route.targetProvider === "openai" && req.openAiEndpoint !== "responses" ? withOpenAiStreamUsage(converted) : converted;
   }
 
   async function tryFallbackOnce(reason: "no_regular_channel" | "regular_attempts_failed", previousAttempts: { channel: string; error: string; status: number }[] = []): Promise<ProxyResult | null> {
     if (!settings.fallbackEnabled || !settings.fallbackChannelId || !settings.fallbackModel) return null;
-    if (key.channelId && key.channelId !== settings.fallbackChannelId) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
     if (!fallbackChannel?.enabled || !circuitAllows(fallbackChannel) || (openAiOnly && fallbackChannel.type !== "openai")) return null;
     const { catalog: fallbackCatalog } = await modelConfigCandidateAsync(
@@ -711,7 +722,13 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
     let fallbackBody: string;
     try {
-      fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, body: parsed, model: settings.fallbackModel, stream: req.stream }));
+      const body = withResponsesLiteSerialTools(parsed, {
+        targetType: fallbackChannel.type,
+        openAiEndpoint: req.openAiEndpoint,
+        incomingHeaders: req.incomingHeaders,
+        model: settings.fallbackModel,
+      });
+      fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, body, model: settings.fallbackModel, stream: req.stream }));
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
@@ -857,12 +874,13 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   if (routes.length === 0) {
     const fallbackResult = await tryFallbackOnce("no_regular_channel");
     if (fallbackResult) return fallbackResult;
-    const status = mappings.length ? 503 : 404;
-    const error = mappings.length ? NO_LIVE_CHANNEL_ERROR : upstreamModelError(model);
+    const fallbackConfigured = settings.fallbackEnabled && settings.fallbackChannelId && settings.fallbackModel;
+    const status = mappings.length || fallbackConfigured ? 503 : 404;
+    const error = mappings.length || fallbackConfigured ? NO_LIVE_CHANNEL_ERROR : upstreamModelError(model);
     await recordFailure({ requestId, ts: t0, type: req.type, status, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: primaryMapping?.upstreamModel ?? model, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key });
     await settleTpm(0);
     releaseAllKeySlots();
-    if (mappings.length) return { kind: "upstream_error", requestId, status, error, attempts: [] };
+    if (mappings.length || fallbackConfigured) return { kind: "upstream_error", requestId, status, error, attempts: [] };
     return { kind: "client_error", requestId, status: 404, error };
   }
 

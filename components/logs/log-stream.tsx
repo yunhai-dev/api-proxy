@@ -228,7 +228,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
   const safePage = Math.min(page, totalPages);
 
   async function openDetail(entry: LogEntry) {
-    if (!entry.hasDetail) return;
+    if (!isAdminMode || !entry.hasDetail) return;
     setSelectedError({ id: entry.id, requestId: entry.requestId, status: entry.status, model: entry.model, inboundModel: entry.inboundModel, upstreamModel: entry.upstreamModel, requestDetail: null, errorMsg: null });
     setDetailLoading(true);
     try {
@@ -324,9 +324,9 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
               const isNew = newIds.has(r.id) || newIds.has(r.ts);
               return (
                 <tr
-                  className={`${r.hasDetail ? "has-error" : ""} ${isNew && i === 0 ? "new" : ""}`}
+                  className={`${cls} ${isAdminMode && r.hasDetail ? "has-detail" : ""} ${isNew && i === 0 ? "new" : ""}`}
                   key={`${r.id}-${r.ts}`}
-                  onClick={() => { void openDetail(r); }}
+                  onClick={isAdminMode && r.hasDetail ? () => { void openDetail(r); } : undefined}
                 >
                   <td className="mono dim nowrap">{fmtClockStamp(r.ts)}</td>
                   <td className="mono truncate-cell" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</td>
@@ -334,7 +334,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
                   {isAdminMode && <td className="truncate-cell" title={r.username ? `${r.userName || "未知用户"} (${r.username})` : r.userName || "未知用户"}>{r.userName || "未知用户"}</td>}
                   <td className={`channel truncate-cell ${r.channelType}`} title={isAdminMode ? r.channelName : providerLabel(r.channelType)}>{isAdminMode ? r.channelName : providerLabel(r.channelType)}</td>
                   <td className="mono truncate-cell" title={displayModelTitle(r, isAdminMode)}>{displayModel(r, isAdminMode)}</td>
-                  <td className={`right nowrap ${cls}`}>{statusLabel(r.status)}{r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</td>
+                  <td className={`right nowrap ${cls}`}>{statusLabel(r.status)}{isAdminMode && r.hasDetail ? <span className="err-toggle"> 查看</span> : null}</td>
                   <td className={`right mono nowrap ${slow ? "slow" : ""}`}>{r.ttftMs || r.latencyMs || "—"}<span className="dim">ms</span></td>
                   <td className={`right mono nowrap ${slow ? "slow" : ""}`}>{r.durationMs > 0 ? <>{r.durationMs}<span className="dim">ms</span></> : <span className="running">进行中</span>}</td>
                   <td className="right mono nowrap">{tokenText(r.tokensIn)}</td>

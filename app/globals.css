@@ -277,9 +277,11 @@
   .channel-history-row .latency { @apply font-semibold tabular-nums; }
   .channel-history-row .error { @apply max-h-32 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground; }
 
-  .logs-table tbody tr { @apply cursor-pointer; }
+  .logs-table tbody tr.has-detail { @apply cursor-pointer; }
+  .logs-table tr.status-4xx td,
+  .logs-table tr.status-5xx td,
+  .logs-table tr.status-net td { @apply bg-destructive/5; }
   .logs-table tr.new td { @apply bg-primary/5; }
-  .logs-table tr.has-error td { @apply bg-destructive/5; }
   .err-toggle { @apply ml-1 text-[10px] text-muted-foreground; }
   .slow { color: hsl(var(--warn)); }
   .running { @apply text-[10px] text-muted-foreground; }

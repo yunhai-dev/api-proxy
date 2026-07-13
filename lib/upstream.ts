@@ -42,8 +42,8 @@ export function validateUpstreamBaseUrl(baseUrl: unknown): string | null {
   if (typeof baseUrl !== "string" || !baseUrl.trim()) return "请输入基础地址";
   try {
     const url = new URL(baseUrl);
-    if (url.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && url.protocol === "http:")) {
-      return "生产环境渠道地址必须使用 HTTPS";
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return "渠道地址必须使用 HTTP 或 HTTPS";
     }
     if (url.username || url.password) return "渠道地址不能包含用户名或密码";
     return null;
