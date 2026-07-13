@@ -134,6 +134,14 @@ function request(stream = false) {
   };
 }
 
+function responsesRequest() {
+  return {
+    ...request(),
+    openAiEndpoint: "responses" as const,
+    body: JSON.stringify({ model: "gpt-test", input: "hi", max_output_tokens: 16 }),
+  };
+}
+
 function claudeRequest(stream = false) {
   return {
     type: "claude" as const,
@@ -233,6 +241,16 @@ describe("proxy TPM reservation lifecycle", () => {
     const body = { model: "claude-test", max_tokens: 16, system: "be brief", messages: [{ role: "user", content: "hi" }], temperature: 0.25, stop_sequences: ["END"], metadata: { user_id: "native" } };
 
     const result = await proxyOnce({ ...claudeRequest(), body: JSON.stringify(body) });
+
+    expect(result.kind).toBe("success");
+    expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
+  });
+
+  test("preserves native Responses request controls upstream", async () => {
+    upstreamResponses = [response({ id: "resp_1", object: "response", status: "completed", output: [] })];
+    const body = { model: "gpt-test", input: [{ role: "user", content: "hi" }], max_output_tokens: 16, metadata: { trace: "native" }, reasoning: { effort: "high" } };
+
+    const result = await proxyOnce({ ...responsesRequest(), body: JSON.stringify(body) });
 
     expect(result.kind).toBe("success");
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
