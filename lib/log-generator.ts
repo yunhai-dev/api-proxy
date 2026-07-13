@@ -293,9 +293,19 @@ class LogHub {
 }
 
 function toLogListEntry(entry: LogEntry | LogListEntry): LogListEntry {
-  const full = entry as LogEntry & { hasDetail?: boolean };
+  const full = entry as LogEntry & { hasDetail?: boolean; reasoningEffort?: string };
   const { requestDetail, errorMsg, ...rest } = full;
-  return { ...rest, hasDetail: full.hasDetail || Boolean(requestDetail || errorMsg) };
+  return { ...rest, hasDetail: full.hasDetail || Boolean(requestDetail || errorMsg), reasoningEffort: full.reasoningEffort ?? reasoningEffortFromDetail(requestDetail) };
+}
+
+function reasoningEffortFromDetail(detail: string | null | undefined) {
+  if (!detail) return undefined;
+  try {
+    const parsed = JSON.parse(detail) as { reasoning?: { effort?: unknown } };
+    return typeof parsed.reasoning?.effort === "string" ? parsed.reasoning.effort : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function requestStatFromInput(ts: number, e: LogInput, userId: string) {

@@ -29,6 +29,7 @@ let channelReleases = 0;
 let keyReleases = 0;
 let circuitAllowed = true;
 let channelObservations: { ok: boolean; failureStatus?: string }[] = [];
+let logRecords: Record<string, unknown>[] = [];
 
 const schema = Object.fromEntries([
   "keys", "channels", "modelMappings", "userQuotas", "requestLogs",
@@ -77,7 +78,10 @@ mock.module("./rate-limit", () => ({
   settleTpmReservation: async (_reservation: unknown, actual: number | null) => { settlements.push(actual); },
 }));
 mock.module("./log-generator", () => ({
-  logHub: { recordAsync: async () => ({ id: 1 }), updateAsync: async () => {} },
+  logHub: {
+    recordAsync: async (entry: Record<string, unknown>) => { logRecords.push(entry); return { id: 1 }; },
+    updateAsync: async (_id: number, entry: Record<string, unknown>) => { logRecords.push(entry); },
+  },
 }));
 mock.module("./user-quota", () => ({
   effectiveUserLimits: () => ({ rateLimitTpm: 0, rateLimitRpm: 0, maxConcurrency: 0 }),
@@ -120,7 +124,11 @@ beforeEach(() => {
   keyReleases = 0;
   circuitAllowed = true;
   channelObservations = [];
+  logRecords = [];
   upstreamResponses = [];
+  key.status = "active";
+  key.quota = 0;
+  key.used = 0;
 });
 
 function request(stream = false) {
@@ -208,6 +216,22 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(text).toContain("event: response.completed");
   });
 
+  test("does not stop an OpenAI Responses native stream after the first delta", async () => {
+    upstreamResponses = [streamResponse(
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}\n\n'
+      + 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ok"}\n\n'
+      + 'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3}}}\n\n',
+    )];
+
+    const result = await proxyOnce(responsesRequest(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    const text = await result.response.text();
+    expect(text).toContain("event: response.output_text.delta");
+    expect(text).toContain("event: response.completed");
+  });
+
   test("converts a Claude stream for an OpenAI bridge request", async () => {
     mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
     channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "streaming"] }];
@@ -287,6 +311,36 @@ describe("proxy TPM reservation lifecycle", () => {
 
     expect(result.kind).toBe("success");
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
+  });
+
+  test("records reasoning effort in request detail without full body logging", async () => {
+    upstreamResponses = [response({ id: "resp_1", object: "response", status: "completed", output: [], usage: { input_tokens: 2, output_tokens: 3 } })];
+    const body = { model: "gpt-test", input: "hi", max_output_tokens: 16, reasoning: { effort: "high" } };
+
+    const result = await proxyOnce({ ...responsesRequest(), body: JSON.stringify(body) });
+
+    expect(result.kind).toBe("success");
+    const detail = JSON.parse(String(logRecords.at(-1)?.requestDetail ?? "{}"));
+    expect(detail.reasoning).toEqual({ effort: "high" });
+    expect(detail.request_body).toBeNull();
+  });
+
+  test("logs disabled key failures with key identity", async () => {
+    key.status = "disabled";
+
+    const result = await proxyOnce(request());
+
+    expect(result).toMatchObject({ kind: "client_error", status: 403 });
+    expect(logRecords.at(-1)).toMatchObject({ keyId: "key-1", keyName: "test key", keyPrefix: "sk-relay-test" });
+  });
+
+  test("returns 429 during maintenance mode", async () => {
+    settings = { ...settings, maintenanceMode: true, maintenanceMessage: "维护中" };
+
+    const result = await proxyOnce(request());
+
+    expect(result).toMatchObject({ kind: "client_error", status: 429, error: "维护中" });
+    expect(logRecords.at(-1)).toMatchObject({ status: 429 });
   });
 
   test("rejects unsupported bridge fields before upstream dispatch", async () => {

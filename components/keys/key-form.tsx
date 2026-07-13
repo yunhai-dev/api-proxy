@@ -131,18 +131,20 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
                     onChange={e => setQuota(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
-                <div className="field">
-                  <label>允许的渠道</label>
-                  <Select
-                    value={channelScope}
-                    onChange={setChannelScope}
-                    options={[
-                      { value: "all",    label: "全部" },
-                      { value: "claude", label: "Claude" },
-                      { value: "openai", label: "OpenAI" },
-                    ]}
-                  />
-                </div>
+                {allowUserSelect && (
+                  <div className="field">
+                    <label>允许的渠道</label>
+                    <Select
+                      value={channelScope}
+                      onChange={setChannelScope}
+                      options={[
+                        { value: "all",    label: "全部" },
+                        { value: "claude", label: "Claude" },
+                        { value: "openai", label: "OpenAI" },
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
               {allowUserSelect && <div className="field">
                 <label>供应商</label>

@@ -68,7 +68,8 @@ export async function POST(req: NextRequest) {
     }
     const name = body.name.trim();
     const quota = Number(body.quota) || 0;
-    const userId = isAdmin(currentUser) && typeof body.userId === "string" && body.userId ? body.userId : currentUser.id;
+    const admin = isAdmin(currentUser);
+    const userId = admin && typeof body.userId === "string" && body.userId ? body.userId : currentUser.id;
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       const owner = (await pgDb.select().from(pgSchema.users).where(eq(pgSchema.users.id, userId)).limit(1))[0];
@@ -76,8 +77,8 @@ export async function POST(req: NextRequest) {
       const rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
       const rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
       const maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
-      let channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
-      const channelId = isAdmin(currentUser) && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
+      let channelScope = admin && (body.channelScope === "claude" || body.channelScope === "openai") ? body.channelScope : "all";
+      const channelId = admin && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
       if (channelId) {
         const channel = (await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.id, channelId)).limit(1))[0];
         if (!channel?.enabled) return NextResponse.json({ error: "供应商渠道不存在或已停用" }, { status: 400 });

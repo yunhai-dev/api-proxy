@@ -57,6 +57,16 @@ function bridgeDirection(requestDetail: string | null): BridgeDirection | null {
   }
 }
 
+function reasoningEffortFromDetail(detail: string | null) {
+  if (!detail) return undefined;
+  try {
+    const parsed = JSON.parse(detail) as { reasoning?: { effort?: unknown } };
+    return typeof parsed.reasoning?.effort === "string" ? parsed.reasoning.effort : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function bridgeObservability(rows: BridgeMetricRow[], totalRequests = rows.length) {
   const groups = new Map<BridgeDirection, BridgeMetricRow[]>([
     ["native", []],
@@ -746,6 +756,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
       cacheTokens: schema.requestLogs.cacheTokens,
       cacheReadTokens: schema.requestLogs.cacheReadTokens,
       cacheCreationTokens: schema.requestLogs.cacheCreationTokens,
+      requestDetail: schema.requestLogs.requestDetail,
       hasDetail: sql<boolean>`(${schema.requestLogs.requestDetail} is not null or ${schema.requestLogs.errorMsg} is not null)`,
       keyName: schema.keys.name,
       keyPrefix: schema.keys.prefix,
@@ -771,16 +782,20 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
   const billingMultiplier = getSettings().globalBillingMultiplier;
 
-  return rows.map(row => ({
-    ...row,
-    keyName: row.keyName ?? "未认证",
-    keyPrefix: row.keyPrefix ?? "—",
-    channelName: row.channelName ?? "未选择",
-    channelType: row.channelType ?? "openai",
-    userName: row.userName ?? row.username ?? "未知用户",
-    username: row.username ?? "",
-    cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
-  })) as LogListEntry[];
+  return rows.map(row => {
+    const { requestDetail, ...rest } = row;
+    return {
+      ...rest,
+      keyName: row.keyName ?? "未认证",
+      keyPrefix: row.keyPrefix ?? "—",
+      channelName: row.channelName ?? "未选择",
+      channelType: row.channelType ?? "openai",
+      userName: row.userName ?? row.username ?? "未知用户",
+      username: row.username ?? "",
+      reasoningEffort: reasoningEffortFromDetail(requestDetail),
+      cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
+    };
+  }) as LogListEntry[];
 }
 
 export async function getRecentLogsAsync(limit = 200, statusFilter: string = "all", opts: { userId?: string } = {}): Promise<LogListEntry[]> {
@@ -818,6 +833,7 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
       cacheTokens: pgSchema.requestLogs.cacheTokens,
       cacheReadTokens: pgSchema.requestLogs.cacheReadTokens,
       cacheCreationTokens: pgSchema.requestLogs.cacheCreationTokens,
+      requestDetail: pgSchema.requestLogs.requestDetail,
       hasDetail: sql<boolean>`(${pgSchema.requestLogs.requestDetail} is not null or ${pgSchema.requestLogs.errorMsg} is not null)`,
       keyName: pgSchema.keys.name,
       keyPrefix: pgSchema.keys.prefix,
@@ -836,16 +852,20 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
   const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
-  return rows.map(row => ({
-    ...row,
-    keyName: row.keyName ?? "未认证",
-    keyPrefix: row.keyPrefix ?? "—",
-    channelName: row.channelName ?? "未选择",
-    channelType: row.channelType ?? "openai",
-    userName: row.userName ?? row.username ?? "未知用户",
-    username: row.username ?? "",
-    cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
-  })) as LogListEntry[];
+  return rows.map(row => {
+    const { requestDetail, ...rest } = row;
+    return {
+      ...rest,
+      keyName: row.keyName ?? "未认证",
+      keyPrefix: row.keyPrefix ?? "—",
+      channelName: row.channelName ?? "未选择",
+      channelType: row.channelType ?? "openai",
+      userName: row.userName ?? row.username ?? "未知用户",
+      username: row.username ?? "",
+      reasoningEffort: reasoningEffortFromDetail(requestDetail),
+      cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
+    };
+  }) as LogListEntry[];
 }
 
 export type LogDetail = Pick<LogEntry, "id" | "requestId" | "status" | "model" | "inboundModel" | "upstreamModel" | "requestDetail" | "errorMsg">;
