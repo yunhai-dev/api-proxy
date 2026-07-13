@@ -1,9 +1,18 @@
+import { existsSync, readFileSync } from "node:fs";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
-if (!url) {
-  throw new Error("DATABASE_URL is required");
+function loadDotEnv() {
+  if (!existsSync(".env")) return;
+  for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (!match || process.env[match[1]] !== undefined) continue;
+    process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
+  }
 }
+
+loadDotEnv();
+
+const url = process.env.DATABASE_URL ?? "postgres://api_proxy:api_proxy_dev_password@localhost:5432/api_proxy";
 
 const requiredTables = [
   "users",
@@ -245,7 +254,7 @@ const statements = [
   )`,
 ];
 
-const sql = postgres(url, { max: 1 });
+const sql = postgres(url, { max: 1, onnotice: () => {} });
 
 async function waitForDatabase(retries = 30) {
   for (let attempt = 1; attempt <= retries; attempt += 1) {
@@ -285,6 +294,7 @@ try {
     const missing = requiredTables.filter(table => !present.has(table));
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
+      await sql.unsafe(`ALTER TABLE keys ADD COLUMN IF NOT EXISTS channel_id text`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_state text NOT NULL DEFAULT 'closed'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_opened_at bigint NOT NULL DEFAULT 0`);

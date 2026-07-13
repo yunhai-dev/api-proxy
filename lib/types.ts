@@ -14,6 +14,7 @@ export type LogEntry = RequestLog & {
 
 export type LogListEntry = Omit<LogEntry, "requestDetail" | "errorMsg"> & {
   hasDetail: boolean;
+  reasoningEffort?: string;
 };
 
 export type ChannelWithTraffic = Channel & { requestsLast1h: number };

@@ -31,6 +31,7 @@ function userLogEntry(row: LogListEntry) {
     cacheReadTokens: row.cacheReadTokens,
     cacheCreationTokens: row.cacheCreationTokens,
     hasDetail: row.hasDetail,
+    reasoningEffort: row.reasoningEffort,
     cost: row.cost,
   };
 }

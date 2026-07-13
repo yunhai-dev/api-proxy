@@ -21,6 +21,7 @@ type LogEntry = {
   model: string;
   inboundModel?: string;
   upstreamModel?: string;
+  reasoningEffort?: string;
   mappingId?: string;
   mappedChannelIds?: string[];
   userName?: string;
@@ -56,15 +57,17 @@ function tokenText(value: number | null | undefined) {
   return value == null ? "—" : value.toLocaleString();
 }
 
-function displayModel(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel">, isAdminMode: boolean) {
-  if (!isAdminMode) return row.inboundModel || row.model;
-  return row.inboundModel && row.upstreamModel && row.inboundModel !== row.upstreamModel
-    ? `${row.inboundModel} → ${row.upstreamModel}`
-    : row.model;
+function displayModel(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel" | "reasoningEffort">, isAdminMode: boolean) {
+  const model = !isAdminMode
+    ? row.inboundModel || row.model
+    : row.inboundModel && row.upstreamModel && row.inboundModel !== row.upstreamModel
+      ? `${row.inboundModel} → ${row.upstreamModel}`
+      : row.model;
+  return row.reasoningEffort ? `${model}（${row.reasoningEffort}）` : model;
 }
 
 
-function displayModelTitle(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel">, isAdminMode: boolean) {
+function displayModelTitle(row: Pick<LogEntry, "model" | "inboundModel" | "upstreamModel" | "reasoningEffort">, isAdminMode: boolean) {
   return displayModel(row, isAdminMode).replace(" → ", " -> ");
 }
 

@@ -31,7 +31,7 @@ function shouldRetryUpstream(status: number, settings: Awaited<ReturnType<typeof
 
 export type ResolveKey =
   | { ok: true; key: typeof schema.keys.$inferSelect }
-  | { ok: false; status: 401 | 402 | 403 | 429; error: string };
+  | { ok: false; status: 401 | 402 | 403 | 429; error: string; key?: typeof schema.keys.$inferSelect };
 
 export function resolveApiKey(rawAuth: string | null): ResolveKey {
   if (!rawAuth) return { ok: false, status: 401, error: "缺少 API 密钥（Authorization / x-api-key）" };
@@ -75,9 +75,9 @@ async function resolveTokenAsync(token: string | null | undefined): Promise<Reso
 }
 
 function checkKey(key: typeof schema.keys.$inferSelect, token: string): ResolveKey {
-  if (key.status === "disabled") return { ok: false, status: 403, error: "密钥已停用" };
+  if (key.status === "disabled") return { ok: false, status: 403, error: "密钥已停用", key };
   if (key.quota > 0 && key.used >= key.quota) {
-    return { ok: false, status: 429, error: "已超出当日配额" };
+    return { ok: false, status: 429, error: "已超出当日配额", key };
   }
   return { ok: true, key };
 }
@@ -304,6 +304,21 @@ function redactBody(value: string) {
   }
 }
 
+function reasoningDetail(value: string) {
+  try {
+    const body = JSON.parse(value) as Record<string, unknown>;
+    const reasoning = body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning) ? body.reasoning as Record<string, unknown> : null;
+    const outputConfig = body.output_config && typeof body.output_config === "object" && !Array.isArray(body.output_config) ? body.output_config as Record<string, unknown> : null;
+    const effort = typeof body.reasoning_effort === "string" ? body.reasoning_effort
+      : typeof reasoning?.effort === "string" ? reasoning.effort
+        : typeof outputConfig?.effort === "string" ? outputConfig.effort
+          : null;
+    return effort ? { effort } : null;
+  } catch {
+    return null;
+  }
+}
+
 function redactValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactValue);
   if (!value || typeof value !== "object") return value;
@@ -385,7 +400,8 @@ async function requestDetail(input: {
 }) {
   const settings = await getSettingsAsync();
   const auditBridge = settings.bridgeCapabilityAudit && input.targetType && input.type !== input.targetType;
-  if (!settings.recordAllRequestDetails && !auditBridge) return null;
+  const reasoning = reasoningDetail(input.requestBody);
+  if (!settings.recordAllRequestDetails && !auditBridge && !reasoning) return null;
   return JSON.stringify({
     request_id: input.requestId,
     type: input.type,
@@ -397,6 +413,7 @@ async function requestDetail(input: {
     upstream_model: input.upstreamModel,
     channel: input.channelName ?? null,
     upstream_request_id: input.upstreamRequestId ?? null,
+    reasoning: reasoningDetail(input.requestBody),
     capabilities: input.targetType && input.type !== input.targetType
       ? { required: input.requiredCapabilities ?? [], selected: input.capabilityProfile ?? [] }
       : null,
@@ -558,15 +575,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
   if (settings.maintenanceMode) {
     const message = settings.maintenanceMessage.trim() || "系统维护中，请稍后再试。";
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: message, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
-    return { kind: "client_error", requestId, status: 403, error: message };
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: message, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
+    return { kind: "client_error", requestId, status: 429, error: message };
   }
 
   // 1) 解析 key
   const resolved = await resolveApiKeyAsync(req.rawAuth);
   if (!resolved.ok) {
     if (resolved.status !== 401) {
-      await recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined });
+      await recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key: resolved.key });
     }
     return { kind: "client_error", requestId, status: resolved.status, error: resolved.error };
   }
@@ -1210,6 +1227,12 @@ function hasVisibleStreamChunk(text: string, provider: Provider) {
           if (delta.type === "input_json_delta" && typeof delta.partial_json === "string" && delta.partial_json.length > 0) return true;
         }
         continue;
+      }
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string" && event.delta.length > 0) return true;
+      if (event.type === "response.function_call_arguments.delta" && typeof event.delta === "string" && event.delta.length > 0) return true;
+      if (event.type === "response.output_item.added" && event.item && typeof event.item === "object") {
+        const item = event.item as Record<string, unknown>;
+        if (item.type === "function_call") return true;
       }
       const choices = Array.isArray(event.choices) ? event.choices : [];
       for (const choice of choices) {
