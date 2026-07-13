@@ -246,6 +246,18 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
   });
 
+  test("converts a Claude response for an OpenAI Responses bridge request", async () => {
+    mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "responses"] }];
+    upstreamResponses = [response({ id: "msg_1", type: "message", role: "assistant", model: "claude-test", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 2, output_tokens: 3 } })];
+
+    const result = await proxyOnce(responsesRequest());
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected bridge success");
+    expect(await result.response.json()).toMatchObject({ object: "response", status: "completed", model: "gpt-test", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] }], usage: { input_tokens: 2, output_tokens: 3 } });
+  });
+
   test("preserves native Responses request controls upstream", async () => {
     upstreamResponses = [response({ id: "resp_1", object: "response", status: "completed", output: [] })];
     const body = { model: "gpt-test", input: [{ role: "user", content: "hi" }], max_output_tokens: 16, metadata: { trace: "native" }, reasoning: { effort: "high" } };
