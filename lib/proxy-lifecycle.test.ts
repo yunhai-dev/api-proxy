@@ -134,9 +134,9 @@ function request(stream = false) {
   };
 }
 
-function responsesRequest() {
+function responsesRequest(stream = false) {
   return {
-    ...request(),
+    ...request(stream),
     openAiEndpoint: "responses" as const,
     body: JSON.stringify({ model: "gpt-test", input: "hi", max_output_tokens: 16 }),
   };
@@ -185,6 +185,27 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(result.kind).toBe("success");
     if (result.kind !== "success") throw new Error("expected bridge success");
     expect(await result.response.json()).toMatchObject({ type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 2, output_tokens: 3 } });
+  });
+
+  test("converts a Claude stream for an OpenAI Responses bridge request", async () => {
+    mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "responses", "streaming"] }];
+    upstreamResponses = [streamResponse(
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1"}}\n\n'
+      + 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n'
+      + 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"output_tokens":3}}\n\n'
+      + 'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    )];
+
+    const result = await proxyOnce(responsesRequest(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    const text = await result.response.text();
+    expect(text).toContain("event: response.created");
+    expect(text).toContain("event: response.output_text.delta");
+    expect(text).toContain('"delta":"ok"');
+    expect(text).toContain("event: response.completed");
   });
 
   test("converts a Claude stream for an OpenAI bridge request", async () => {
