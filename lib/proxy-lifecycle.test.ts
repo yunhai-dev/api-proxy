@@ -227,6 +227,17 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
   });
 
+  test("preserves native Claude request controls upstream", async () => {
+    channels = [{ ...primary, type: "claude", models: ["claude-test"] }];
+    upstreamResponses = [response({ id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } })];
+    const body = { model: "claude-test", max_tokens: 16, system: "be brief", messages: [{ role: "user", content: "hi" }], temperature: 0.25, stop_sequences: ["END"], metadata: { user_id: "native" } };
+
+    const result = await proxyOnce({ ...claudeRequest(), body: JSON.stringify(body) });
+
+    expect(result.kind).toBe("success");
+    expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
+  });
+
   test("rejects unsupported bridge fields before upstream dispatch", async () => {
     mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
     channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "structured_output"] }];
