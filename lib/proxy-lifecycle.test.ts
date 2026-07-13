@@ -27,6 +27,8 @@ let reserveCalls = 0;
 let settlements: (number | null)[] = [];
 let channelReleases = 0;
 let keyReleases = 0;
+let circuitAllowed = true;
+let channelObservations: { ok: boolean; failureStatus?: string }[] = [];
 
 const schema = Object.fromEntries([
   "keys", "channels", "modelMappings", "userQuotas", "requestLogs",
@@ -54,8 +56,11 @@ mock.module("./db/runtime", () => ({ usePostgres: () => false }));
 mock.module("./settings", () => ({ getSettingsAsync: async () => settings }));
 mock.module("./model-catalog", () => ({ modelConfigAsync: async () => null }));
 mock.module("./channel-health", () => ({
-  circuitAllows: () => true,
-  recordChannelObservation: async (channel: Channel) => ({ status: channel.status }),
+  circuitAllows: () => circuitAllowed,
+  recordChannelObservation: async (channel: Channel, ping: { ok: boolean }, options?: { failureStatus?: string }) => {
+    channelObservations.push({ ok: ping.ok, failureStatus: options?.failureStatus });
+    return { status: channel.status };
+  },
 }));
 mock.module("./channel-queue", () => ({
   acquireChannelSlot: async () => () => { channelReleases += 1; },
@@ -113,6 +118,8 @@ beforeEach(() => {
   settlements = [];
   channelReleases = 0;
   keyReleases = 0;
+  circuitAllowed = true;
+  channelObservations = [];
   upstreamResponses = [];
 });
 
@@ -124,6 +131,16 @@ function request(stream = false) {
     stream,
     incomingHeaders: new Headers({ "x-request-id": "request-1" }),
     body: JSON.stringify({ model: "gpt-test", messages: [{ role: "user", content: "hi" }], max_completion_tokens: 40 }),
+  };
+}
+
+function claudeRequest(stream = false) {
+  return {
+    type: "claude" as const,
+    rawAuth: "Bearer sk-relay-test-secret",
+    stream,
+    incomingHeaders: new Headers({ "x-request-id": "request-1" }),
+    body: JSON.stringify({ model: "claude-test", max_tokens: 16, messages: [{ role: "user", content: "hi" }] }),
   };
 }
 
@@ -148,6 +165,56 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(result.kind).toBe("success");
     if (result.kind !== "success") throw new Error("expected bridge success");
     expect(await result.response.json()).toMatchObject({ object: "chat.completion", choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } });
+  });
+
+  test("converts an OpenAI upstream response for a Claude bridge request", async () => {
+    mappings = [{ id: "mapping-1", provider: "claude", targetProvider: "openai", inboundModel: "claude-test", upstreamModel: "gpt-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, models: ["gpt-test"], capabilities: ["chat_completions", "messages"] }];
+    upstreamResponses = [response({ id: "chatcmpl_1", object: "chat.completion", model: "gpt-test", choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })];
+
+    const result = await proxyOnce(claudeRequest());
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected bridge success");
+    expect(await result.response.json()).toMatchObject({ type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 2, output_tokens: 3 } });
+  });
+
+  test("converts a Claude stream for an OpenAI bridge request", async () => {
+    mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "streaming"] }];
+    upstreamResponses = [streamResponse(
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1"}}\n\n'
+      + 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n'
+      + 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"output_tokens":3}}\n\n'
+      + 'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    )];
+
+    const result = await proxyOnce(request(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    const text = await result.response.text();
+    expect(text).toContain('"content":"ok"');
+    expect(text).toContain('"finish_reason":"stop"');
+    expect(text).toContain("data: [DONE]");
+  });
+
+  test("converts an OpenAI stream for a Claude bridge request", async () => {
+    mappings = [{ id: "mapping-1", provider: "claude", targetProvider: "openai", inboundModel: "claude-test", upstreamModel: "gpt-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, models: ["gpt-test"], capabilities: ["chat_completions", "messages", "streaming"] }];
+    upstreamResponses = [streamResponse(
+      'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3}}\n\n'
+      + "data: [DONE]\n\n",
+    )];
+
+    const result = await proxyOnce(claudeRequest(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    const text = await result.response.text();
+    expect(text).toContain("event: message_start");
+    expect(text).toContain('"text":"ok"');
+    expect(text).toContain('"stop_reason":"end_turn"');
   });
 
   test("preserves native OpenAI request controls upstream", async () => {
@@ -185,6 +252,28 @@ describe("proxy TPM reservation lifecycle", () => {
 
     expect(result).toMatchObject({ kind: "client_error", status: 400 });
     expect(upstreamCalls).toEqual([]);
+  });
+
+  test("excludes an open circuit before queue acquisition", async () => {
+    circuitAllowed = false;
+
+    const result = await proxyOnce(request());
+
+    expect(result).toMatchObject({ kind: "client_error", status: 404 });
+    expect(upstreamCalls).toEqual([]);
+    expect(channelReleases).toBe(0);
+  });
+
+  test("records an upstream failure and releases its slots", async () => {
+    upstreamResponses = [{ ok: false, status: 503, errorMsg: "unavailable" }];
+    settings = { ...settings, proxyMaxRetries: 1 };
+
+    const result = await proxyOnce(request());
+
+    expect(result).toMatchObject({ kind: "upstream_error", status: 503 });
+    expect(channelObservations).toEqual([{ ok: false, failureStatus: "err" }]);
+    expect(channelReleases).toBe(1);
+    expect(keyReleases).toBe(2);
   });
 
   test("shares one reservation across a retry and settles actual usage", async () => {
