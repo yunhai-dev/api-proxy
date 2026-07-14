@@ -1,42 +1,33 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { OPENAI_RESPONSES_LITE_HEADER, withResponsesLiteSerialTools } from "./openai-responses-lite";
+import { normalizeOpenAiRequestBody, withOpenAiSerialTools } from "./openai-responses-lite";
 
-describe("OpenAI Responses Lite normalization", () => {
-  test("forces serial tool calls only for Codex Responses Lite models", () => {
-    const headers = new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: "1" });
-    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
-      targetType: "openai",
+describe("OpenAI serial tool call normalization", () => {
+  test("forces serial tool calls for OpenAI text endpoints", () => {
+    expect(withOpenAiSerialTools({ parallel_tool_calls: true }, {
+      type: "openai",
       openAiEndpoint: "responses",
-      incomingHeaders: headers,
-      model: "codex-mini",
     })).toEqual({ parallel_tool_calls: false });
 
-    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
-      targetType: "openai",
-      openAiEndpoint: "responses",
-      incomingHeaders: headers,
-      model: "gpt-test",
-    })).toEqual({ parallel_tool_calls: false });
-
-    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
-      targetType: "openai",
+    expect(withOpenAiSerialTools({ parallel_tool_calls: true }, {
+      type: "openai",
       openAiEndpoint: "chat_completions",
-      incomingHeaders: headers,
-      model: "gpt-test",
     })).toEqual({ parallel_tool_calls: false });
 
-    expect(withResponsesLiteSerialTools({ input: "hi" }, {
-      targetType: "openai",
+    expect(withOpenAiSerialTools({ input: "hi" }, {
+      type: "openai",
       openAiEndpoint: "responses",
-      model: "gpt-test",
     })).toEqual({ input: "hi", parallel_tool_calls: false });
 
-    expect(withResponsesLiteSerialTools({ parallel_tool_calls: true }, {
-      targetType: "openai",
+    expect(withOpenAiSerialTools({ parallel_tool_calls: true }, {
+      type: "openai",
       openAiEndpoint: "embeddings",
-      incomingHeaders: headers,
-      model: "text-embedding-3-small",
     })).toEqual({ parallel_tool_calls: true });
+  });
+
+  test("normalizes serialized OpenAI request bodies", () => {
+    expect(JSON.parse(normalizeOpenAiRequestBody(JSON.stringify({ input: "hi" }), "responses"))).toEqual({ input: "hi", parallel_tool_calls: false });
+    expect(JSON.parse(normalizeOpenAiRequestBody(JSON.stringify({ model: "codex-mini", input: "hi", reasoning: { effort: "max", summary: "auto" } }), "responses"))).toEqual({ model: "codex-mini", input: "hi", reasoning: { effort: "max", summary: "auto", context: "all_turns" }, parallel_tool_calls: false });
+    expect(normalizeOpenAiRequestBody("not json", "responses")).toBe("not json");
   });
 });

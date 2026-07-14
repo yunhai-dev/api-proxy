@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { proxyErrorSource, proxyOnce } from "@/lib/proxy";
+import { normalizeOpenAiRequestBody } from "@/lib/openai-responses-lite";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ function authFromHeaders(headers: Headers) {
  * Authorization: Bearer sk-relay-XXXX
  */
 export async function POST(req: NextRequest) {
-  const body = await req.text();
+  const body = normalizeOpenAiRequestBody(await req.text(), "responses");
   const stream = (() => {
     const a = req.headers.get("accept") ?? "";
     if (a.includes("text/event-stream")) return true;

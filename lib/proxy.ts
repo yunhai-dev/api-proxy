@@ -703,6 +703,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     const body = withOpenAiSerialTools(parsed, {
       type: route.targetProvider,
       openAiEndpoint: req.openAiEndpoint,
+      model: route.upstreamModel,
     });
     const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, body, model: route.upstreamModel, stream: req.stream }));
     return req.stream && route.targetProvider === "openai" && req.openAiEndpoint !== "responses" ? withOpenAiStreamUsage(converted) : converted;
@@ -723,6 +724,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const body = withOpenAiSerialTools(parsed, {
         type: fallbackChannel.type,
         openAiEndpoint: req.openAiEndpoint,
+        model: settings.fallbackModel,
       });
       fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, body, model: settings.fallbackModel, stream: req.stream }));
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);

@@ -323,12 +323,12 @@ describe("proxy TPM reservation lifecycle", () => {
 
     const codexResult = await proxyOnce({
       ...responsesRequest(),
-      incomingHeaders: new Headers({ "x-request-id": "request-1", "x-openai-internal-codex-responses-lite": "1" }),
+      incomingHeaders: new Headers({ "x-request-id": "request-1" }),
       body: JSON.stringify({ model: "codex-mini", input: "hi", parallel_tool_calls: true }),
     });
     const gptResult = await proxyOnce({
       ...responsesRequest(),
-      incomingHeaders: new Headers({ "x-request-id": "request-2", "x-openai-internal-codex-responses-lite": "1" }),
+      incomingHeaders: new Headers({ "x-request-id": "request-2" }),
       body: JSON.stringify({ model: "gpt-test", input: "hi", parallel_tool_calls: true }),
     });
 
