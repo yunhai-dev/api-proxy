@@ -22,6 +22,15 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
   const customFrom = canUseCustom ? parsedFrom : now - 24 * 60 * 60 * 1000;
   const customTo = canUseCustom ? parsedTo : now;
   const stats = range === "custom" ? await getDashboardStatsAsync({ since: customFrom, until: customTo }) : await getDashboardStatsAsync(range);
+  const throughputSeries = stats.throughputSeries.map(p => ({ ts: p.ts, qps: p.qps, tps: p.tps }));
+  const userTokenUsers = stats.userTokenUsers.map(user => ({ id: user.id, name: user.name, totalTokens: user.totalTokens }));
+  const userTokenSeries = stats.userTokenSeries.map(point => {
+    const next: { ts: number } & Record<string, number> = { ts: point.ts };
+    for (const user of userTokenUsers) next[user.id] = point[user.id] ?? 0;
+    return next;
+  });
+  const channelTraffic = stats.trafficByChannel.slice(0, 8).map(row => ({ id: row.id, name: row.name, type: row.type, n: row.n }));
+  const modelUsageRows = stats.modelStats.map(row => ({ provider: row.provider, model: row.model, requests: row.requests, totalTokens: row.totalTokens, cost: row.cost }));
   return (
     <div className="container data-container">
       <PageHead
@@ -46,9 +55,9 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
         <Stat label="费用" value={`$${stats.cost.toFixed(2)}`} extra="按模型定价计算" />
       </div>
 
-      <ThroughputChart series={stats.throughputSeries} />
+      <ThroughputChart series={throughputSeries} />
 
-      <UserTokenTrendChart users={stats.userTokenUsers} data={stats.userTokenSeries} />
+      <UserTokenTrendChart users={userTokenUsers} data={userTokenSeries} />
 
       <section className="section perf-section">
         <div className="section-head-inline"><h2>全局性能</h2><span className="mono dim">TTFT / Duration</span></div>
@@ -81,7 +90,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
 
       <section className="section section-stack">
         <div className="section-head-inline"><h2>渠道流量</h2><span className="mono dim">按请求量占比</span></div>
-        <ChannelTrafficChart data={stats.trafficByChannel} />
+        <ChannelTrafficChart data={channelTraffic} />
       </section>
 
       <section className="section section-stack">
@@ -99,7 +108,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
 
       <section className="section section-stack">
         <h2>模型消耗排行</h2>
-        <ModelUsageBarChart rows={stats.modelStats} />
+        <ModelUsageBarChart rows={modelUsageRows} />
         <div className="table-wrap">
         <table className="table model-stats-table">
           <thead><tr><th>模型</th><th>服务商</th><th>请求</th><th>Token</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>

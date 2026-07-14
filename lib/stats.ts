@@ -1,5 +1,5 @@
 import { db, schema } from "./db";
-import { and, desc, eq, gte, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import type { DashboardRange, DashboardStats, LogEntry, LogListEntry } from "./types";
 import { usePostgres } from "./db/runtime";
 import { modelLookupCandidates } from "./model-variants";
@@ -10,6 +10,7 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const STALE_ACTIVE_MS = 30 * 60 * 1000;
 const CHANNEL_HEALTH_CELL_LIMIT = 60;
+const DASHBOARD_USER_TOKEN_SERIES_LIMIT = 6;
 
 function rangeStart(range: DashboardRange, now = Date.now()) {
   if (range === "today") return startOfShanghaiDay(now);
@@ -386,7 +387,7 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
     cur.totalTokens += row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
     userTokenTotals.set(id, cur);
   }
-  const userTokenUsers = [...userTokenTotals.values()].sort((a, b) => b.totalTokens - a.totalTokens);
+  const userTokenUsers = [...userTokenTotals.values()].sort((a, b) => b.totalTokens - a.totalTokens).slice(0, DASHBOARD_USER_TOKEN_SERIES_LIMIT);
   const userTokenIds = new Set(userTokenUsers.map(user => user.id));
   const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
   for (const row of rangeRows) {
@@ -467,37 +468,218 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const prevSince = since - periodMs;
   const ownerWhere = opts.userId ? eq(pgSchema.requestStats.userId, opts.userId) : undefined;
 
-  const rangeRows = await pgDb
+  const rangeWhere = ownerWhere ? and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until), ownerWhere) : and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until));
+  const prevWhere = ownerWhere ? and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since), ownerWhere) : and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since));
+
+  const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn} + ${pgSchema.requestStats.tokensOut} + ${pgSchema.requestStats.cacheReadTokens} + ${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`;
+  const successFilter = sql`${pgSchema.requestStats.status} >= 200 and ${pgSchema.requestStats.status} < 300`;
+  const [summary] = await pgDb
     .select({
-      id: pgSchema.requestStats.rawLogId,
-      requestId: pgSchema.requestStats.requestId,
-      ts: pgSchema.requestStats.ts,
-      status: pgSchema.requestStats.status,
-      latencyMs: pgSchema.requestStats.latencyMs,
-      ttftMs: pgSchema.requestStats.ttftMs,
-      durationMs: pgSchema.requestStats.durationMs,
-      model: pgSchema.requestStats.model,
-      tokensIn: pgSchema.requestStats.tokensIn,
-      tokensOut: pgSchema.requestStats.tokensOut,
-      cacheTokens: pgSchema.requestStats.cacheTokens,
-      cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
-      cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
+      requests: sql<number>`count(*)::int`,
+      successes: sql<number>`sum(case when ${successFilter} then 1 else 0 end)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
+      p50: sql<number>`coalesce(percentile_disc(0.5) within group (order by ${pgSchema.requestStats.latencyMs}) filter (where ${successFilter}), 0)::double precision`,
+      ttftAvgMs: sql<number>`coalesce(round(avg(coalesce(nullif(${pgSchema.requestStats.ttftMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter})), 0)::double precision`,
+      ttftP50Ms: sql<number>`coalesce(percentile_disc(0.5) within group (order by coalesce(nullif(${pgSchema.requestStats.ttftMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      ttftP90Ms: sql<number>`coalesce(percentile_disc(0.9) within group (order by coalesce(nullif(${pgSchema.requestStats.ttftMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      ttftP95Ms: sql<number>`coalesce(percentile_disc(0.95) within group (order by coalesce(nullif(${pgSchema.requestStats.ttftMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      ttftMaxMs: sql<number>`coalesce(max(coalesce(nullif(${pgSchema.requestStats.ttftMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      durationAvgMs: sql<number>`coalesce(round(avg(coalesce(nullif(${pgSchema.requestStats.durationMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter})), 0)::double precision`,
+      durationP50Ms: sql<number>`coalesce(percentile_disc(0.5) within group (order by coalesce(nullif(${pgSchema.requestStats.durationMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      durationP90Ms: sql<number>`coalesce(percentile_disc(0.9) within group (order by coalesce(nullif(${pgSchema.requestStats.durationMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      durationP95Ms: sql<number>`coalesce(percentile_disc(0.95) within group (order by coalesce(nullif(${pgSchema.requestStats.durationMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+      durationMaxMs: sql<number>`coalesce(max(coalesce(nullif(${pgSchema.requestStats.durationMs}, 0), ${pgSchema.requestStats.latencyMs})) filter (where ${successFilter}), 0)::double precision`,
+    })
+    .from(pgSchema.requestStats)
+    .where(rangeWhere);
+  const [prevSummary] = await pgDb.select({ requests: sql<number>`count(*)::int` }).from(pgSchema.requestStats).where(prevWhere);
+  const [activeSummary] = await pgDb
+    .select({ requests: sql<number>`count(*)::int` })
+    .from(pgSchema.requestLogs)
+    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
+    .where(opts.userId ? and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS), eq(pgSchema.keys.userId, opts.userId)) : and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS)));
+
+  const requests24h = summary?.requests ?? 0;
+  const success24h = summary?.successes ?? 0;
+  const requestsYesterday = prevSummary?.requests ?? 0;
+  const requestsDelta = requestsYesterday > 0 ? ((requests24h - requestsYesterday) / requestsYesterday) * 100 : 0;
+  const successRate = requests24h > 0 ? (success24h / requests24h) * 100 : 100;
+  const totalTokensIn = summary?.tokensIn ?? 0;
+  const totalTokensOut = summary?.tokensOut ?? 0;
+  const totalCacheReadTokens = summary?.cacheReadTokens ?? 0;
+  const totalCacheCreationTokens = summary?.cacheCreationTokens ?? 0;
+  const tokensIn = totalTokensIn / 1_000_000;
+  const tokensOut = totalTokensOut / 1_000_000;
+  const cacheReadTokens = totalCacheReadTokens / 1_000_000;
+  const cacheCreationTokens = totalCacheCreationTokens / 1_000_000;
+  const cacheTokens = cacheReadTokens + cacheCreationTokens;
+  const totalPromptTokens = tokensIn + cacheReadTokens + cacheCreationTokens;
+  const cacheHit = totalPromptTokens > 0 ? (cacheReadTokens / totalPromptTokens) * 100 : 0;
+  const seconds = Math.max(1, periodMs / 1000);
+  const globalPerf = {
+    qps: requests24h / seconds,
+    tps: (totalTokensIn + totalTokensOut + totalCacheReadTokens + totalCacheCreationTokens) / seconds,
+    ttftAvgMs: summary?.ttftAvgMs ?? 0,
+    ttftP50Ms: summary?.ttftP50Ms ?? 0,
+    ttftP90Ms: summary?.ttftP90Ms ?? 0,
+    ttftP95Ms: summary?.ttftP95Ms ?? 0,
+    ttftMaxMs: summary?.ttftMaxMs ?? 0,
+    durationAvgMs: summary?.durationAvgMs ?? 0,
+    durationP50Ms: summary?.durationP50Ms ?? 0,
+    durationP90Ms: summary?.durationP90Ms ?? 0,
+    durationP95Ms: summary?.durationP95Ms ?? 0,
+    durationMaxMs: summary?.durationMaxMs ?? 0,
+  };
+
+  const bucketCount = 24;
+  const bucketMs = Math.max(1, periodMs / bucketCount);
+  const bucketExpr = sql<number>`floor((${pgSchema.requestStats.ts} - ${since}) / ${bucketMs})::int`;
+  const buckets = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), requests: 0, tokens: 0 }));
+  const bucketRows = await pgDb
+    .select({ bucket: bucketExpr, requests: sql<number>`count(*)::int`, tokens: totalTokensSql })
+    .from(pgSchema.requestStats)
+    .where(rangeWhere)
+    .groupBy(bucketExpr);
+  for (const row of bucketRows) {
+    const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
+    buckets[idx].requests = row.requests;
+    buckets[idx].tokens = row.tokens;
+  }
+  const bucketSeconds = Math.max(1, bucketMs / 1000);
+  const throughputSeries = buckets.map(b => ({ ts: b.ts, qps: b.requests / bucketSeconds, tps: b.tokens / bucketSeconds }));
+
+  const channelTypeExpr = sql<"claude" | "openai">`coalesce(${pgSchema.channels.type}, ${pgSchema.requestStats.channelType})`;
+  const trafficByChannel = await pgDb
+    .select({ id: pgSchema.requestStats.channelId, name: sql<string>`coalesce(${pgSchema.channels.name}, '未选择')`, type: channelTypeExpr, n: sql<number>`count(*)::int` })
+    .from(pgSchema.requestStats)
+    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestStats.channelId))
+    .where(rangeWhere)
+    .groupBy(pgSchema.requestStats.channelId, pgSchema.channels.name, channelTypeExpr)
+    .orderBy(sql`count(*) desc`);
+
+  const keyRows = await pgDb
+    .select({
+      id: pgSchema.requestStats.keyId,
+      name: sql<string>`coalesce(${pgSchema.keys.name}, '未认证')`,
+      prefix: sql<string>`coalesce(${pgSchema.keys.prefix}, '—')`,
+      last: sql<number>`coalesce(max(${pgSchema.keys.lastUsedAt}), 0)::double precision`,
+      provider: channelTypeExpr,
       channelId: pgSchema.requestStats.channelId,
-      channelName: pgSchema.channels.name,
-      channelType: sql<"claude" | "openai">`coalesce(${pgSchema.channels.type}, ${pgSchema.requestStats.channelType})`,
-      keyId: pgSchema.requestStats.keyId,
-      keyName: pgSchema.keys.name,
-      keyPrefix: pgSchema.keys.prefix,
-      keyUserId: pgSchema.requestStats.userId,
-      userDisplayName: pgSchema.users.displayName,
-      username: pgSchema.users.username,
-      keyLastUsedAt: pgSchema.keys.lastUsedAt,
+      model: pgSchema.requestStats.model,
+      requests: sql<number>`count(*)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
+      totalTokens: totalTokensSql,
     })
     .from(pgSchema.requestStats)
     .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestStats.channelId))
     .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestStats.keyId))
+    .where(rangeWhere)
+    .groupBy(pgSchema.requestStats.keyId, pgSchema.keys.name, pgSchema.keys.prefix, channelTypeExpr, pgSchema.requestStats.channelId, pgSchema.requestStats.model);
+  const keyMap = new Map<string, { id: string; name: string; prefix: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; totalTokens: number; cost: number }>();
+  for (const row of keyRows) {
+    const key = keyMap.get(row.id) ?? { id: row.id, name: row.name, prefix: row.prefix, last: row.last ?? 0, requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, cost: 0 };
+    key.requests += row.requests;
+    key.tokensIn += row.tokensIn;
+    key.tokensOut += row.tokensOut;
+    key.cacheReadTokens += row.cacheReadTokens;
+    key.cacheCreationTokens += row.cacheCreationTokens;
+    key.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
+    key.totalTokens += row.totalTokens;
+    key.cost += costFor(row.provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
+    keyMap.set(row.id, key);
+  }
+  const topKeys = [...keyMap.values()].sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
+
+  const userRows = await pgDb
+    .select({
+      id: pgSchema.requestStats.userId,
+      name: sql<string>`coalesce(nullif(${pgSchema.users.displayName}, ''), nullif(${pgSchema.users.username}, ''), '未知用户')`,
+      username: sql<string>`coalesce(nullif(${pgSchema.users.username}, ''), '—')`,
+      last: sql<number>`coalesce(max(${pgSchema.requestStats.ts}), 0)::bigint`,
+      provider: channelTypeExpr,
+      channelId: pgSchema.requestStats.channelId,
+      model: pgSchema.requestStats.model,
+      requests: sql<number>`count(*)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
+      totalTokens: totalTokensSql,
+    })
+    .from(pgSchema.requestStats)
+    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestStats.channelId))
     .leftJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.requestStats.userId))
-    .where(ownerWhere ? and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until), ownerWhere) : and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until)));
+    .where(rangeWhere)
+    .groupBy(pgSchema.requestStats.userId, pgSchema.users.displayName, pgSchema.users.username, channelTypeExpr, pgSchema.requestStats.channelId, pgSchema.requestStats.model);
+  const userMap = new Map<string, { id: string; name: string; username: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; totalTokens: number; cost: number }>();
+  for (const row of userRows) {
+    const user = userMap.get(row.id) ?? { id: row.id, name: row.name, username: row.username, last: 0, requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, cost: 0 };
+    user.requests += row.requests;
+    user.tokensIn += row.tokensIn;
+    user.tokensOut += row.tokensOut;
+    user.cacheReadTokens += row.cacheReadTokens;
+    user.cacheCreationTokens += row.cacheCreationTokens;
+    user.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
+    user.totalTokens += row.totalTokens;
+    user.cost += costFor(row.provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
+    user.last = Math.max(user.last, row.last ?? 0);
+    userMap.set(row.id, user);
+  }
+  const topUsers = [...userMap.values()].sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
+
+  const modelRows = await pgDb
+    .select({
+      provider: channelTypeExpr,
+      channelId: pgSchema.requestStats.channelId,
+      model: pgSchema.requestStats.model,
+      requests: sql<number>`count(*)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
+      totalTokens: totalTokensSql,
+    })
+    .from(pgSchema.requestStats)
+    .leftJoin(pgSchema.channels, eq(pgSchema.channels.id, pgSchema.requestStats.channelId))
+    .where(rangeWhere)
+    .groupBy(channelTypeExpr, pgSchema.requestStats.channelId, pgSchema.requestStats.model);
+  const modelMap = new Map<string, { provider: "claude" | "openai"; model: string; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; totalTokens: number; cost: number }>();
+  for (const row of modelRows) {
+    const key = `${row.provider}:${row.model}`;
+    const model = modelMap.get(key) ?? { provider: row.provider, model: row.model, requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, cost: 0 };
+    model.requests += row.requests;
+    model.tokensIn += row.tokensIn;
+    model.tokensOut += row.tokensOut;
+    model.cacheReadTokens += row.cacheReadTokens;
+    model.cacheCreationTokens += row.cacheCreationTokens;
+    model.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
+    model.totalTokens += row.totalTokens;
+    model.cost += costFor(row.provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
+    modelMap.set(key, model);
+  }
+  const modelStats = [...modelMap.values()].sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 8);
+  const cost = [...modelMap.values()].reduce((sum, row) => sum + row.cost, 0);
+
+  const userTokenUsers = topUsers.map(user => ({ id: user.id, name: user.name, totalTokens: user.totalTokens }));
+  const userTokenIds = userTokenUsers.map(user => user.id);
+  const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
+  if (userTokenIds.length > 0) {
+    const userBucketRows = await pgDb
+      .select({ userId: pgSchema.requestStats.userId, bucket: bucketExpr, tokens: totalTokensSql })
+      .from(pgSchema.requestStats)
+      .where(and(rangeWhere, inArray(pgSchema.requestStats.userId, userTokenIds)))
+      .groupBy(pgSchema.requestStats.userId, bucketExpr);
+    for (const row of userBucketRows) {
+      const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
+      userTokenSeries[idx][row.userId] = row.tokens;
+    }
+  }
 
   const detailRows = await pgDb
     .select({
@@ -513,130 +695,9 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     .where(opts.userId
       ? and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until), eq(pgSchema.keys.userId, opts.userId))
       : and(gte(pgSchema.requestLogs.ts, since), lt(pgSchema.requestLogs.ts, until)));
-  const bridgeMetrics = bridgeObservability(detailRows, rangeRows.length);
+  const bridgeMetrics = bridgeObservability(detailRows, requests24h);
 
-  const prevRows = await pgDb
-    .select({ id: pgSchema.requestStats.rawLogId })
-    .from(pgSchema.requestStats)
-    .where(ownerWhere ? and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since), ownerWhere) : and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since)));
-  const activeRows = await pgDb
-    .select({ id: pgSchema.requestLogs.id })
-    .from(pgSchema.requestLogs)
-    .leftJoin(pgSchema.keys, eq(pgSchema.keys.id, pgSchema.requestLogs.keyId))
-    .where(opts.userId ? and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS), eq(pgSchema.keys.userId, opts.userId)) : and(eq(pgSchema.requestLogs.durationMs, 0), gte(pgSchema.requestLogs.ts, now - STALE_ACTIVE_MS)));
-
-  const requests24h = rangeRows.length;
-  const success24h = rangeRows.filter(r => r.status >= 200 && r.status < 300).length;
-  const requestsYesterday = prevRows.length;
-  const requestsDelta = requestsYesterday > 0 ? ((requests24h - requestsYesterday) / requestsYesterday) * 100 : 0;
-  const successRate = requests24h > 0 ? (success24h / requests24h) * 100 : 100;
-  const p50Rows = rangeRows.filter(r => r.status >= 200 && r.status < 300).map(r => r.latencyMs).sort((a, b) => a - b);
-  const p50 = p50Rows.length ? p50Rows[Math.floor(p50Rows.length / 2)] : 0;
-  const totalTokensIn = rangeRows.reduce((s, r) => s + r.tokensIn, 0);
-  const totalTokensOut = rangeRows.reduce((s, r) => s + r.tokensOut, 0);
-  const totalCacheReadTokens = rangeRows.reduce((s, r) => s + r.cacheReadTokens, 0);
-  const totalCacheCreationTokens = rangeRows.reduce((s, r) => s + r.cacheCreationTokens, 0);
-  const tokensIn = totalTokensIn / 1_000_000;
-  const tokensOut = totalTokensOut / 1_000_000;
-  const cacheReadTokens = totalCacheReadTokens / 1_000_000;
-  const cacheCreationTokens = totalCacheCreationTokens / 1_000_000;
-  const cacheTokens = cacheReadTokens + cacheCreationTokens;
-  const cost = rangeRows.reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0);
-  const totalPromptTokens = tokensIn + cacheReadTokens + cacheCreationTokens;
-  const cacheHit = totalPromptTokens > 0 ? (cacheReadTokens / totalPromptTokens) * 100 : 0;
-  const seconds = Math.max(1, periodMs / 1000);
-  const successRows = rangeRows.filter(r => r.status >= 200 && r.status < 300);
-  const ttftsGlobal = successRows.map(r => r.ttftMs || r.latencyMs).sort((a, b) => a - b);
-  const durationsGlobal = successRows.map(r => r.durationMs || r.latencyMs).sort((a, b) => a - b);
-  const avg = (xs: number[]) => xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : 0;
-  const globalPerf = {
-    qps: requests24h / seconds,
-    tps: (totalTokensIn + totalTokensOut + totalCacheReadTokens + totalCacheCreationTokens) / seconds,
-    ttftAvgMs: avg(ttftsGlobal),
-    ttftP50Ms: percentile(ttftsGlobal, 50),
-    ttftP90Ms: percentile(ttftsGlobal, 90),
-    ttftP95Ms: percentile(ttftsGlobal, 95),
-    ttftMaxMs: ttftsGlobal.length ? ttftsGlobal[ttftsGlobal.length - 1] : 0,
-    durationAvgMs: avg(durationsGlobal),
-    durationP50Ms: percentile(durationsGlobal, 50),
-    durationP90Ms: percentile(durationsGlobal, 90),
-    durationP95Ms: percentile(durationsGlobal, 95),
-    durationMaxMs: durationsGlobal.length ? durationsGlobal[durationsGlobal.length - 1] : 0,
-  };
-  const bucketCount = 24;
-  const bucketMs = Math.max(1, periodMs / bucketCount);
-  const buckets = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), requests: 0, tokens: 0 }));
-  for (const row of rangeRows) {
-    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((row.ts - since) / bucketMs)));
-    buckets[idx].requests += 1;
-    buckets[idx].tokens += row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
-  }
-  const bucketSeconds = Math.max(1, bucketMs / 1000);
-  const throughputSeries = buckets.map(b => ({ ts: b.ts, qps: b.requests / bucketSeconds, tps: b.tokens / bucketSeconds }));
-  const trafficMap = new Map<string, { id: string; name: string; type: "claude" | "openai"; n: number }>();
-  const keyMap = new Map<string, { id: string; name: string; prefix: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number }>();
-  const userMap = new Map<string, { id: string; name: string; username: string; last: number; requests: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number }>();
-  const modelMap = new Map<string, { provider: "claude" | "openai"; model: string; requests: number; success: number; latencies: number[]; ttfts: number[]; durations: number[]; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number }>();
-  for (const row of rangeRows) {
-    const provider = row.channelType;
-    const channelId = row.channelId ?? "missing-channel";
-    const keyId = row.keyId ?? "missing-key";
-    const userId = row.keyUserId || "unknown-user";
-    const rowCost = costFor(provider, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens);
-    const traffic = trafficMap.get(channelId) ?? { id: channelId, name: row.channelName ?? "未选择", type: provider, n: 0 };
-    traffic.n += 1;
-    trafficMap.set(channelId, traffic);
-    const key = keyMap.get(keyId) ?? { id: keyId, name: row.keyName ?? "未认证", prefix: row.keyPrefix ?? "—", last: row.keyLastUsedAt ?? 0, requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
-    key.requests += 1;
-    key.tokensIn += row.tokensIn;
-    key.tokensOut += row.tokensOut;
-    key.cacheReadTokens += row.cacheReadTokens;
-    key.cacheCreationTokens += row.cacheCreationTokens;
-    key.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
-    keyMap.set(keyId, key);
-    const user = userMap.get(userId) ?? { id: userId, name: row.userDisplayName || row.username || "未知用户", username: row.username || "—", last: 0, requests: 0, tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
-    user.requests += 1;
-    user.tokensIn += row.tokensIn;
-    user.tokensOut += row.tokensOut;
-    user.cacheReadTokens += row.cacheReadTokens;
-    user.cacheCreationTokens += row.cacheCreationTokens;
-    user.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
-    user.cost += rowCost;
-    user.last = Math.max(user.last, row.ts);
-    userMap.set(userId, user);
-    const modelKey = `${provider}:${row.model}`;
-    const model = modelMap.get(modelKey) ?? { provider, model: row.model, requests: 0, success: 0, latencies: [], ttfts: [], durations: [], tokensIn: 0, tokensOut: 0, cacheTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
-    model.requests += 1;
-    if (row.status >= 200 && row.status < 300) model.success += 1;
-    model.tokensIn += row.tokensIn;
-    model.tokensOut += row.tokensOut;
-    model.cacheReadTokens += row.cacheReadTokens;
-    model.cacheCreationTokens += row.cacheCreationTokens;
-    model.cacheTokens += row.cacheReadTokens + row.cacheCreationTokens;
-    model.cost += rowCost;
-    modelMap.set(modelKey, model);
-  }
-  const topKeys = [...keyMap.values()].map(k => ({ ...k, totalTokens: k.tokensIn + k.tokensOut + k.cacheReadTokens + k.cacheCreationTokens, cost: rangeRows.filter(row => (row.keyId ?? "missing-key") === k.id).reduce((sum, row) => sum + costFor(row.channelType, row.channelId ?? "", row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens), 0) })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
-  const topUsers = [...userMap.values()].map(u => ({ ...u, totalTokens: u.tokensIn + u.tokensOut + u.cacheReadTokens + u.cacheCreationTokens })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 6);
-  const modelStats = [...modelMap.values()].map(m => ({ provider: m.provider, model: m.model, requests: m.requests, tokensIn: m.tokensIn, tokensOut: m.tokensOut, cacheTokens: m.cacheTokens, cacheReadTokens: m.cacheReadTokens, cacheCreationTokens: m.cacheCreationTokens, totalTokens: m.tokensIn + m.tokensOut + m.cacheReadTokens + m.cacheCreationTokens, cost: m.cost })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 8);
-  const userTokenTotals = new Map<string, { id: string; name: string; totalTokens: number }>();
-  for (const row of rangeRows) {
-    const id = row.keyUserId || "unknown-user";
-    const name = row.userDisplayName || row.username || "未知用户";
-    const cur = userTokenTotals.get(id) ?? { id, name, totalTokens: 0 };
-    cur.totalTokens += row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
-    userTokenTotals.set(id, cur);
-  }
-  const userTokenUsers = [...userTokenTotals.values()].sort((a, b) => b.totalTokens - a.totalTokens);
-  const userTokenIds = new Set(userTokenUsers.map(user => user.id));
-  const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
-  for (const row of rangeRows) {
-    const id = row.keyUserId || "unknown-user";
-    if (!userTokenIds.has(id)) continue;
-    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((row.ts - since) / bucketMs)));
-    userTokenSeries[idx][id] = (userTokenSeries[idx][id] ?? 0) + row.tokensIn + row.tokensOut + row.cacheReadTokens + row.cacheCreationTokens;
-  }
-  return { requests24h, activeConversations: activeRows.length, requestsDelta, successRate, successDelta: -0.3, p50, p50Delta: -44, tokensIn, tokensOut, cost, cacheHit, cacheTokens, cacheReadTokens, cacheCreationTokens, globalPerf, bridgeObservability: bridgeMetrics, throughputSeries, trafficByChannel: [...trafficMap.values()].sort((a, b) => b.n - a.n), topKeys, topUsers, modelStats, userTokenUsers, userTokenSeries };
+  return { requests24h, activeConversations: activeSummary?.requests ?? 0, requestsDelta, successRate, successDelta: -0.3, p50: summary?.p50 ?? 0, p50Delta: -44, tokensIn, tokensOut, cost, cacheHit, cacheTokens, cacheReadTokens, cacheCreationTokens, globalPerf, bridgeObservability: bridgeMetrics, throughputSeries, trafficByChannel: trafficByChannel.map(row => ({ id: row.id, name: row.name, type: row.type, n: row.n })), topKeys, topUsers, modelStats, userTokenUsers, userTokenSeries };
 }
 
 export function getRecentActivity(limit = 10) {
