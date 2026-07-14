@@ -717,7 +717,6 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       fallbackChannel.type,
       modelLookupCandidates(settings.fallbackModel),
     );
-    if (!supportsRequest(fallbackChannel, fallbackChannel.type, fallbackCatalog)) return null;
 
     let fallbackBody: string;
     try {
@@ -889,9 +888,10 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   let lastStatus = 0;
   let lastRoute: RouteCandidate | undefined;
 
-  for (let i = 0; i < settings.proxyMaxRetries; i++) {
-    const freshPool = routes.filter(route => !tried.has(routeKey(route)));
-    const pool = freshPool.length ? freshPool : routes;
+  const maxRegularAttempts = Math.min(routes.length, settings.proxyMaxRetries + 1);
+  for (let i = 0; i < maxRegularAttempts; i++) {
+    const pool = routes.filter(route => !tried.has(routeKey(route)));
+    if (!pool.length) break;
     const saturation = await Promise.all(pool.map(async route => [routeKey(route), await isChannelSaturated(route.channel.id, route.channel.maxConcurrency ?? 0)] as const));
     const saturatedKeys = new Set(saturation.filter(([, saturated]) => saturated).map(([key]) => key));
     const availablePool = pool.filter(route => !saturatedKeys.has(routeKey(route)));
@@ -948,17 +948,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
-        if (!prepared.ok && prepared.reason === "empty") {
+        if (!prepared.ok) {
           releaseSlot();
-          await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: "warn" });
+          await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: prepared.reason === "empty" ? "warn" : "err" });
           attempts.push({ channel: route.channel.name, error: prepared.message, status: result.status });
           lastError = `${route.channel.name}: ${prepared.message}`;
           lastStatus = result.status;
           tried.add(routeKey(route));
           continue;
         }
-
-        if (!prepared.ok) continue;
 
         await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
         return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: route.channel.id, channelName: route.channel.name } };
@@ -1083,7 +1081,7 @@ type ProxyResponseInfo = {
 
 type ResponseProcessResult =
   | { ok: true; response: Response; info: ProxyResponseInfo }
-  | { ok: false; reason: "empty"; message: string; info: ProxyResponseInfo; fallbackResponse?: Response };
+  | { ok: false; reason: "empty" | "upstream_error"; message: string; info: ProxyResponseInfo; fallbackResponse?: Response };
 
 type StreamPrelude = {
   reader: ReadableStreamDefaultReader<Uint8Array>;

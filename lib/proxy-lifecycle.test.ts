@@ -407,6 +407,20 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(upstreamCalls).toEqual(["https://fallback.test"]);
   });
 
+  test("uses fallback across providers without explicit capabilities", async () => {
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: [] }, { ...fallback, type: "openai", models: ["gpt-test"], capabilities: [] }];
+    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    upstreamResponses = [
+      { ok: false, status: 503, errorMsg: "unavailable" },
+      response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } }),
+    ];
+
+    const result = await proxyOnce(claudeRequest());
+
+    expect(result.kind).toBe("success");
+    expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
+  });
+
   test("records an upstream failure and releases its slots", async () => {
     upstreamResponses = [{ ok: false, status: 503, errorMsg: "unavailable" }];
     settings = { ...settings, proxyMaxRetries: 1 };
@@ -421,6 +435,7 @@ describe("proxy TPM reservation lifecycle", () => {
 
   test("shares one reservation across a retry and switches channels", async () => {
     channels = [{ ...primary }, { ...fallback, weight: 1 }];
+    settings = { ...settings, proxyMaxRetries: 1 };
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
       response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 3, completion_tokens: 5 } }),
