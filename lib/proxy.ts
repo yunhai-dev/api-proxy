@@ -712,7 +712,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   async function tryFallbackOnce(reason: "no_regular_channel" | "regular_attempts_failed", previousAttempts: { channel: string; error: string; status: number }[] = []): Promise<ProxyResult | null> {
     if (!settings.fallbackEnabled || !settings.fallbackChannelId || !settings.fallbackModel) return null;
     const fallbackChannel = await channelByIdAsync(settings.fallbackChannelId);
-    if (!fallbackChannel?.enabled || !circuitAllows(fallbackChannel) || (openAiOnly && fallbackChannel.type !== "openai")) return null;
+    if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
     const { catalog: fallbackCatalog } = await modelConfigCandidateAsync(
       fallbackChannel.type,
       modelLookupCandidates(settings.fallbackModel),

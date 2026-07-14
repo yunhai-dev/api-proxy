@@ -421,6 +421,18 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(upstreamCalls).toEqual(["https://primary.test", "https://fallback.test"]);
   });
 
+  test("uses fallback even when the fallback channel is circuit-open", async () => {
+    channels = [{ ...primary, models: ["other-model"] }, { ...fallback, status: "err", circuitState: "open", circuitOpenedAt: Date.now() }];
+    circuitAllowed = false;
+    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test" };
+    upstreamResponses = [response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } })];
+
+    const result = await proxyOnce(request());
+
+    expect(result.kind).toBe("success");
+    expect(upstreamCalls).toEqual(["https://fallback.test"]);
+  });
+
   test("records an upstream failure and releases its slots", async () => {
     upstreamResponses = [{ ok: false, status: 503, errorMsg: "unavailable" }];
     settings = { ...settings, proxyMaxRetries: 1 };

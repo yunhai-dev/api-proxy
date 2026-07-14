@@ -5,7 +5,8 @@ import { modelRequiresResponsesLiteSerialTools, withOpenAiSerialTools } from "./
 import { usePostgres } from "./db/runtime";
 
 const TIMEOUT_MS = 15_000;
-const CIRCUIT_COOLDOWN_MS = 30_000;
+const CIRCUIT_COOLDOWN_MS = 10_000;
+const CIRCUIT_OPEN_ERR_RATE = 50;
 
 type CircuitState = "closed" | "open" | "half_open";
 
@@ -39,6 +40,7 @@ export function nextCircuitState(input: {
   state?: CircuitState;
   openedAt?: number;
   ok: boolean;
+  errRate?: number;
   now?: number;
 }) {
   const now = input.now ?? Date.now();
@@ -46,7 +48,10 @@ export function nextCircuitState(input: {
   if (input.state === "open" && now - (input.openedAt ?? 0) < CIRCUIT_COOLDOWN_MS) {
     return { state: "open" as const, openedAt: input.openedAt ?? now };
   }
-  return { state: "open" as const, openedAt: now };
+  if (input.state === "half_open" || (input.errRate ?? 100) >= CIRCUIT_OPEN_ERR_RATE) {
+    return { state: "open" as const, openedAt: now };
+  }
+  return { state: "closed" as const, openedAt: 0 };
 }
 
 function testModelFor(channel: typeof schema.channels.$inferSelect) {
@@ -135,10 +140,10 @@ export async function recordChannelObservation(
   ping: { ok: boolean; latencyMs: number; error?: string },
   opts: { failureStatus?: "warn" | "err" } = {},
 ) {
-  const p50 = Math.round(0.7 * channel.p50Ms + 0.3 * ping.latencyMs);
-  const err = Math.round((0.7 * channel.errRate + 0.3 * (ping.ok ? 0 : 100)) * 10) / 10;
+  const p50 = Math.round(0.9 * channel.p50Ms + 0.1 * ping.latencyMs);
+  const err = Math.round((0.9 * channel.errRate + 0.1 * (ping.ok ? 0 : 100)) * 10) / 10;
   const circuit = opts.failureStatus === "err"
-    ? nextCircuitState({ state: channel.circuitState as CircuitState | undefined, openedAt: channel.circuitOpenedAt, ok: ping.ok })
+    ? nextCircuitState({ state: channel.circuitState as CircuitState | undefined, openedAt: channel.circuitOpenedAt, ok: ping.ok, errRate: err })
     : { state: (channel.circuitState as CircuitState | undefined) ?? "closed", openedAt: channel.circuitOpenedAt ?? 0 };
   const status: "ok" | "warn" | "err" = circuit.state === "open"
     ? "err"
