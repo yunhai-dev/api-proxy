@@ -16,7 +16,12 @@ export function shouldNormalizeResponsesLite(input: {
     && input.openAiEndpoint !== "embeddings";
 }
 
-export function withResponsesLiteSerialTools<T>(body: T, input: Parameters<typeof shouldNormalizeResponsesLite>[0]): T {
-  if (!shouldNormalizeResponsesLite(input) || !body || typeof body !== "object" || Array.isArray(body)) return body;
+export function withOpenAiSerialTools<T>(body: T, input: { type: Provider; openAiEndpoint?: "chat_completions" | "responses" | "embeddings" }): T {
+  if (input.type !== "openai" || input.openAiEndpoint === "embeddings" || !body || typeof body !== "object" || Array.isArray(body)) return body;
   return { ...body, parallel_tool_calls: false };
 }
+
+export function withResponsesLiteSerialTools<T>(body: T, input: Parameters<typeof shouldNormalizeResponsesLite>[0]): T {
+  return withOpenAiSerialTools(body, { type: input.targetType, openAiEndpoint: input.openAiEndpoint });
+}
+

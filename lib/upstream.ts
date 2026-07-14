@@ -86,12 +86,24 @@ export function headersFor(provider: Provider, upstreamKey: string, incoming?: H
   return headers;
 }
 
+function normalizedOpenAiBody(opts: UpstreamOptions) {
+  if (opts.channelType !== "openai" || opts.openAiEndpoint === "embeddings") return opts.body;
+  try {
+    const body = JSON.parse(opts.body);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return opts.body;
+    return JSON.stringify({ ...body, parallel_tool_calls: false });
+  } catch {
+    return opts.body;
+  }
+}
+
 /**
  * 调用上游。返回 ok=true 时 body 是可读流，由调用方负责读完。
  */
 export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResult> {
   const url = endpointFor(opts.channelType, opts.baseUrl, opts.openAiEndpoint);
   const headers = headersFor(opts.channelType, opts.upstreamKey, opts.incomingHeaders);
+  const body = normalizedOpenAiBody(opts);
 
   const controller = new AbortController();
   let timedOut = false;
@@ -110,7 +122,7 @@ export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResul
     const res = await fetch(url, {
       method: "POST",
       headers,
-      body: opts.body,
+      body,
       signal: controller.signal,
     });
     if (!res.ok) {

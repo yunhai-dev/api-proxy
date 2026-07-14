@@ -51,6 +51,30 @@ describe("upstream transport", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("forces serial tool calls at the OpenAI transport boundary", async () => {
+    const originalFetch = globalThis.fetch;
+    let sentBody = "";
+    globalThis.fetch = async (_url, init) => {
+      sentBody = String(init?.body ?? "");
+      return new Response("{}", { status: 200 });
+    };
+    try {
+      const result = await callUpstream({
+        channelType: "openai",
+        openAiEndpoint: "responses",
+        baseUrl: "https://api.example.com",
+        upstreamKey: "upstream-secret",
+        model: "codex-mini",
+        body: JSON.stringify({ model: "codex-mini", input: "hi", parallel_tool_calls: true }),
+        stream: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(JSON.parse(sentBody).parallel_tool_calls).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("upstream URL validation", () => {

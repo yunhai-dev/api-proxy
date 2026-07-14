@@ -17,7 +17,7 @@ import { usePostgres } from "./db/runtime";
 import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
 import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
-import { withResponsesLiteSerialTools } from "./openai-responses-lite";
+import { withOpenAiSerialTools } from "./openai-responses-lite";
 
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
@@ -700,11 +700,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   }
 
   async function routeBody(route: RouteCandidate) {
-    const body = withResponsesLiteSerialTools(parsed, {
-      targetType: route.targetProvider,
+    const body = withOpenAiSerialTools(parsed, {
+      type: route.targetProvider,
       openAiEndpoint: req.openAiEndpoint,
-      incomingHeaders: req.incomingHeaders,
-      model: route.upstreamModel,
     });
     const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, body, model: route.upstreamModel, stream: req.stream }));
     return req.stream && route.targetProvider === "openai" && req.openAiEndpoint !== "responses" ? withOpenAiStreamUsage(converted) : converted;
@@ -722,11 +720,9 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
     let fallbackBody: string;
     try {
-      const body = withResponsesLiteSerialTools(parsed, {
-        targetType: fallbackChannel.type,
+      const body = withOpenAiSerialTools(parsed, {
+        type: fallbackChannel.type,
         openAiEndpoint: req.openAiEndpoint,
-        incomingHeaders: req.incomingHeaders,
-        model: settings.fallbackModel,
       });
       fallbackBody = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, body, model: settings.fallbackModel, stream: req.stream }));
       if (req.stream && fallbackChannel.type === "openai" && req.openAiEndpoint !== "responses") fallbackBody = withOpenAiStreamUsage(fallbackBody);
