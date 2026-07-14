@@ -186,7 +186,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
     })
     .from(pgSchema.requestStats)
     .where(logWhere)
-    .groupBy(bucketExpr);
+    .groupBy(sql.raw("1"));
   for (const row of bucketRows) {
     const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
     tokenSeries[idx].input = row.input;

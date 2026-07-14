@@ -542,7 +542,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     .select({ bucket: bucketExpr, requests: sql<number>`count(*)::int`, tokens: totalTokensSql })
     .from(pgSchema.requestStats)
     .where(rangeWhere)
-    .groupBy(bucketExpr);
+    .groupBy(sql.raw("1"));
   for (const row of bucketRows) {
     const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
     buckets[idx].requests = row.requests;
