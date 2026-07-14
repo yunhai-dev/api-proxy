@@ -176,17 +176,27 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const bucketMs = Math.max(1, (now - since) / bucketCount);
   const bucketExpr = sql<number>`floor((${pgSchema.requestStats.ts} - ${since}) / ${bucketMs})::int`;
   const tokenSeries = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }));
-  const bucketRows = await pgDb
+  const bucketedRows = pgDb
     .select({
       bucket: bucketExpr,
-      input: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::int`,
-      output: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::int`,
-      cacheRead: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::int`,
-      cacheCreation: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::int`,
+      tokensIn: pgSchema.requestStats.tokensIn,
+      tokensOut: pgSchema.requestStats.tokensOut,
+      cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+      cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
     })
     .from(pgSchema.requestStats)
     .where(logWhere)
-    .groupBy(sql.raw("1"));
+    .as("user_bucketed_rows");
+  const bucketRows = await pgDb
+    .select({
+      bucket: bucketedRows.bucket,
+      input: sql<number>`coalesce(sum(${bucketedRows.tokensIn}), 0)::int`,
+      output: sql<number>`coalesce(sum(${bucketedRows.tokensOut}), 0)::int`,
+      cacheRead: sql<number>`coalesce(sum(${bucketedRows.cacheReadTokens}), 0)::int`,
+      cacheCreation: sql<number>`coalesce(sum(${bucketedRows.cacheCreationTokens}), 0)::int`,
+    })
+    .from(bucketedRows)
+    .groupBy(bucketedRows.bucket);
   for (const row of bucketRows) {
     const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
     tokenSeries[idx].input = row.input;

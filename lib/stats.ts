@@ -538,11 +538,25 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const bucketMs = Math.max(1, periodMs / bucketCount);
   const bucketExpr = sql<number>`floor((${pgSchema.requestStats.ts} - ${since}) / ${bucketMs})::int`;
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), requests: 0, tokens: 0 }));
-  const bucketRows = await pgDb
-    .select({ bucket: bucketExpr, requests: sql<number>`count(*)::int`, tokens: totalTokensSql })
+  const bucketedRows = pgDb
+    .select({
+      bucket: bucketExpr,
+      tokensIn: pgSchema.requestStats.tokensIn,
+      tokensOut: pgSchema.requestStats.tokensOut,
+      cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+      cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
+    })
     .from(pgSchema.requestStats)
     .where(rangeWhere)
-    .groupBy(sql.raw("1"));
+    .as("bucketed_rows");
+  const bucketRows = await pgDb
+    .select({
+      bucket: bucketedRows.bucket,
+      requests: sql<number>`count(*)::int`,
+      tokens: sql<number>`coalesce(sum(${bucketedRows.tokensIn} + ${bucketedRows.tokensOut} + ${bucketedRows.cacheReadTokens} + ${bucketedRows.cacheCreationTokens}), 0)::double precision`,
+    })
+    .from(bucketedRows)
+    .groupBy(bucketedRows.bucket);
   for (const row of bucketRows) {
     const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
     buckets[idx].requests = row.requests;
@@ -670,11 +684,26 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const userTokenIds = userTokenUsers.map(user => user.id);
   const userTokenSeries = buckets.map(bucket => ({ ts: bucket.ts } as { ts: number } & Record<string, number>));
   if (userTokenIds.length > 0) {
-    const userBucketRows = await pgDb
-      .select({ userId: pgSchema.requestStats.userId, bucket: bucketExpr, tokens: totalTokensSql })
+    const userBucketedRows = pgDb
+      .select({
+        userId: pgSchema.requestStats.userId,
+        bucket: bucketExpr,
+        tokensIn: pgSchema.requestStats.tokensIn,
+        tokensOut: pgSchema.requestStats.tokensOut,
+        cacheReadTokens: pgSchema.requestStats.cacheReadTokens,
+        cacheCreationTokens: pgSchema.requestStats.cacheCreationTokens,
+      })
       .from(pgSchema.requestStats)
       .where(and(rangeWhere, inArray(pgSchema.requestStats.userId, userTokenIds)))
-      .groupBy(pgSchema.requestStats.userId, bucketExpr);
+      .as("user_token_bucketed_rows");
+    const userBucketRows = await pgDb
+      .select({
+        userId: userBucketedRows.userId,
+        bucket: userBucketedRows.bucket,
+        tokens: sql<number>`coalesce(sum(${userBucketedRows.tokensIn} + ${userBucketedRows.tokensOut} + ${userBucketedRows.cacheReadTokens} + ${userBucketedRows.cacheCreationTokens}), 0)::double precision`,
+      })
+      .from(userBucketedRows)
+      .groupBy(userBucketedRows.userId, userBucketedRows.bucket);
     for (const row of userBucketRows) {
       const idx = Math.min(bucketCount - 1, Math.max(0, row.bucket));
       userTokenSeries[idx][row.userId] = row.tokens;
