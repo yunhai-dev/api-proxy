@@ -17,7 +17,9 @@ export function convertRequestBody(input: {
       ? openAiResponsesToClaudeMessages(input.body, input.model, input.stream)
       : openAiChatToClaudeMessages(input.body, input.model, input.stream);
   }
-  return claudeMessagesToOpenAiChat(input.body, input.model, input.stream);
+  return input.openAiEndpoint === "responses"
+    ? claudeMessagesToOpenAiResponses(input.body, input.model, input.stream)
+    : claudeMessagesToOpenAiChat(input.body, input.model, input.stream);
 }
 
 export function convertResponseBody(input: {
@@ -33,7 +35,9 @@ export function convertResponseBody(input: {
     ? input.openAiEndpoint === "responses"
       ? claudeMessageToOpenAiResponse(parsed, input.model)
       : claudeMessageToOpenAiChat(parsed, input.model)
-    : openAiChatToClaudeMessage(parsed, input.model);
+    : input.openAiEndpoint === "responses"
+      ? openAiResponseToClaudeMessage(parsed, input.model)
+      : openAiChatToClaudeMessage(parsed, input.model);
   return JSON.stringify(converted);
 }
 
@@ -234,6 +238,66 @@ function claudeMessagesToOpenAiChat(body: Json, model: string, stream: boolean):
   return out;
 }
 
+function claudeMessagesToOpenAiResponses(body: Json, model: string, stream: boolean): Json {
+  const input: unknown[] = [];
+  for (const item of Array.isArray(body.messages) ? body.messages : []) {
+    if (isRecord(item)) input.push(...claudeMessageToOpenAiResponseInput(item));
+  }
+  const out: Json = { model, input, stream };
+  if (body.system !== undefined) out.instructions = textFromContent(body.system);
+  copyIfPresent(body, out, "temperature");
+  copyIfPresent(body, out, "top_p");
+  if (body.max_tokens !== undefined) out.max_output_tokens = body.max_tokens;
+  const tools = claudeToolsToOpenAi(body.tools);
+  if (tools.length) out.tools = tools;
+  if (body.tool_choice !== undefined) out.tool_choice = claudeToolChoiceToOpenAi(body.tool_choice);
+  return out;
+}
+
+function claudeMessageToOpenAiResponseInput(message: Json): Json[] {
+  const role = message.role === "assistant" ? "assistant" : "user";
+  const blocks = Array.isArray(message.content) ? message.content.filter(isRecord) : [];
+  if (!blocks.length) return [{ role, content: message.content }];
+  const out: Json[] = [];
+  for (const block of blocks) {
+    if (block.type === "thinking") {
+      const reasoning = claudeThinkingToOpenAiReasoning(block);
+      if (reasoning) out.push(reasoning);
+      continue;
+    }
+    if (block.type === "tool_use") {
+      const call = claudeToolUseToOpenAi(block);
+      if (call) out.push({ type: "function_call", call_id: call.id, name: isRecord(call.function) ? call.function.name : "", arguments: isRecord(call.function) ? call.function.arguments : "{}" });
+      continue;
+    }
+    if (block.type === "tool_result") {
+      out.push({ type: "function_call_output", call_id: String(block.tool_use_id ?? ""), output: textFromContent(block.content) });
+      continue;
+    }
+    const content = claudeContentToOpenAiResponses([block], role);
+    if (content.length) out.push({ type: "message", role, content });
+  }
+  return out;
+}
+
+function claudeContentToOpenAiResponses(blocks: Json[], role: string): Json[] {
+  return blocks.flatMap((block): Json[] => {
+    if (block.type === "text") return [{ type: role === "assistant" ? "output_text" : "input_text", text: String(block.text ?? "") }];
+    if (block.type === "image" && isRecord(block.source)) {
+      const mediaType = requiredString(block.source.media_type, "Claude image media_type");
+      const data = requiredString(block.source.data, "Claude image data");
+      return [{ type: "input_image", image_url: `data:${mediaType};base64,${data}` }];
+    }
+    return [];
+  });
+}
+
+function claudeThinkingToOpenAiReasoning(block: Json): Json | null {
+  const text = typeof block.thinking === "string" ? block.thinking : typeof block.text === "string" ? block.text : "";
+  if (!text) return null;
+  return { id: String(block.id ?? `rs_${crypto.randomUUID()}`), type: "reasoning", summary: [{ type: "summary_text", text }] };
+}
+
 function claudeMessageToOpenAiChat(body: Json, model: string): Json {
   const contentBlocks = Array.isArray(body.content) ? body.content.filter(isRecord) : [];
   const content = contentBlocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
@@ -256,16 +320,18 @@ function claudeMessageToOpenAiChat(body: Json, model: string): Json {
 function claudeMessageToOpenAiResponse(body: Json, model: string): Json {
   const contentBlocks = Array.isArray(body.content) ? body.content.filter(isRecord) : [];
   const output: Json[] = [];
-  let outputIndex = 0;
   for (const block of contentBlocks) {
+    if (block.type === "thinking") {
+      const reasoning = claudeThinkingToOpenAiReasoning(block);
+      if (reasoning) output.push(reasoning);
+      continue;
+    }
     if (block.type === "text") {
       output.push({ id: `msg_${crypto.randomUUID()}`, type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: String(block.text ?? ""), annotations: [] }] });
-      outputIndex++;
       continue;
     }
     if (block.type === "tool_use") {
       output.push({ id: String(block.id ?? `fc_${crypto.randomUUID()}`), type: "function_call", status: "completed", call_id: String(block.id ?? `call_${crypto.randomUUID()}`), name: String(block.name ?? ""), arguments: JSON.stringify(isRecord(block.input) ? block.input : {}) });
-      outputIndex++;
     }
   }
   const usage = isRecord(body.usage) ? body.usage : {};
@@ -301,6 +367,49 @@ function openAiChatToClaudeMessage(body: Json, model: string): Json {
     stop_sequence: null,
     usage: { input_tokens: inputTokens, output_tokens: outputTokens },
   };
+}
+
+function openAiResponseToClaudeMessage(body: Json, model: string): Json {
+  const content: unknown[] = [];
+  for (const item of Array.isArray(body.output) ? body.output : []) {
+    if (!isRecord(item)) continue;
+    if (item.type === "reasoning") content.push(...openAiReasoningToClaude(item));
+    if (item.type === "message") content.push(...openAiResponseMessageContentToClaude(item.content));
+    if (item.type === "function_call") {
+      content.push({ type: "tool_use", id: String(item.call_id ?? item.id ?? `call_${crypto.randomUUID()}`), name: String(item.name ?? ""), input: parseRequiredJsonObject(item.arguments, "Responses function_call arguments") });
+    }
+  }
+  const usage = isRecord(body.usage) ? body.usage : {};
+  return {
+    id: typeof body.id === "string" ? body.id : `msg_${crypto.randomUUID()}`,
+    type: "message",
+    role: "assistant",
+    model,
+    content: content.length ? content : [{ type: "text", text: "" }],
+    stop_reason: body.status === "incomplete" ? "max_tokens" : "end_turn",
+    stop_sequence: null,
+    usage: openAiUsageToClaude(usage),
+  };
+}
+
+function openAiReasoningToClaude(item: Json): unknown[] {
+  const text = textFromReasoning(item);
+  return text ? [{ type: "thinking", thinking: text }] : [];
+}
+
+function textFromReasoning(item: Json) {
+  if (typeof item.text === "string") return item.text;
+  if (Array.isArray(item.summary)) return item.summary.filter(isRecord).map(part => String(part.text ?? "")).join("");
+  return "";
+}
+
+function openAiResponseMessageContentToClaude(content: unknown): unknown[] {
+  if (!Array.isArray(content)) return textFromContent(content) ? [{ type: "text", text: textFromContent(content) }] : [];
+  return content.flatMap((part): unknown[] => {
+    if (!isRecord(part)) return [];
+    if (part.type === "output_text" || part.type === "text") return [{ type: "text", text: String(part.text ?? "") }];
+    return [];
+  });
 }
 
 function createClaudeToOpenAiSseConverter(model: string) {
@@ -376,12 +485,14 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
   let completed = false;
   let nextOutputIndex = 0;
   let textOutput: { outputIndex: number; contentIndex: number; id: string; text: string } | null = null;
+  const reasoningOutputs = new Map<number, { outputIndex: number; id: string; text: string }>();
   const toolOutputs = new Map<number, { outputIndex: number; id: string; callId: string; name: string; arguments: string }>();
   let stopReason: unknown = null;
   let usage: Json | null = null;
 
   function response(status: "in_progress" | "completed" | "incomplete") {
     const output = status === "in_progress" ? [] : [
+      ...[...reasoningOutputs.values()].map(item => ({ id: item.id, type: "reasoning", status: "completed", summary: [{ type: "summary_text", text: item.text }] })),
       ...(textOutput ? [{ id: textOutput.id, type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: textOutput.text, annotations: [] }] }] : []),
       ...[...toolOutputs.values()].map(tool => ({ id: tool.id, type: "function_call", status: "completed", call_id: tool.callId, name: tool.name, arguments: tool.arguments })),
     ];
@@ -403,6 +514,31 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
     started = true;
     return responsesSse("response.created", { type: "response.created", response: response("in_progress") })
       + responsesSse("response.in_progress", { type: "response.in_progress", response: response("in_progress") });
+  }
+
+  function startReasoning() {
+    if (reasoningOutputs.size) return "";
+    const outputIndex = nextOutputIndex++;
+    const id = `rs_${crypto.randomUUID()}`;
+    reasoningOutputs.set(outputIndex, { outputIndex, id, text: "" });
+    return responsesSse("response.output_item.added", { type: "response.output_item.added", output_index: outputIndex, item: { id, type: "reasoning", status: "in_progress", summary: [] } });
+  }
+
+  function appendReasoning(delta: string) {
+    const current = [...reasoningOutputs.values()].at(-1);
+    if (!current) return "";
+    current.text += delta;
+    return responsesSse("response.reasoning_summary_text.delta", { type: "response.reasoning_summary_text.delta", output_index: current.outputIndex, item_id: current.id, delta });
+  }
+
+  function finishReasoning() {
+    let out = "";
+    for (const item of reasoningOutputs.values()) {
+      const summary = [{ type: "summary_text", text: item.text }];
+      out += responsesSse("response.reasoning_summary_text.done", { type: "response.reasoning_summary_text.done", output_index: item.outputIndex, item_id: item.id, summary_text: item.text });
+      out += responsesSse("response.output_item.done", { type: "response.output_item.done", output_index: item.outputIndex, item: { id: item.id, type: "reasoning", status: "completed", summary } });
+    }
+    return out;
   }
 
   function startText() {
@@ -427,6 +563,14 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
         if (event.type === "message_start" && isRecord(event.message)) {
           if (typeof event.message.id === "string") id = event.message.id;
           out += start();
+          continue;
+        }
+        if (event.type === "content_block_start" && isRecord(event.content_block) && event.content_block.type === "thinking") {
+          out += start() + startReasoning();
+          continue;
+        }
+        if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "thinking_delta") {
+          out += start() + startReasoning() + appendReasoning(String(event.delta.thinking ?? ""));
           continue;
         }
         if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "text_delta") {
@@ -461,6 +605,7 @@ function createClaudeToOpenAiResponsesSseConverter(model: string) {
         }
         if (event.type === "message_stop" && !completed) {
           completed = true;
+          out += finishReasoning();
           if (textOutput) {
             const part = { type: "output_text", text: textOutput.text, annotations: [] };
             out += responsesSse("response.content_part.done", { type: "response.content_part.done", output_index: textOutput.outputIndex, content_index: textOutput.contentIndex, part });
@@ -490,6 +635,7 @@ function createOpenAiToClaudeSseConverter(
   const id = `msg_${crypto.randomUUID()}`;
   let started = false;
   let textBlockIndex: number | null = null;
+  let reasoningBlockIndex: number | null = null;
   let stopped = false;
   const toolCalls = new Map<number, { id: string; name: string; blockIndex: number | null }>();
   let nextContentIndex = 0;
@@ -528,10 +674,21 @@ function createOpenAiToClaudeSseConverter(
     return out;
   }
 
+  function startReasoningContent() {
+    if (reasoningBlockIndex !== null) return "";
+    reasoningBlockIndex = nextContentIndex++;
+    return claudeSse("content_block_start", { type: "content_block_start", index: reasoningBlockIndex, content_block: { type: "thinking", thinking: "" } });
+  }
+
+  function emitReasoningDelta(delta: string) {
+    return start() + startReasoningContent() + claudeSse("content_block_delta", { type: "content_block_delta", index: reasoningBlockIndex ?? 0, delta: { type: "thinking_delta", thinking: delta } });
+  }
+
   function stop() {
     if (stopped) return "";
     stopped = true;
-    let out = textBlockIndex !== null ? claudeSse("content_block_stop", { type: "content_block_stop", index: textBlockIndex }) : "";
+    let out = reasoningBlockIndex !== null ? claudeSse("content_block_stop", { type: "content_block_stop", index: reasoningBlockIndex }) : "";
+    if (textBlockIndex !== null) out += claudeSse("content_block_stop", { type: "content_block_stop", index: textBlockIndex });
     for (const call of toolCalls.values()) {
       if (call.blockIndex !== null) out += claudeSse("content_block_stop", { type: "content_block_stop", index: call.blockIndex });
     }
@@ -560,13 +717,19 @@ function createOpenAiToClaudeSseConverter(
             out += claudeSse("content_block_delta", { type: "content_block_delta", index: textBlockIndex ?? 0, delta: { type: "text_delta", text: event.delta } });
             continue;
           }
-          if (type === "response.output_item.added" && isRecord(event.item) && event.item.type === "function_call") {
-            const outputIndex = typeof event.output_index === "number" ? event.output_index : nextContentIndex;
-            out += start() + emitToolDelta({
-              index: outputIndex,
-              id: event.item.call_id,
-              function: { name: event.item.name },
-            });
+          if (type === "response.reasoning_summary_text.delta" && typeof event.delta === "string") {
+            out += emitReasoningDelta(event.delta);
+            continue;
+          }
+          if (type === "response.output_item.added" && isRecord(event.item)) {
+            if (event.item.type === "function_call") {
+              const outputIndex = typeof event.output_index === "number" ? event.output_index : nextContentIndex;
+              out += start() + emitToolDelta({
+                index: outputIndex,
+                id: event.item.call_id,
+                function: { name: event.item.name },
+              });
+            }
             continue;
           }
           if (type === "response.function_call_arguments.delta") {
@@ -824,19 +987,21 @@ function openAiContentToClaude(content: unknown): unknown {
 function claudeContentToOpenAi(content: unknown): unknown {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) throw new Error("Claude content must be a string or array");
-  return content.map(part => {
+  const parts = content.flatMap((part): unknown[] => {
     if (!isRecord(part)) throw new Error("Claude content blocks must be objects");
+    if (part.type === "thinking") return [];
     if (part.type === "text") {
       if (typeof part.text !== "string") throw new Error("Claude text blocks must contain text");
-      return { type: "text", text: part.text };
+      return [{ type: "text", text: part.text }];
     }
     if (part.type === "image" && isRecord(part.source)) {
       const mediaType = requiredString(part.source.media_type, "Claude image media_type");
       const data = requiredString(part.source.data, "Claude image data");
-      return { type: "image_url", image_url: { url: `data:${mediaType};base64,${data}` } };
+      return [{ type: "image_url", image_url: { url: `data:${mediaType};base64,${data}` } }];
     }
     throw new Error(`Claude content block type '${String(part.type ?? "unknown")}' is not supported for OpenAI channels`);
   });
+  return parts.length ? parts : "";
 }
 
 function textFromContent(content: unknown): string {

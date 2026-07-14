@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { convertRequestBody, createSseResponseConverter } from "./protocol-conversion";
+import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
 
 function chat(effort: unknown, model = "claude-opus-4-8") {
   return convertRequestBody({
@@ -56,6 +56,44 @@ describe("OpenAI reasoning effort conversion", () => {
   });
 });
 
+describe("Claude to OpenAI conversion", () => {
+  test("does not leak Claude thinking blocks into Chat Completions text", () => {
+    const converted = convertRequestBody({
+      sourceType: "claude",
+      targetType: "openai",
+      openAiEndpoint: "chat_completions",
+      body: {
+        model: "claude-opus-4-8",
+        messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "internal" }, { type: "text", text: "visible" }] }],
+      },
+      model: "gpt-5",
+      stream: false,
+    });
+
+    expect(converted.messages).toEqual([{ role: "assistant", content: [{ type: "text", text: "visible" }] }]);
+    expect(JSON.stringify(converted)).not.toContain("internal");
+  });
+
+  test("preserves Claude thinking as Responses reasoning", () => {
+    const converted = convertRequestBody({
+      sourceType: "claude",
+      targetType: "openai",
+      openAiEndpoint: "responses",
+      body: {
+        model: "claude-opus-4-8",
+        messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "internal" }, { type: "text", text: "visible" }] }],
+      },
+      model: "gpt-5",
+      stream: false,
+    });
+
+    expect(converted.input).toEqual([
+      { id: expect.any(String), type: "reasoning", summary: [{ type: "summary_text", text: "internal" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "visible" }] },
+    ]);
+  });
+});
+
 describe("strict OpenAI to Claude conversion", () => {
   function convertChat(body: Record<string, unknown>) {
     return convertRequestBody({
@@ -94,6 +132,7 @@ describe("strict OpenAI to Claude conversion", () => {
     expect(() => convertChat({ messages: [{ role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: "not json" } }] }] })).toThrow("arguments");
   });
 
+
   test("converts Responses function-call replay", () => {
     const converted = convertRequestBody({
       sourceType: "openai",
@@ -114,6 +153,27 @@ describe("strict OpenAI to Claude conversion", () => {
       { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "result" }] },
     ]);
   });
+
+  test("converts Responses reasoning output to Claude thinking", () => {
+    const converted = JSON.parse(convertResponseBody({
+      sourceType: "claude",
+      targetType: "openai",
+      openAiEndpoint: "responses",
+      body: JSON.stringify({
+        id: "resp_1",
+        status: "completed",
+        output: [
+          { id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "internal" }] },
+          { id: "msg_1", type: "message", role: "assistant", content: [{ type: "output_text", text: "visible" }] },
+        ],
+        usage: { input_tokens: 3, output_tokens: 2 },
+      }),
+      model: "claude-opus-4-8",
+    }));
+
+    expect(converted.content).toEqual([{ type: "thinking", thinking: "internal" }, { type: "text", text: "visible" }]);
+  });
+
 
   test("preserves every accepted Chat request control", () => {
     const converted = convertChat({
@@ -178,17 +238,20 @@ describe("Claude to Responses SSE conversion", () => {
 });
 
 describe("Responses to Claude SSE conversion", () => {
-  test("converts text, tool arguments, and completion", () => {
+  test("converts text, reasoning, tool arguments, and completion", () => {
     const convert = createSseResponseConverter({
       sourceType: "claude", targetType: "openai", openAiEndpoint: "responses", model: "claude-opus-4-8",
     });
     const output = convert?.([
+      "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"internal\"}\n\n",
       "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
       "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\"}}\n\n",
       "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"call_1\",\"delta\":\"{\\\"q\\\":\\\"hi\\\"}\"}\n\n",
       "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}\n\n",
     ].join(""), true) ?? "";
     expect(output).toContain("event: message_start");
+    expect(output).toContain("\"type\":\"thinking\"");
+    expect(output).toContain("\"thinking\":\"internal\"");
     expect(output).toContain("\"text\":\"hello\"");
     expect(output).toContain("\"name\":\"lookup\"");
     expect(output).toContain("\"partial_json\":\"{\\\"q\\\":\\\"hi\\\"}\"");
