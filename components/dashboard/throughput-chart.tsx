@@ -4,6 +4,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -91,8 +92,9 @@ export function ThroughputChart({ series }: { series: Point[] }) {
                 fontSize: 12,
               }}
               labelFormatter={value => fmtTime(Number(value))}
-              formatter={(value, name) => [fmtRate(Number(value)), name === "qps" ? "QPS" : "TPS"]}
+              formatter={(value, name) => [fmtRate(Number(value)), String(name)]}
             />
+            <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
             <Area
               yAxisId="qps"
               type="monotone"

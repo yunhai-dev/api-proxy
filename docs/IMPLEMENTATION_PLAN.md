@@ -182,7 +182,13 @@
 | 3 | 候选模型复选确认 UI | [x] | |
 | 4 | 类型检查、构建与交互验证 | [x] | `bunx tsc --noEmit` / `bun run build` 通过；上游联调需有效渠道凭据 |
 
-## 技术决策
+## Dashboard 数据库聚合优化
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 管理总览统计改为数据库聚合 | [x] | 详见 [`docs/plan/dashboard-aggregation-optimization.md`](./plan/dashboard-aggregation-optimization.md) |
+| 2 | 我的总览用户详情改为轻量聚合 | [x] | |
+| 3 | 类型检查、构建与页面验证 | [x] | `bunx tsc --noEmit` / `bun run build` 通过 |
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19

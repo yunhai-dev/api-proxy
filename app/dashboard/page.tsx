@@ -26,7 +26,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const customFrom = canUseCustom ? parsedFrom : now - 24 * 60 * 60 * 1000;
   const customTo = canUseCustom ? parsedTo : now;
   const stats = range === "custom" ? await getDashboardStatsAsync({ since: customFrom, until: customTo }, { userId: user.id }) : await getDashboardStatsAsync(range, { userId: user.id });
-  const detail = await getUserDetailAsync(user.id, { since: customFrom, until: customTo });
+  const detail = await getUserDetailAsync(user.id, { since: customFrom, until: customTo }, { includeTables: false });
   const quotaUsd = detail?.quota?.quotaUsd ?? 0;
   const usedUsd = detail?.quota?.usedUsd ?? 0;
   const balanceUsd = Math.max(0, quotaUsd - usedUsd);
@@ -46,7 +46,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     })
     : stats.topKeys.map(k => ({ id: k.id, name: k.name, prefix: k.prefix, requests: k.requests, tokens: k.totalTokens, cost: k.cost, last: k.last })))
     .sort((a, b) => b.tokens - a.tokens);
-
+  const tokenSeries = detail?.stats.tokenSeries.map(point => ({
+    ts: point.ts,
+    input: point.input,
+    output: point.output,
+    cacheRead: point.cacheRead,
+    cacheCreation: point.cacheCreation,
+  })) ?? [];
   return (
     <>
       <div className="container data-container">
@@ -134,7 +140,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
         <section className="section throughput-section">
           <h2>Token 消耗趋势</h2>
-          <UserTokenChart data={detail?.stats.tokenSeries ?? []} />
+          <UserTokenChart data={tokenSeries} />
         </section>
 
         <section className="section section-stack">

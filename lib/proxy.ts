@@ -24,6 +24,12 @@ const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
 const USER_UPSTREAM_ERROR = "平台暂时无法处理请求，请稍后重试";
 const ZERO_OUTPUT_TOKEN_ERROR = "上游返回 200 但输出 Token 为 0";
 
+function concurrencyWaitError(scope: string, cause: string) {
+  if (cause.includes("aborted")) return `请求在等待${scope}并发额度时被取消，通常是客户端断开或超时`;
+  if (cause.includes("timed out")) return `等待${scope}并发额度超时，请稍后重试或调高并发限制`;
+  return `${scope}并发队列等待失败：${cause}`;
+}
+
 function shouldRetryUpstream(status: number, settings: Awaited<ReturnType<typeof getSettingsAsync>>) {
   if (status === 0) return settings.proxyRetryNetwork;
   if (status === 404) return true;
@@ -612,8 +618,10 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   } catch (e: unknown) {
     releaseUserSlot();
     const error = e instanceof Error ? e.message : String(e);
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error, body: req.body, requestHeaders: req.incomingHeaders, key });
-    return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
+    const model = extractModel(req.body) ?? undefined;
+    const message = concurrencyWaitError("用户/密钥", error);
+    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: message, body: req.body, requestHeaders: req.incomingHeaders, model, key });
+    return { kind: "client_error", requestId, status: 429, error: message };
   }
   const releaseAllKeySlots = () => { releaseKeySlot(); releaseUserSlot(); };
   let tpmReservation: TpmReservation | null = null;
@@ -740,10 +748,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       releaseSlot = await acquireChannelSlot(fallbackChannel.id, fallbackChannel.maxConcurrency ?? 0, req.signal);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
-      await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
+      const message = concurrencyWaitError("备用渠道", error);
+      await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: message, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel });
       await settleTpm(0);
       releaseAllKeySlots();
-      return { kind: "client_error", requestId, status: 429, error: "请求已取消或并发队列等待失败" };
+      return { kind: "client_error", requestId, status: 429, error: message };
     }
     const attemptStart = Date.now();
     const result = await callUpstream({
@@ -916,10 +925,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       if (req.signal?.aborted) {
-        await recordFailure({ requestId, ts: t0, type: req.type, status: 499, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
+        const message = concurrencyWaitError("渠道", error);
+        await recordFailure({ requestId, ts: t0, type: req.type, status: 499, error: message, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id, mappedChannelIds: route.mappedChannelIds, key, channel: route.channel });
         await settleTpm(0);
         releaseAllKeySlots();
-        return { kind: "client_error", requestId, status: 429, error: "请求已取消" };
+        return { kind: "client_error", requestId, status: 429, error: message };
       }
       attempts.push({ channel: route.channel.name, error, status: 429 });
       lastError = `${route.channel.name}: ${error}`;
