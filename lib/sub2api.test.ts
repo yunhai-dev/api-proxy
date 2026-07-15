@@ -20,11 +20,12 @@ describe("Sub2API boundary", () => {
   test("allowlists account fields", () => {
     const account = safeAccount({
       id: 1, name: "account", platform: "openai", type: "oauth", status: "active", schedulable: true,
-      concurrency: 10, current_concurrency: 2, credentials: { access_token: "secret" }, credentials_status: "valid",
+      concurrency: 10, current_concurrency: 2, rate_limit_reset_at: Date.now() + 60_000,
+      credentials: { access_token: "secret" }, credentials_status: "valid",
       extra: { cookie: "secret" }, proxy_id: 3, token: "secret", unknown: "secret",
       groups: [{ id: 2, name: "group", platform: "openai", api_keys: ["secret"], unknown: "secret" }],
     });
-    expect(account).toMatchObject({ id: 1, name: "account", currentConcurrency: 2, groups: [{ id: 2, name: "group", platform: "openai" }] });
+    expect(account).toMatchObject({ id: 1, name: "account", currentConcurrency: 2, rateLimited: true, groups: [{ id: 2, name: "group", platform: "openai" }] });
     const serialized = JSON.stringify(account);
     for (const field of ["credentials", "access_token", "credentials_status", "extra", "cookie", "proxy_id", "token", "unknown", "api_keys"]) {
       expect(serialized).not.toContain(field);

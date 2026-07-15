@@ -151,15 +151,15 @@ function SummaryTable({ title, headers, rows }: { title: string; headers: string
 }
 
 function AccountRow({ account, onDetail }: { account: Account; onDetail: () => void }) {
-  const state = account.status === "active" && account.schedulable ? "ok" : account.status === "active" ? "warn" : "err";
-  const label = state === "ok" ? "正常" : state === "warn" ? "不可调度" : account.status || "异常";
+  const state = account.rateLimited || account.status === "active" && !account.schedulable ? "warn" : account.status === "active" ? "ok" : "err";
+  const label = account.rateLimited ? "限流中" : state === "ok" ? "正常" : state === "warn" ? "不可调度" : account.status || "异常";
   return <tr><td><strong>{account.name || `#${account.id}`}</strong><div className="mono dim">#{account.id}</div></td><td><span className="mono">{account.platform}</span><div className="dim">{account.type}</div></td><td><span className={`status-badge ${state}`}><span className="dot" />{label}</span>{account.tempUnschedulableReason && <div className="dim">{account.tempUnschedulableReason}</div>}</td><td className="mono">{account.currentConcurrency} / {account.concurrency}</td><td>{account.groups.map(group => group.name).join(", ") || "—"}</td><td className="mono">{formatTime(account.lastUsedAt)}</td><td><button className="btn sm ghost" onClick={onDetail}>详情</button></td></tr>;
 }
 
 function DetailModal({ detail, loading, onClose }: { detail: AccountDetail | null; loading: boolean; onClose: () => void }) {
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
   return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={event => event.stopPropagation()}><div className="modal-head"><h2>账号状态详情</h2><button className="modal-close" onClick={onClose} aria-label="关闭">×</button></div><div className="modal-body">{loading || !detail ? <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div> : <div className="table-wrap"><table className="table"><tbody>{[
-    ["账号", `${detail.name} (#${detail.id})`], ["平台 / 类型", `${detail.platform} / ${detail.type}`], ["状态", `${detail.status} / ${detail.schedulable ? "可调度" : "不可调度"}`], ["并发", ratio(detail.currentConcurrency, detail.concurrency)], ["分组", detail.groups.map(group => group.name).join(", ") || "—"], ["倍率", detail.rateMultiplier], ["优先级", detail.priority], ["限流重置", formatTime(detail.rateLimitResetAt)], ["临时不可调度至", formatTime(detail.tempUnschedulableUntil)], ["过期时间", formatTime(detail.expiresAt)], ["会话窗口", detail.sessionWindowStatus || "—"], ["最近错误", detail.errorMessage || "—"],
+    ["账号", `${detail.name} (#${detail.id})`], ["平台 / 类型", `${detail.platform} / ${detail.type}`], ["状态", detail.rateLimited ? "限流中" : `${detail.status} / ${detail.schedulable ? "可调度" : "不可调度"}`], ["并发", ratio(detail.currentConcurrency, detail.concurrency)], ["分组", detail.groups.map(group => group.name).join(", ") || "—"], ["倍率", detail.rateMultiplier], ["优先级", detail.priority], ["限流重置", formatTime(detail.rateLimitResetAt)], ["临时不可调度至", formatTime(detail.tempUnschedulableUntil)], ["过期时间", formatTime(detail.expiresAt)], ["会话窗口", detail.sessionWindowStatus || "—"], ["最近错误", detail.errorMessage || "—"],
   ].map(([label, value]) => <tr key={String(label)}><th>{label}</th><td className="mono">{value}</td></tr>)}</tbody></table></div>}</div><div className="modal-foot"><button className="btn" onClick={onClose}>关闭</button></div></div></div>;
 }
 

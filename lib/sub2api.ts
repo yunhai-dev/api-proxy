@@ -12,6 +12,7 @@ export type Sub2ApiAccount = {
   priority: number;
   rateMultiplier: number;
   groups: Sub2ApiGroup[];
+  rateLimited: boolean;
   rateLimitedAt: number | string | null;
   rateLimitResetAt: number | string | null;
   overloadUntil: number | string | null;
@@ -182,6 +183,7 @@ export function safeAccount(value: unknown): Sub2ApiAccount {
     schedulable: row.schedulable === true, concurrency: number(row.concurrency), currentConcurrency: number(row.current_concurrency),
     priority: number(row.priority), rateMultiplier: number(row.rate_multiplier),
     groups: asArray(row.groups).map(group => ({ id: number(group.id), name: text(group.name), platform: text(group.platform) })),
+    rateLimited: isFuture(scalar(row.rate_limit_reset_at), Date.now()) || isFuture(scalar(row.overload_until), Date.now()),
     rateLimitedAt: scalar(row.rate_limited_at), rateLimitResetAt: scalar(row.rate_limit_reset_at), overloadUntil: scalar(row.overload_until),
     tempUnschedulableReason: text(row.temp_unschedulable_reason), tempUnschedulableUntil: scalar(row.temp_unschedulable_until),
     expiresAt: scalar(row.expires_at), lastUsedAt: scalar(row.last_used_at), updatedAt: scalar(row.updated_at),
