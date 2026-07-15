@@ -138,7 +138,7 @@ function Summary({ status }: { status: Status }) {
         <Stat label="今日 Token" value={formatCompactNumber(today.totalTokens)} extra={`TPM ${formatCompactNumber(today.tpm)}`} />
         <Stat label="今日费用" value={`$${today.actualCost.toFixed(2)}`} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <SummaryTable title="分组容量" headers={["分组", "并发", "会话", "RPM"]} rows={status.groups.map(row => [row.name, ratio(row.concurrencyUsed, row.concurrencyMax), ratio(row.sessionsUsed, row.sessionsMax), ratio(row.rpmUsed, row.rpmMax)])} />
         <SummaryTable title="平台状态" headers={["平台", "账号", "可调度", "异常", "并发"]} rows={status.platforms.map(row => [row.platform, row.total, row.schedulable, row.error, ratio(row.currentConcurrency, row.maxConcurrency)])} />
       </div>
