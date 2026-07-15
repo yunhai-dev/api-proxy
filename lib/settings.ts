@@ -36,6 +36,8 @@ export type AppSettings = {
   smtpPassword: string;
   smtpFromEmail: string;
   smtpFromName: string;
+  sub2apiBaseUrl: string;
+  sub2apiAdminKey: string;
 };
 
 const defaults: AppSettings = {
@@ -71,6 +73,8 @@ const defaults: AppSettings = {
   smtpPassword: "",
   smtpFromEmail: "",
   smtpFromName: "api-proxy",
+  sub2apiBaseUrl: "",
+  sub2apiAdminKey: "",
 };
 
 export function getSettings(): AppSettings {
@@ -109,6 +113,8 @@ export function getSettings(): AppSettings {
     smtpPassword: decryptSecret(values.get("smtpPassword") || defaults.smtpPassword),
     smtpFromEmail: values.get("smtpFromEmail") || defaults.smtpFromEmail,
     smtpFromName: values.get("smtpFromName") || defaults.smtpFromName,
+    sub2apiBaseUrl: values.get("sub2apiBaseUrl") || defaults.sub2apiBaseUrl,
+    sub2apiAdminKey: decryptSecret(values.get("sub2apiAdminKey") || defaults.sub2apiAdminKey),
   };
 }
 
@@ -154,10 +160,12 @@ export function updateSettings(input: Partial<AppSettings>) {
     smtpPassword: input.smtpPassword === undefined ? current.smtpPassword : input.smtpPassword,
     smtpFromEmail: input.smtpFromEmail ?? current.smtpFromEmail,
     smtpFromName: input.smtpFromName ?? current.smtpFromName,
+    sub2apiBaseUrl: input.sub2apiBaseUrl ?? current.sub2apiBaseUrl,
+    sub2apiAdminKey: input.sub2apiAdminKey === undefined ? current.sub2apiAdminKey : input.sub2apiAdminKey,
   };
   const now = Date.now();
   for (const [key, value] of Object.entries(next)) {
-    const raw = key === "smtpPassword" ? encryptSecret(String(value)) : String(value);
+    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey") ? encryptSecret(String(value)) : String(value);
     const encoded = typeof value === "boolean" ? (value ? "1" : "0") : raw;
     const exists = db.select().from(schema.settings).where(eq(schema.settings.key, key)).get();
     if (exists) {
@@ -176,7 +184,7 @@ export async function updateSettingsAsync(input: Partial<AppSettings>) {
   const next = nextSettings(current, input);
   const now = Date.now();
   for (const [key, value] of Object.entries(next)) {
-    const raw = key === "smtpPassword" ? encryptSecret(String(value)) : String(value);
+    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey") ? encryptSecret(String(value)) : String(value);
     const encoded = typeof value === "boolean" ? (value ? "1" : "0") : raw;
     await pgDb.insert(pgSchema.settings)
       .values({ key, value: encoded, updatedAt: now })
@@ -220,6 +228,8 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     smtpPassword: decryptSecret(values.get("smtpPassword") || defaults.smtpPassword),
     smtpFromEmail: values.get("smtpFromEmail") || defaults.smtpFromEmail,
     smtpFromName: values.get("smtpFromName") || defaults.smtpFromName,
+    sub2apiBaseUrl: values.get("sub2apiBaseUrl") || defaults.sub2apiBaseUrl,
+    sub2apiAdminKey: decryptSecret(values.get("sub2apiAdminKey") || defaults.sub2apiAdminKey),
   };
 }
 
@@ -257,6 +267,8 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     smtpPassword: input.smtpPassword === undefined ? current.smtpPassword : input.smtpPassword,
     smtpFromEmail: input.smtpFromEmail ?? current.smtpFromEmail,
     smtpFromName: input.smtpFromName ?? current.smtpFromName,
+    sub2apiBaseUrl: input.sub2apiBaseUrl ?? current.sub2apiBaseUrl,
+    sub2apiAdminKey: input.sub2apiAdminKey === undefined ? current.sub2apiAdminKey : input.sub2apiAdminKey,
   };
 }
 

@@ -51,6 +51,8 @@ export async function PATCH(req: NextRequest) {
     smtpPassword: typeof body.smtpPassword === "string" && body.smtpPassword && body.smtpPassword !== "__configured__" ? body.smtpPassword : undefined,
     smtpFromEmail: typeof body.smtpFromEmail === "string" ? body.smtpFromEmail.trim() : undefined,
     smtpFromName: typeof body.smtpFromName === "string" ? body.smtpFromName.trim() : undefined,
+    sub2apiBaseUrl: typeof body.sub2apiBaseUrl === "string" ? body.sub2apiBaseUrl.trim() : undefined,
+    sub2apiAdminKey: typeof body.sub2apiAdminKey === "string" && body.sub2apiAdminKey && body.sub2apiAdminKey !== "__configured__" ? body.sub2apiAdminKey : undefined,
   });
     await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: "更新系统设置", actor: actor.username });
     return NextResponse.json(publicSettings(settings));
@@ -61,5 +63,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 function publicSettings(settings: AppSettings) {
-  return { ...settings, smtpPassword: settings.smtpPassword ? "__configured__" : "" };
+  return {
+    ...settings,
+    smtpPassword: settings.smtpPassword ? "__configured__" : "",
+    sub2apiAdminKey: settings.sub2apiAdminKey ? "__configured__" : "",
+  };
 }

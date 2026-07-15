@@ -4,8 +4,16 @@ import { eq } from "drizzle-orm";
 import { usePostgres } from "@/lib/db/runtime";
 import { validateCapabilities } from "@/lib/protocol-capabilities";
 import { validateUpstreamBaseUrl } from "@/lib/upstream";
+import { AuthError, requireAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
+  let actor;
+  try {
+    actor = await requireAdmin();
+  } catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
+  }
   const body = await req.json().catch(() => ({}));
   let imported = 0;
   const pg = usePostgres() ? await import("@/lib/db/pg") : null;
@@ -110,7 +118,7 @@ export async function POST(req: NextRequest) {
   }
 
   for (const row of Array.isArray(body.settings) ? body.settings : []) {
-    if (!row?.key || typeof row.value !== "string") continue;
+    if (!row?.key || typeof row.value !== "string" || row.key === "smtpPassword" || row.key === "sub2apiAdminKey") continue;
     const value = { key: row.key, value: row.value, updatedAt: Date.now() };
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.settings).where(eq(pg.pgSchema.settings.key, row.key)).limit(1))[0]
@@ -146,7 +154,7 @@ export async function POST(req: NextRequest) {
     imported += 1;
   }
 
-  if (pg) await pg.pgDb.insert(pg.pgSchema.activities).values({ ts: Date.now(), event: `导入配置 ${imported} 项`, actor: "yunhai" });
-  else db.insert(schema.activities).values({ ts: Date.now(), event: `导入配置 ${imported} 项`, actor: "yunhai" }).run();
+  if (pg) await pg.pgDb.insert(pg.pgSchema.activities).values({ ts: Date.now(), event: `导入配置 ${imported} 项`, actor: actor.username });
+  else db.insert(schema.activities).values({ ts: Date.now(), event: `导入配置 ${imported} 项`, actor: actor.username }).run();
   return NextResponse.json({ imported });
 }

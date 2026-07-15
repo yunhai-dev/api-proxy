@@ -38,6 +38,8 @@ type AppSettings = {
   smtpPassword: string;
   smtpFromEmail: string;
   smtpFromName: string;
+  sub2apiBaseUrl: string;
+  sub2apiAdminKey: string;
 };
 
 type ChannelOption = {
@@ -76,6 +78,7 @@ const settingsTabs = [
   { id: "maintenance", label: "维护模式" },
   { id: "announcement", label: "公告" },
   { id: "site-mail", label: "网站与邮件" },
+  { id: "sub2api", label: "Sub2API" },
   { id: "config", label: "配置导入/导出" },
   { id: "logs", label: "日志归档" },
   { id: "limits", label: "默认用户限制" },
@@ -348,6 +351,21 @@ export function SettingsForm() {
           <div className="field"><label>SMTP 密码 / 授权码</label><input className="mono" type="password" value={settings.smtpPassword === "__configured__" ? "" : settings.smtpPassword} placeholder={settings.smtpPassword === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, smtpPassword: e.target.value })} /></div>
           <div className="field-row"><div className="field"><label>发件邮箱</label><input className="mono" value={settings.smtpFromEmail} onChange={e => setSettings({ ...settings, smtpFromEmail: e.target.value })} /></div><div className="field"><label>发件名称</label><input value={settings.smtpFromName} onChange={e => setSettings({ ...settings, smtpFromName: e.target.value })} /></div></div>
           <div className="field-row"><div className="field"><label>测试收件邮箱</label><input className="mono" value={testEmail} onChange={e => setTestEmail(e.target.value)} /></div><div className="field"><label>&nbsp;</label><button className="btn" type="button" onClick={sendTestEmail}>发送测试邮件</button></div></div>
+          {renderSaveButton()}
+        </div>
+
+        <div className="settings-card" hidden={activeTab !== "sub2api"}>
+          <h2>Sub2API 连接</h2>
+          <div className="field">
+            <label>Base URL</label>
+            <input className="mono" type="url" value={settings.sub2apiBaseUrl} onChange={e => setSettings({ ...settings, sub2apiBaseUrl: e.target.value })} placeholder="https://sub2api.example.com" />
+            <div className="hint">填写服务根地址，系统会自动附加 /api/v1。</div>
+          </div>
+          <div className="field">
+            <label>管理员 API Key</label>
+            <input className="mono" type="password" value={settings.sub2apiAdminKey === "__configured__" ? "" : settings.sub2apiAdminKey} placeholder={settings.sub2apiAdminKey === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, sub2apiAdminKey: e.target.value })} />
+            <div className="hint">仅在服务端用于只读状态查询，不会发送到浏览器。</div>
+          </div>
           {renderSaveButton()}
         </div>
 
