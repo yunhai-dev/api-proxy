@@ -105,7 +105,7 @@ export function Sub2ApiStatusView() {
 
       <section className="section">
         <h2>账号状态</h2>
-        <form className="filters mb-4" onSubmit={submitSearch}>
+        <form className="filters mb-4 gap-2" onSubmit={submitSearch}>
           <Input tone="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索账号" aria-label="搜索账号" />
           <Select value={platform || "__all"} onChange={value => { setPlatform(value === "__all" ? "" : value); setPage(1); }} options={[{ value: "__all", label: "全部平台" }, ...platforms.map(value => ({ value, label: value }))]} />
           <Select value={accountStatus || "__all"} onChange={value => { setAccountStatus(value === "__all" ? "" : value); setPage(1); }} options={[{ value: "__all", label: "全部状态" }, { value: "active", label: "active" }, { value: "error", label: "error" }, { value: "disabled", label: "disabled" }]} />
