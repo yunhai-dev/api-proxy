@@ -173,7 +173,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const now = period?.until ?? Date.now();
   const since = period?.since ?? now - 24 * 60 * 60 * 1000;
   const bucketCount = 24;
-  const bucketMs = Math.max(1, (now - since) / bucketCount);
+  const bucketMs = Math.max(1, Math.round((now - since) / bucketCount));
   const bucketExpr = sql<number>`floor((${pgSchema.requestStats.ts} - ${since}) / ${bucketMs})::int`.as("bucket");
   const tokenSeries = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }));
   const bucketedRows = pgDb

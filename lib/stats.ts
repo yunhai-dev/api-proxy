@@ -535,7 +535,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   };
 
   const bucketCount = 24;
-  const bucketMs = Math.max(1, periodMs / bucketCount);
+  const bucketMs = Math.max(1, Math.round(periodMs / bucketCount));
   const bucketExpr = sql<number>`floor((${pgSchema.requestStats.ts} - ${since}) / ${bucketMs})::int`.as("bucket");
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({ ts: Math.round(since + i * bucketMs), requests: 0, tokens: 0 }));
   const bucketedRows = pgDb
