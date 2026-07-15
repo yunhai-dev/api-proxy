@@ -15,6 +15,7 @@ import {
   Route,
   Server,
   Settings,
+  SquareActivity,
   Trophy,
   Users,
   type LucideIcon,
@@ -52,6 +53,7 @@ const MORE_TABS: NavItem[] = [
   { href: "/gift-cards", icon: Gift, label: "礼品卡" },
   { href: "/rankings", icon: Trophy, label: "排行榜" },
   { href: "/audit", icon: ClipboardList, label: "审计日志" },
+  { href: "/admin/sub2api", icon: SquareActivity, label: "Sub2API 状态" },
   { href: "/settings", icon: Settings, label: "设置" },
 ];
 
