@@ -60,6 +60,15 @@
 | 3 | 映射管理页支持多选批量启停 | 完成 | |
 | 4 | 类型检查与构建验证 | 完成 | `bunx tsc --noEmit` / `bun run build` 通过 |
 
+## 模型映射分组管理与批量删除
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 数据层新增映射组标识 | 完成 | 详见 [`docs/plan/model-mapping-group-management.md`](./plan/model-mapping-group-management.md) |
+| 2 | 映射 API 支持整组 CRUD 与批量删除 | 完成 | |
+| 3 | 管理页按组展示和操作 | 完成 | |
+| 4 | 配置兼容、文档与验证 | 完成 | `bun test lib/model-mapping-groups.test.ts` / `bunx tsc --noEmit` / `bun run build` 通过 |
+
 ## 渠道级模型定价
 
 | # | 任务 | 状态 | 备注 |

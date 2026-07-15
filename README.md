@@ -216,6 +216,10 @@ Add upstream providers in **渠道**:
 
 Use **模型** to control which models are enabled and visible in the public model square. Models can point to an upstream model via mapping.
 
+Use **映射** to bind inbound model names to an upstream provider, model, and optional channels. Multiple inbound names entered one per line are saved as one mapping group: editing, enabling, disabling, or deleting the group applies to every name. Creating another mapping with the same inbound name remains supported for independent route alternatives. Leaving channels unselected means all enabled channels for the upstream provider.
+
+Existing mappings remain independent after upgrade. Run `bun run db:pg:init` (or your normal `db:pg:push` / migration workflow) to add the nullable mapping group column. Config exports keep raw mapping rows and may include `groupId`; older exports without it still import as independent mappings.
+
 ### Pricing
 
 Use **定价** to configure model cost per million tokens:

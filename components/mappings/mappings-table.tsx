@@ -13,7 +13,7 @@ type Mapping = {
   id: string;
   provider: "claude" | "openai";
   targetProvider: "claude" | "openai";
-  inboundModel: string;
+  inboundModels: string[];
   upstreamModel: string;
   channelIds: string[];
   enabled: boolean;
@@ -40,7 +40,6 @@ export function MappingsTable() {
   const [upstreamModel, setUpstreamModel] = useState("");
   const [channelIds, setChannelIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<Mapping | null>(null);
-  const [failures, setFailures] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
@@ -55,7 +54,7 @@ export function MappingsTable() {
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
     targetProvider: row => row.targetProvider ?? row.provider,
-    inboundModel: row => row.inboundModel,
+    inboundModel: row => row.inboundModels.join(", "),
     upstreamModel: row => row.upstreamModel,
     channels: row => row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部",
     enabled: row => row.enabled,
@@ -64,7 +63,7 @@ export function MappingsTable() {
 
   async function load() {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), query, provider: providerFilter, channelId: channelFilter });
+    const params = new URLSearchParams({ view: "groups", page: String(page), pageSize: String(pageSize), query, provider: providerFilter, channelId: channelFilter });
     params.set("sort", sort.key);
     params.set("sortDir", sort.dir);
     try {
@@ -102,7 +101,6 @@ export function MappingsTable() {
     setChannelIds([]);
     setEditing(null);
     setTargetProvider("claude");
-    setFailures([]);
   }
 
   function openCreate() {
@@ -116,72 +114,31 @@ export function MappingsTable() {
     setEditing(row);
     setProvider(row.provider);
     setTargetProvider(row.targetProvider ?? row.provider);
-    setInboundModels(row.inboundModel);
+    setInboundModels(row.inboundModels.join("\n"));
     setUpstreamModel(row.upstreamModel);
     setChannelIds(row.channelIds ?? []);
-    setFailures([]);
     setOpen(true);
   }
 
   async function save() {
-    const inboundList = inboundModels.split(/\n+/).map(x => x.trim()).filter(Boolean);
+    const inboundList = [...new Set(inboundModels.split(/\n+/).map(x => x.trim()).filter(Boolean))];
     if (inboundList.length === 0) { toast("请输入入站模型"); return; }
     if (!upstreamModel) { toast("请选择上游模型"); return; }
-
-    if (editing) {
-      const r = await fetch(`/api/model-mappings/${editing.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetProvider, inboundModel: inboundList[0], upstreamModel, channelIds, enabled: editing.enabled }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) { toast(data.error || "更新失败"); return; }
-
-      const results = await Promise.all(inboundList.slice(1).map(inboundModel => fetch("/api/model-mappings", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider, targetProvider, inboundModel, upstreamModel, channelIds, enabled: editing.enabled }),
-      }).then(async response => ({ inboundModel, ok: response.ok, data: await response.json().catch(() => ({})) }))));
-      const failedRows = results.filter(result => !result.ok).map(result => `${result.inboundModel}: ${result.data?.error || "创建失败"}`);
-      setFailures(failedRows);
-      if (failedRows.length > 0) {
-        setInboundModels([inboundList[0], ...failedRows.map(item => item.split(":")[0])].join("\n"));
-        toast(`已更新 1 条、创建 ${results.length - failedRows.length} 条，失败 ${failedRows.length} 条`);
-        load();
-        return;
-      }
-
-      toast(results.length > 0 ? `已更新 1 条、创建 ${results.length} 条模型映射` : "已更新模型映射");
-      resetForm();
-      setOpen(false);
-      load();
-      return;
-    }
-
-    const results = await Promise.all(inboundList.map(inboundModel => fetch("/api/model-mappings", {
-      method: "POST",
+    const r = await fetch(editing ? `/api/model-mappings/${editing.id}` : "/api/model-mappings", {
+      method: editing ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider, targetProvider, inboundModel, upstreamModel, channelIds }),
-    }).then(async r => ({ inboundModel, ok: r.ok, data: await r.json().catch(() => ({})) }))));
-
-    const ok = results.filter(r => r.ok).length;
-    const failed = results.length - ok;
-    const failedRows = results.filter(r => !r.ok).map(r => `${r.inboundModel}: ${r.data?.error || "创建失败"}`);
-    setFailures(failedRows);
-    if (ok === 0) { toast(results[0]?.data?.error || "创建失败"); return; }
-    toast(failed > 0 ? `已创建 ${ok} 条，失败 ${failed} 条` : `已创建 ${ok} 条模型映射`);
-    if (failed > 0) {
-      setInboundModels(failedRows.map(item => item.split(":")[0]).join("\n"));
-      load();
-      return;
-    }
+      body: JSON.stringify({ provider, targetProvider, inboundModels: inboundList, upstreamModel, channelIds, enabled: editing?.enabled ?? true }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(data.error || (editing ? "更新失败" : "创建失败")); return; }
+    toast(editing ? "已更新模型映射组" : `已创建包含 ${inboundList.length} 个入站模型的映射组`);
     resetForm();
     setOpen(false);
     load();
   }
 
   async function remove(row: Mapping) {
-    if (!confirm(`确认删除模型映射 ${row.inboundModel}？`)) return;
+    if (!confirm(`确认删除包含 ${row.inboundModels.length} 个入站模型的映射组？`)) return;
     const r = await fetch(`/api/model-mappings/${row.id}`, { method: "DELETE" });
     if (r.ok) {
       toast("已删除模型映射");
@@ -196,7 +153,7 @@ export function MappingsTable() {
     const r = await fetch(`/api/model-mappings/${row.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ targetProvider: row.targetProvider ?? row.provider, inboundModel: row.inboundModel, upstreamModel: row.upstreamModel, channelIds: row.channelIds ?? [], enabled: row.enabled, ...patch }),
+      body: JSON.stringify({ targetProvider: row.targetProvider ?? row.provider, inboundModels: row.inboundModels, upstreamModel: row.upstreamModel, channelIds: row.channelIds ?? [], enabled: row.enabled, ...patch }),
     });
     const data = await r.json().catch(() => ({}));
     return { ok: r.ok, error: data.error as string | undefined };
@@ -208,12 +165,26 @@ export function MappingsTable() {
     load();
   }
 
+  async function bulkDelete() {
+    if (selectedRows.length === 0 || !confirm(`确认删除选中的 ${selectedRows.length} 组模型映射？`)) return;
+    const r = await fetch("/api/model-mappings", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: selectedRows.map(row => row.id) }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(data.error || "批量删除失败"); return; }
+    toast(`已删除 ${data.groups ?? selectedRows.length} 组模型映射`);
+    setSelected([]);
+    load();
+  }
+
   async function bulkUpdate(patch: Partial<Pick<Mapping, "enabled">>) {
     if (selectedRows.length === 0) { toast("请选择映射"); return; }
     const results = await Promise.all(selectedRows.map(row => updateMapping(row, patch)));
     const failed = results.filter(result => !result.ok);
     if (failed.length) { toast(failed[0].error || "批量更新失败"); return; }
-    toast(`已更新 ${results.length} 条映射`);
+    toast(`已更新 ${results.length} 组映射`);
     setSelected([]);
     load();
   }
@@ -244,19 +215,21 @@ export function MappingsTable() {
         </div>
         <Select value={channelFilter} onChange={setChannelFilter} options={[{ value: "all", label: "全部渠道" }, { value: "__all_channels", label: "全渠道映射" }, ...channels.map(c => ({ value: c.id, label: c.name }))]} />
         <span className="spacer" />
-        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 条</span>}
+        {selectedRows.length > 0 && <span className="hint">已选择 {selectedRows.length} 组</span>}
         <Select
           value=""
           onChange={value => {
             if (!value) return;
             if (value === "enable") bulkUpdate({ enabled: true });
             if (value === "disable") bulkUpdate({ enabled: false });
+            if (value === "delete") bulkDelete();
           }}
           disabled={selectedRows.length === 0}
           placeholder="批量操作"
           options={[
             { value: "enable", label: "启用" },
             { value: "disable", label: "停用" },
+            { value: "delete", label: "删除" },
           ]}
         />
         <button className="btn primary" onClick={openCreate}>+ 添加映射</button>
@@ -315,7 +288,7 @@ export function MappingsTable() {
                   placeholder={"调用方使用的模型名，每行一个\n例如：claude-sonnet\n例如：sonnet-latest"}
                   rows={5}
                 />
-                <div className="hint">{editing ? "第一行更新当前映射，其余每行创建一条新映射。" : "每行创建一条映射；同一模型可以重复添加，用于聚合多个渠道。"}</div>
+                <div className="hint">每行一个入站模型，同组共享上游模型、渠道和状态；另行新建可保留同名模型的独立路由。</div>
               </div>
               <div className="field">
                 <label>上游模型</label>
@@ -329,11 +302,6 @@ export function MappingsTable() {
                 />
                 {upstreamModels.length === 0 && <div className="hint">请先到渠道页配置或拉取该服务商的模型列表。</div>}
               </div>
-              {failures.length > 0 && (
-                <div className="mapping-failures mono">
-                  {failures.map(item => <div key={item}>{item}</div>)}
-                </div>
-              )}
             </div>
             <div className="modal-foot">
               <button className="btn ghost" onClick={() => { resetForm(); setOpen(false); }}>取消</button>
@@ -375,13 +343,13 @@ export function MappingsTable() {
                 <button
                   type="button"
                   className={`check-control ${selected.includes(row.id) ? "checked" : ""}`}
-                  aria-label={`选择 ${row.inboundModel}`}
+                  aria-label={`选择 ${row.inboundModels.join(", ")}`}
                   aria-pressed={selected.includes(row.id)}
                   onClick={() => toggleSelected(row)}
                 />
               </td>
               <td><span className={`type-pill ${row.provider}`}>{row.provider === "claude" ? "Claude" : "OpenAI"}</span></td>
-              <td className="mono">{row.inboundModel}</td>
+              <td><div className="model-custom-list">{row.inboundModels.map(model => <span key={model} className="chip-removable mono"><span>{model}</span></span>)}</div></td>
               <td><span className={`type-pill ${row.targetProvider ?? row.provider}`}>{(row.targetProvider ?? row.provider) === "claude" ? "Claude" : "OpenAI"}</span></td>
               <td className="mono">{row.upstreamModel}</td>
               <td className="mono dim" title={row.channelIds?.length ? row.channelIds.map(id => channelNames.get(id) ?? id).join(", ") : "全部渠道"}>

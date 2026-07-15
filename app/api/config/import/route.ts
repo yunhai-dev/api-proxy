@@ -9,6 +9,21 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   let imported = 0;
   const pg = usePostgres() ? await import("@/lib/db/pg") : null;
+  const mappingGroups = new Map<string, string>();
+  for (const row of Array.isArray(body.modelMappings) ? body.modelMappings : []) {
+    const groupId = typeof row?.groupId === "string" ? row.groupId.trim() : "";
+    if (!groupId) continue;
+    const signature = JSON.stringify({
+      provider: row.provider,
+      targetProvider: row.targetProvider === "claude" || row.targetProvider === "openai" ? row.targetProvider : row.provider,
+      upstreamModel: row.upstreamModel,
+      channelIds: Array.isArray(row.channelIds) ? [...new Set(row.channelIds)].sort() : [],
+      enabled: row.enabled !== false,
+    });
+    const current = mappingGroups.get(groupId);
+    if (current && current !== signature) return NextResponse.json({ error: `模型映射组配置不一致：${groupId}` }, { status: 400 });
+    mappingGroups.set(groupId, signature);
+  }
 
   for (const row of Array.isArray(body.channels) ? body.channels : []) {
     if (!row?.id || !row.name || !row.type || !row.baseUrl) continue;
@@ -46,6 +61,7 @@ export async function POST(req: NextRequest) {
     if (!row?.id || !row.provider || !row.inboundModel || !row.upstreamModel) continue;
     const value = {
       id: row.id,
+      groupId: typeof row.groupId === "string" && row.groupId.trim() ? row.groupId.trim() : null,
       provider: row.provider,
       targetProvider: row.targetProvider === "claude" || row.targetProvider === "openai" ? row.targetProvider : row.provider,
       inboundModel: row.inboundModel,
