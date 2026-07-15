@@ -135,7 +135,7 @@ function Summary({ status }: { status: Status }) {
         <Stat label="限流 / 过期" value={`${health.rateLimited} / ${health.expired}`} />
         <Stat label="并发" value={`${health.currentConcurrency} / ${health.maxConcurrency}`} />
         <Stat label="今日请求" value={today.requests.toLocaleString()} extra={`RPM ${today.rpm.toLocaleString()}`} />
-        <Stat label="今日 Token" value={today.totalTokens.toLocaleString()} extra={`TPM ${today.tpm.toLocaleString()}`} />
+        <Stat label="今日 Token" value={formatCompactNumber(today.totalTokens)} extra={`TPM ${formatCompactNumber(today.tpm)}`} />
         <Stat label="今日费用" value={`$${today.actualCost.toFixed(2)}`} />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -151,18 +151,25 @@ function SummaryTable({ title, headers, rows }: { title: string; headers: string
 }
 
 function AccountRow({ account, onDetail }: { account: Account; onDetail: () => void }) {
-  const state = account.rateLimited || account.status === "active" && !account.schedulable ? "warn" : account.status === "active" ? "ok" : "err";
-  const label = account.rateLimited ? "限流中" : state === "ok" ? "正常" : state === "warn" ? "不可调度" : account.status || "异常";
+  const { state, label } = accountState(account);
   return <tr><td><strong>{account.name || `#${account.id}`}</strong><div className="mono dim">#{account.id}</div></td><td><span className="mono">{account.platform}</span><div className="dim">{account.type}</div></td><td><span className={`status-badge ${state}`}><span className="dot" />{label}</span>{account.tempUnschedulableReason && <div className="dim">{account.tempUnschedulableReason}</div>}</td><td className="mono">{account.currentConcurrency} / {account.concurrency}</td><td>{account.groups.map(group => group.name).join(", ") || "—"}</td><td className="mono">{formatTime(account.lastUsedAt)}</td><td><button className="btn sm ghost" onClick={onDetail}>详情</button></td></tr>;
 }
 
 function DetailModal({ detail, loading, onClose }: { detail: AccountDetail | null; loading: boolean; onClose: () => void }) {
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
   return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={event => event.stopPropagation()}><div className="modal-head"><h2>账号状态详情</h2><button className="modal-close" onClick={onClose} aria-label="关闭">×</button></div><div className="modal-body">{loading || !detail ? <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div> : <div className="table-wrap"><table className="table"><tbody>{[
-    ["账号", `${detail.name} (#${detail.id})`], ["平台 / 类型", `${detail.platform} / ${detail.type}`], ["状态", detail.rateLimited ? "限流中" : `${detail.status} / ${detail.schedulable ? "可调度" : "不可调度"}`], ["并发", ratio(detail.currentConcurrency, detail.concurrency)], ["分组", detail.groups.map(group => group.name).join(", ") || "—"], ["倍率", detail.rateMultiplier], ["优先级", detail.priority], ["限流重置", formatTime(detail.rateLimitResetAt)], ["临时不可调度至", formatTime(detail.tempUnschedulableUntil)], ["过期时间", formatTime(detail.expiresAt)], ["会话窗口", detail.sessionWindowStatus || "—"], ["最近错误", detail.errorMessage || "—"],
+    ["账号", `${detail.name} (#${detail.id})`], ["平台 / 类型", `${detail.platform} / ${detail.type}`], ["状态", accountState(detail).label], ["并发", ratio(detail.currentConcurrency, detail.concurrency)], ["分组", detail.groups.map(group => group.name).join(", ") || "—"], ["倍率", detail.rateMultiplier], ["优先级", detail.priority], ["限流重置", formatTime(detail.rateLimitResetAt)], ["临时不可调度至", formatTime(detail.tempUnschedulableUntil)], ["过期时间", formatTime(detail.expiresAt)], ["会话窗口", detail.sessionWindowStatus || "—"], ["最近错误", detail.errorMessage || "—"],
   ].map(([label, value]) => <tr key={String(label)}><th>{label}</th><td className="mono">{value}</td></tr>)}</tbody></table></div>}</div><div className="modal-foot"><button className="btn" onClick={onClose}>关闭</button></div></div></div>;
 }
 
+function accountState(account: Account) {
+  if (account.rateLimited) return { state: "warn", label: "限流中" };
+  if (!account.schedulable) return { state: "warn", label: "不可调度" };
+  if (account.status !== "active") return { state: "err", label: account.status || "异常" };
+  return { state: "ok", label: "正常" };
+}
+
 function Stat({ label, value, extra }: { label: string; value: string; extra?: string }) { return <div className="stat"><div className="label">{label}</div><div className="value">{value}</div>{extra && <div className="extra">{extra}</div>}</div>; }
+function formatCompactNumber(value: number) { return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value); }
 function ratio(value: number, max: number) { return max > 0 ? `${value.toLocaleString()} / ${max.toLocaleString()}` : `${value.toLocaleString()} / —`; }
 function formatTime(value: number | string | null) { if (value === null || value === "") return "—"; const raw = typeof value === "number" && value < 10_000_000_000 ? value * 1000 : value; const timestamp = typeof raw === "number" ? raw : Date.parse(raw); return Number.isFinite(timestamp) ? formatShanghaiDateTime(timestamp) : "—"; }
