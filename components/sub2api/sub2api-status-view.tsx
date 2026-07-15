@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { Select } from "@/components/ui/select";
 import { formatShanghaiDateTime } from "@/lib/time";
@@ -104,8 +105,8 @@ export function Sub2ApiStatusView() {
 
       <section className="section">
         <h2>账号状态</h2>
-        <form className="filters" onSubmit={submitSearch}>
-          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索账号" aria-label="搜索账号" />
+        <form className="filters mb-4" onSubmit={submitSearch}>
+          <Input tone="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索账号" aria-label="搜索账号" />
           <Select value={platform || "__all"} onChange={value => { setPlatform(value === "__all" ? "" : value); setPage(1); }} options={[{ value: "__all", label: "全部平台" }, ...platforms.map(value => ({ value, label: value }))]} />
           <Select value={accountStatus || "__all"} onChange={value => { setAccountStatus(value === "__all" ? "" : value); setPage(1); }} options={[{ value: "__all", label: "全部状态" }, { value: "active", label: "active" }, { value: "error", label: "error" }, { value: "disabled", label: "disabled" }]} />
           <button className="btn" type="submit">搜索</button>
