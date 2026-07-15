@@ -4,43 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/ui/select";
-
-type AppSettings = {
-  debugModels: boolean;
-  proxyMaxRetries: number;
-  proxyRetry429: boolean;
-  proxyRetry5xx: boolean;
-  proxyRetryNetwork: boolean;
-  proxyTreatEmptyOutputAsFailure: boolean;
-  fallbackEnabled: boolean;
-  fallbackChannelId: string;
-  fallbackModel: string;
-  recordAllRequestDetails: boolean;
-  bridgeCapabilityAudit: boolean;
-  maintenanceMode: boolean;
-  maintenanceMessage: string;
-  defaultRateLimitRpm: number;
-  defaultRateLimitTpm: number;
-  defaultMaxConcurrency: number;
-  globalBillingMultiplier: number;
-  siteUrl: string;
-  siteName: string;
-  siteLogoUrl: string;
-  announcementEnabled: boolean;
-  announcementMode: "marquee" | "modal";
-  announcementTitle: string;
-  announcementHtml: string;
-  smtpEnabled: boolean;
-  smtpHost: string;
-  smtpPort: number;
-  smtpSecure: "none" | "ssl" | "starttls";
-  smtpUser: string;
-  smtpPassword: string;
-  smtpFromEmail: string;
-  smtpFromName: string;
-  sub2apiBaseUrl: string;
-  sub2apiAdminKey: string;
-};
+import type { AppSettings } from "@/lib/settings";
 
 type ChannelOption = {
   id: string;

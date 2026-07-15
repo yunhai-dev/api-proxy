@@ -4,23 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { Select } from "@/components/ui/select";
 import { formatShanghaiDateTime } from "@/lib/time";
+import type { Sub2ApiAccount as Account, Sub2ApiAccountDetail as AccountDetail, Sub2ApiPage, Sub2ApiStatus as Status } from "@/lib/sub2api";
 
-type Account = {
-  id: number; name: string; platform: string; type: string; status: string; schedulable: boolean;
-  concurrency: number; currentConcurrency: number; priority: number; rateMultiplier: number;
-  groups: { id: number; name: string; platform: string }[]; rateLimitedAt: number | string | null;
-  rateLimitResetAt: number | string | null; overloadUntil: number | string | null; tempUnschedulableReason: string;
-  tempUnschedulableUntil: number | string | null; expiresAt: number | string | null; lastUsedAt: number | string | null; updatedAt: number | string | null;
-};
-type AccountDetail = Account & { errorMessage: string; quotaDimension: string; sessionWindowStatus: string; sessionWindowStart: number | string | null; sessionWindowEnd: number | string | null };
-type Status = {
-  health: { total: number; schedulable: number; unschedulable: number; normal: number; error: number; rateLimited: number; expired: number; currentConcurrency: number; maxConcurrency: number };
-  groups: { groupId: number; name: string; concurrencyUsed: number; concurrencyMax: number; sessionsUsed: number; sessionsMax: number; rpmUsed: number; rpmMax: number }[];
-  platforms: { platform: string; total: number; schedulable: number; error: number; currentConcurrency: number; maxConcurrency: number }[];
-  today: { requests: number; inputTokens: number; outputTokens: number; cacheTokens: number; totalTokens: number; cost: number; actualCost: number; rpm: number; tpm: number };
-  updatedAt: number;
-};
-type AccountsPage = { items: Account[]; total: number; page: number; pageSize: number; pages: number; updatedAt: number };
+type AccountsPage = Sub2ApiPage<Account> & { updatedAt: number };
 
 export function Sub2ApiStatusView() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -31,44 +17,59 @@ export function Sub2ApiStatusView() {
   const [accountStatus, setAccountStatus] = useState("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [error, setError] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [accountsError, setAccountsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<AccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const refreshRef = useRef(0);
+  const accountsSeq = useRef(0);
 
-  const load = useCallback(async (silent = false) => {
-    const seq = ++refreshRef.current;
+  const loadStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/sub2api/status", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "状态加载失败");
+      setStatus(data);
+      setStatusError("");
+    } catch (reason) {
+      setStatusError(reason instanceof Error ? reason.message : "状态加载失败");
+    }
+  }, []);
+
+  const loadAccounts = useCallback(async (silent = false) => {
+    const seq = ++accountsSeq.current;
     if (!silent) setLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (platform) params.set("platform", platform);
     if (accountStatus) params.set("status", accountStatus);
     if (query) params.set("search", query);
     try {
-      const [statusResponse, accountsResponse] = await Promise.all([
-        fetch("/api/sub2api/status", { cache: "no-store" }),
-        fetch(`/api/sub2api/accounts?${params}`, { cache: "no-store" }),
-      ]);
-      const [statusData, accountsData] = await Promise.all([statusResponse.json().catch(() => ({})), accountsResponse.json().catch(() => ({}))]);
-      if (!statusResponse.ok || !accountsResponse.ok) throw new Error(statusData.error || accountsData.error || "加载失败");
-      if (seq !== refreshRef.current) return;
-      setStatus(statusData);
-      setAccounts(accountsData);
-      setError("");
+      const response = await fetch(`/api/sub2api/accounts?${params}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "账号加载失败");
+      if (seq !== accountsSeq.current) return;
+      setAccounts(data);
+      setAccountsError("");
     } catch (reason) {
-      if (seq === refreshRef.current) setError(reason instanceof Error ? reason.message : "加载失败");
+      if (seq === accountsSeq.current) setAccountsError(reason instanceof Error ? reason.message : "账号加载失败");
     } finally {
-      if (seq === refreshRef.current) setLoading(false);
+      if (seq === accountsSeq.current) setLoading(false);
     }
   }, [page, pageSize, platform, accountStatus, query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const refresh = useCallback((silent = false) => {
+    void loadStatus();
+    void loadAccounts(silent);
+  }, [loadAccounts, loadStatus]);
+
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { void loadStatus(); }, [loadStatus]);
   useEffect(() => {
-    const timer = window.setInterval(() => { if (!document.hidden) void load(true); }, 30_000);
-    const visible = () => { if (!document.hidden) void load(true); };
+    const timer = window.setInterval(() => { if (!document.hidden) refresh(true); }, 30_000);
+    const visible = () => { if (!document.hidden) refresh(true); };
     document.addEventListener("visibilitychange", visible);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
-  }, [load]);
+  }, [refresh]);
 
   async function openDetail(id: number) {
     setDetailLoading(true);
@@ -79,7 +80,7 @@ export function Sub2ApiStatusView() {
       if (!response.ok) throw new Error(data.error || "详情加载失败");
       setDetail(data);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "详情加载失败");
+      setAccountsError(reason instanceof Error ? reason.message : "详情加载失败");
     } finally { setDetailLoading(false); }
   }
 
@@ -91,13 +92,14 @@ export function Sub2ApiStatusView() {
 
   const platforms = status?.platforms.map(row => row.platform) ?? [];
   const updatedAt = Math.max(status?.updatedAt ?? 0, accounts?.updatedAt ?? 0);
+  const error = accountsError || statusError;
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">{updatedAt ? `最近更新 ${formatShanghaiDateTime(updatedAt)}` : "每 30 秒自动刷新"}</span>
-        <button className="btn" onClick={() => void load()} disabled={loading}>{loading ? "刷新中…" : "刷新"}</button>
+        <button className="btn" onClick={() => refresh()} disabled={loading}>{loading ? "刷新中…" : "刷新"}</button>
       </div>
-      {error && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm"><span>{error}</span> <button className="ml-2 underline" onClick={() => void load()}>重试</button></div>}
+      {error && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm"><span>{error}</span> <button className="ml-2 underline" onClick={() => refresh()}>重试</button></div>}
       {status ? <Summary status={status} /> : loading && <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>}
 
       <section className="section">

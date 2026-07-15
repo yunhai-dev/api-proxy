@@ -212,10 +212,10 @@
 
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | 连接设置与密钥保护 | [ ] | 详见 [`docs/plan/sub2api-account-status.md`](./plan/sub2api-account-status.md) |
-| 2 | 只读状态 client 与 API | [ ] | |
-| 3 | 状态汇总、账号列表与详情页面 | [ ] | |
-| 4 | 安全边界、类型与构建验证 | [ ] | |
+| 1 | 连接设置与密钥保护 | [x] | 详见 [`docs/plan/sub2api-account-status.md`](./plan/sub2api-account-status.md) |
+| 2 | 只读状态 client 与 API | [x] | |
+| 3 | 状态汇总、账号列表与详情页面 | [x] | |
+| 4 | 安全边界、类型与构建验证 | [x] | |
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19

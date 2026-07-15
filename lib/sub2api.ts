@@ -30,7 +30,7 @@ export type Sub2ApiAccountDetail = Sub2ApiAccount & {
 };
 
 type RecordValue = Record<string, unknown>;
-type Page<T> = { items: T[]; total: number; page: number; pageSize: number; pages: number };
+export type Sub2ApiPage<T> = { items: T[]; total: number; page: number; pageSize: number; pages: number };
 
 export class Sub2ApiError extends Error {
   constructor(message: string, public status = 502) {
@@ -60,7 +60,7 @@ export function parseSub2ApiPage(page: string | null, pageSize: string | null) {
 export async function listSub2ApiAccounts(
   config: Sub2ApiConfig,
   input: { page: number; pageSize: number; platform?: string; status?: string; search?: string },
-): Promise<Page<Sub2ApiAccount>> {
+): Promise<Sub2ApiPage<Sub2ApiAccount>> {
   const query = new URLSearchParams({ page: String(input.page), page_size: String(input.pageSize) });
   if (input.platform) query.set("platform", input.platform);
   if (input.status) query.set("status", input.status);
@@ -73,6 +73,8 @@ export async function listSub2ApiAccounts(
 export async function getSub2ApiAccount(config: Sub2ApiConfig, id: number): Promise<Sub2ApiAccountDetail> {
   return safeAccountDetail(await request(config, `/admin/accounts/${id}`));
 }
+
+export type Sub2ApiStatus = Awaited<ReturnType<typeof getSub2ApiStatus>>;
 
 export async function getSub2ApiStatus(config: Sub2ApiConfig) {
   const first = await listSub2ApiAccounts(config, { page: 1, pageSize: 100 });

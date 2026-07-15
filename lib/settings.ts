@@ -78,44 +78,7 @@ const defaults: AppSettings = {
 };
 
 export function getSettings(): AppSettings {
-  const rows = db.select().from(schema.settings).all();
-  const values = new Map(rows.map(row => [row.key, row.value]));
-  return {
-    debugModels: bool(values.get("debugModels"), defaults.debugModels),
-    proxyMaxRetries: Math.max(1, Number(values.get("proxyMaxRetries")) || defaults.proxyMaxRetries),
-    proxyRetry429: bool(values.get("proxyRetry429"), defaults.proxyRetry429),
-    proxyRetry5xx: bool(values.get("proxyRetry5xx"), defaults.proxyRetry5xx),
-    proxyRetryNetwork: bool(values.get("proxyRetryNetwork"), defaults.proxyRetryNetwork),
-    proxyTreatEmptyOutputAsFailure: bool(values.get("proxyTreatEmptyOutputAsFailure"), defaults.proxyTreatEmptyOutputAsFailure),
-    fallbackEnabled: bool(values.get("fallbackEnabled"), defaults.fallbackEnabled),
-    fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
-    fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
-    recordAllRequestDetails: bool(values.get("recordAllRequestDetails"), defaults.recordAllRequestDetails),
-    bridgeCapabilityAudit: bool(values.get("bridgeCapabilityAudit"), defaults.bridgeCapabilityAudit),
-    maintenanceMode: bool(values.get("maintenanceMode"), defaults.maintenanceMode),
-    maintenanceMessage: values.get("maintenanceMessage") || defaults.maintenanceMessage,
-    defaultRateLimitRpm: Math.max(0, Number(values.get("defaultRateLimitRpm")) || defaults.defaultRateLimitRpm),
-    defaultRateLimitTpm: Math.max(0, Number(values.get("defaultRateLimitTpm")) || defaults.defaultRateLimitTpm),
-    defaultMaxConcurrency: Math.max(0, Number(values.get("defaultMaxConcurrency")) || defaults.defaultMaxConcurrency),
-    globalBillingMultiplier: nonNegativeNumber(values.get("globalBillingMultiplier"), defaults.globalBillingMultiplier),
-    siteUrl: values.get("siteUrl") || defaults.siteUrl,
-    siteName: values.get("siteName") || defaults.siteName,
-    siteLogoUrl: values.get("siteLogoUrl") || defaults.siteLogoUrl,
-    announcementEnabled: bool(values.get("announcementEnabled"), defaults.announcementEnabled),
-    announcementMode: announcementMode(values.get("announcementMode")),
-    announcementTitle: values.get("announcementTitle") || defaults.announcementTitle,
-    announcementHtml: values.get("announcementHtml") || defaults.announcementHtml,
-    smtpEnabled: bool(values.get("smtpEnabled"), defaults.smtpEnabled),
-    smtpHost: values.get("smtpHost") || defaults.smtpHost,
-    smtpPort: Math.min(65535, Math.max(1, Number(values.get("smtpPort")) || defaults.smtpPort)),
-    smtpSecure: secure(values.get("smtpSecure")),
-    smtpUser: values.get("smtpUser") || defaults.smtpUser,
-    smtpPassword: decryptSecret(values.get("smtpPassword") || defaults.smtpPassword),
-    smtpFromEmail: values.get("smtpFromEmail") || defaults.smtpFromEmail,
-    smtpFromName: values.get("smtpFromName") || defaults.smtpFromName,
-    sub2apiBaseUrl: values.get("sub2apiBaseUrl") || defaults.sub2apiBaseUrl,
-    sub2apiAdminKey: decryptSecret(values.get("sub2apiAdminKey") || defaults.sub2apiAdminKey),
-  };
+  return settingsFromRows(db.select().from(schema.settings).all());
 }
 
 export async function getSettingsAsync(): Promise<AppSettings> {
