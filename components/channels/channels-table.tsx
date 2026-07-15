@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { formatShanghaiDateTime } from "@/lib/time";
+import { rowActionsPosition } from "@/lib/utils";
 import { ChannelForm } from "./channel-form";
 
 type Channel = {
@@ -47,7 +48,7 @@ export function ChannelsTable() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [openActions, setOpenActions] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [openActions, setOpenActions] = useState<{ id: string; style: React.CSSProperties } | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(channels, {
     name: row => row.name,
     type: row => row.type,
@@ -87,7 +88,7 @@ export function ChannelsTable() {
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    setOpenActions({ id: c.id, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setOpenActions({ id: c.id, style: rowActionsPosition(rect) });
   }
 
   async function testAll() {
@@ -306,7 +307,7 @@ export function ChannelsTable() {
                     <MoreHorizontal />
                   </button>
                   {openActions?.id === c.id && (
-                    <div className="row-actions-popover fixed-menu" style={{ position: "fixed", top: openActions.top, right: openActions.right }}>
+                    <div className="row-actions-popover fixed-menu" style={openActions.style}>
                       <button onClick={() => { setOpenActions(null); test(c); }}>测试</button>
                       <button onClick={() => { setOpenActions(null); openHistory(c); }}>历史</button>
                       <button onClick={() => { setOpenActions(null); setTarget({ kind: "edit", channel: c }); }}>编辑</button>

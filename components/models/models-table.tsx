@@ -8,6 +8,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 import { Checkbox } from "@/components/ui/checkbox";
+import { rowActionsPosition } from "@/lib/utils";
 
 type Provider = "claude" | "openai";
 const CAPABILITIES = [
@@ -54,7 +55,7 @@ export function ModelsTable() {
   const [providerCounts, setProviderCounts] = useState<{ claude: number; openai: number }>({ claude: 0, openai: 0 });
   const [loading, setLoading] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
-  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<React.CSSProperties | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
     id: row => row.id,
@@ -348,7 +349,7 @@ export function ModelsTable() {
                     }
                     const rect = event.currentTarget.getBoundingClientRect();
                     setOpenActionsId(`${row.provider}:${row.id}`);
-                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                    setOpenActionsRect(rowActionsPosition(rect));
                   }}
                   aria-label="操作"
                   aria-expanded={openActionsId === `${row.provider}:${row.id}`}
@@ -356,7 +357,7 @@ export function ModelsTable() {
                   <MoreHorizontal />
                 </button>
                 {openActionsId === `${row.provider}:${row.id}` && openActionsRect && (
-                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                  <div className="row-actions-popover" style={openActionsRect}>
                     <button onClick={() => { setOpenActionsId(null); openEdit(row); }}>编辑</button>
                     <button className="danger" onClick={() => { setOpenActionsId(null); deleteRow(row); }} disabled={!row.catalogId}>删除</button>
                   </div>

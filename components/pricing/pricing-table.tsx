@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
+import { rowActionsPosition } from "@/lib/utils";
 
 type ModelPrice = {
   id: string;
@@ -44,7 +45,7 @@ export function PricingTable() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
-  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<React.CSSProperties | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(prices, {
     provider: row => row.provider,
     channelId: row => row.channelId ?? "",
@@ -229,7 +230,7 @@ export function PricingTable() {
                     }
                     const rect = event.currentTarget.getBoundingClientRect();
                     setOpenActionsId(row.id);
-                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                    setOpenActionsRect(rowActionsPosition(rect));
                   }}
                   aria-label="操作"
                   aria-expanded={openActionsId === row.id}
@@ -237,7 +238,7 @@ export function PricingTable() {
                   <MoreHorizontal />
                 </button>
                 {openActionsId === row.id && openActionsRect && (
-                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                  <div className="row-actions-popover" style={openActionsRect}>
                     <button className="danger" onClick={() => { setOpenActionsId(null); remove(row); }}>删除</button>
                   </div>
                 )}

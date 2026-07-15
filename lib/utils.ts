@@ -6,6 +6,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function rowActionsPosition(rect: Pick<DOMRect, "top" | "right" | "bottom">) {
+  const right = window.innerWidth - rect.right;
+  return rect.bottom > window.innerHeight / 2
+    ? { position: "fixed" as const, bottom: window.innerHeight - rect.top + 4, right }
+    : { position: "fixed" as const, top: rect.bottom + 4, right };
+}
+
 export function pad2(n: number) { return String(n).padStart(2, "0"); }
 
 export function fmtClock(d = new Date()) {

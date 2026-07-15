@@ -8,6 +8,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 import { formatShanghaiDate } from "@/lib/time";
+import { rowActionsPosition } from "@/lib/utils";
 
 type Mapping = {
   id: string;
@@ -49,7 +50,7 @@ export function MappingsTable() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
-  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<React.CSSProperties | null>(null);
   const channelNames = new Map(channels.map(c => [c.id, c.name]));
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     provider: row => row.provider,
@@ -367,7 +368,7 @@ export function MappingsTable() {
                     }
                     const rect = event.currentTarget.getBoundingClientRect();
                     setOpenActionsId(row.id);
-                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                    setOpenActionsRect(rowActionsPosition(rect));
                   }}
                   aria-label="操作"
                   aria-expanded={openActionsId === row.id}
@@ -375,7 +376,7 @@ export function MappingsTable() {
                   <MoreHorizontal />
                 </button>
                 {openActionsId === row.id && openActionsRect && (
-                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                  <div className="row-actions-popover" style={openActionsRect}>
                     <button onClick={() => { setOpenActionsId(null); openEdit(row); }}>编辑</button>
                     <button className="danger" onClick={() => { setOpenActionsId(null); remove(row); }}>删除</button>
                   </div>

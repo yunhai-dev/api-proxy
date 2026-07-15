@@ -10,6 +10,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { useSortableRows } from "@/components/ui/sortable-table";
 import { useToast } from "@/components/toast";
 import { formatShanghaiDate } from "@/lib/time";
+import { rowActionsPosition } from "@/lib/utils";
 
 type Role = "super_admin" | "admin" | "user";
 type User = { id: string; username: string; displayName: string; email: string; role: Role; status: "pending" | "active" | "disabled"; createdAt: number; updatedAt: number; quotaUsd: number; usedUsd: number };
@@ -53,7 +54,7 @@ export function UsersTable() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
-  const [openActionsRect, setOpenActionsRect] = useState<{ top: number; right: number } | null>(null);
+  const [openActionsRect, setOpenActionsRect] = useState<React.CSSProperties | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const { sortedRows, sortHeader, sort } = useSortableRows(rows, {
     username: row => row.username,
@@ -211,7 +212,7 @@ export function UsersTable() {
                     }
                     const rect = event.currentTarget.getBoundingClientRect();
                     setOpenActionsId(row.id);
-                    setOpenActionsRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                    setOpenActionsRect(rowActionsPosition(rect));
                   }}
                   aria-label={`${row.username} 操作`}
                   aria-expanded={openActionsId === row.id}
@@ -219,7 +220,7 @@ export function UsersTable() {
                   <MoreHorizontal />
                 </button>
                 {openActionsId === row.id && openActionsRect && (
-                  <div className="row-actions-popover" style={{ position: "fixed", top: openActionsRect.top, right: openActionsRect.right }}>
+                  <div className="row-actions-popover" style={openActionsRect}>
                     <button onClick={() => { setOpenActionsId(null); openQuota(row); }}>额度</button>
                     <button className="danger" onClick={() => { setOpenActionsId(null); setDeleteTarget(row); }}>删除</button>
                   </div>

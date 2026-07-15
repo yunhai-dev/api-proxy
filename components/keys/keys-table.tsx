@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { useToast } from "@/components/toast";
-import { fmtRelativeTime, maskKey, quotaCls, quotaPct } from "@/lib/utils";
+import { fmtRelativeTime, maskKey, quotaCls, quotaPct, rowActionsPosition } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -77,7 +77,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
   const [deleteTarget, setDeleteTarget] = useState<Key | null>(null);
   const [ccSwitchTarget, setCcSwitchTarget] = useState<Key | null>(null);
   const [scopeTarget, setScopeTarget] = useState<Key | null>(null);
-  const [openActions, setOpenActions] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [openActions, setOpenActions] = useState<{ id: string; style: React.CSSProperties } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
@@ -167,7 +167,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    setOpenActions({ id: k.id, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setOpenActions({ id: k.id, style: rowActionsPosition(rect) });
   }
 
   function importToCcSwitch(k: Key, app: CcSwitchApp) {
@@ -375,7 +375,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
                     <MoreHorizontal />
                   </button>
                   {openActions?.id === k.id && (
-                    <div className="row-actions-popover" style={{ position: "fixed", top: openActions.top, right: openActions.right }}>
+                    <div className="row-actions-popover" style={openActions.style}>
                       <button onClick={() => { setOpenActions(null); setScopeTarget(k); }}>切换渠道范围</button>
                       <button onClick={() => { setOpenActions(null); toggle(k); }}>{k.status === "active" ? "停用" : "启用"}</button>
                       <button onClick={() => { setOpenActions(null); openCcSwitchImport(k); }}>导入 CCS</button>
