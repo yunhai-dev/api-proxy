@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { desc, inArray } from "drizzle-orm";
+import { desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { usePostgres } from "@/lib/db/runtime";
@@ -17,11 +17,20 @@ export async function GET(req: NextRequest) {
     const status = req.nextUrl.searchParams.get("status") ?? "all";
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
-      const rows = await pgDb.select().from(pgSchema.giftCards).orderBy(desc(pgSchema.giftCards.createdAt));
+      const rows = await pgDb
+        .select({ ...getTableColumns(pgSchema.giftCards), redeemedByUsername: pgSchema.users.username })
+        .from(pgSchema.giftCards)
+        .leftJoin(pgSchema.users, eq(pgSchema.giftCards.redeemedBy, pgSchema.users.id))
+        .orderBy(desc(pgSchema.giftCards.createdAt));
       const filtered = sortGiftCards(req.nextUrl, filterGiftCards(rows, q, status));
       return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered.slice(0, 200));
     }
-    const rows = db.select().from(schema.giftCards).orderBy(desc(schema.giftCards.createdAt)).all();
+    const rows = db
+      .select({ ...getTableColumns(schema.giftCards), redeemedByUsername: schema.users.username })
+      .from(schema.giftCards)
+      .leftJoin(schema.users, eq(schema.giftCards.redeemedBy, schema.users.id))
+      .orderBy(desc(schema.giftCards.createdAt))
+      .all();
     const filtered = sortGiftCards(req.nextUrl, filterGiftCards(rows, q, status));
     return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered.slice(0, 200));
   } catch (e) {
@@ -30,22 +39,22 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function filterGiftCards<T extends { codePrefix: string; codeSuffix: string; status: string; createdBy: string; redeemedBy: string | null }>(rows: T[], q: string, status: string) {
+function filterGiftCards<T extends { codePrefix: string; codeSuffix: string; status: string; createdBy: string; redeemedBy: string | null; redeemedByUsername: string | null }>(rows: T[], q: string, status: string) {
   return rows.filter(row => {
     const code = `${row.codePrefix}${row.codeSuffix}`.toLowerCase();
-    const matchesQuery = !q || code.includes(q) || row.createdBy.toLowerCase().includes(q) || (row.redeemedBy ?? "").toLowerCase().includes(q);
+    const matchesQuery = !q || code.includes(q) || row.createdBy.toLowerCase().includes(q) || (row.redeemedByUsername ?? row.redeemedBy ?? "").toLowerCase().includes(q);
     const matchesStatus = status === "all" || row.status === status;
     return matchesQuery && matchesStatus;
   });
 }
 
-function sortGiftCards<T extends { codePrefix: string; codeSuffix: string; amountUsd: number; status: string; createdAt: number; redeemedBy: string | null; redeemedAt: number | null }>(url: URL, rows: T[]) {
+function sortGiftCards<T extends { codePrefix: string; codeSuffix: string; amountUsd: number; status: string; createdAt: number; redeemedBy: string | null; redeemedByUsername: string | null; redeemedAt: number | null }>(url: URL, rows: T[]) {
   return sortRows(url, rows, {
     code: row => `${row.codePrefix}${row.codeSuffix}`,
     amountUsd: row => row.amountUsd,
     status: row => row.status,
     createdAt: row => row.createdAt,
-    redeemedBy: row => row.redeemedBy ?? "",
+    redeemedBy: row => row.redeemedByUsername ?? row.redeemedBy ?? "",
     redeemedAt: row => row.redeemedAt ?? 0,
   }, "createdAt", "desc");
 }

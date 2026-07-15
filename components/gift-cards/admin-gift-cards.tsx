@@ -16,6 +16,7 @@ type GiftCard = {
   status: "active" | "redeemed";
   createdBy: string;
   redeemedBy: string | null;
+  redeemedByUsername: string | null;
   redeemedAt: number | null;
   createdAt: number;
 };
@@ -43,7 +44,7 @@ export function AdminGiftCards() {
     amountUsd: row => row.amountUsd,
     status: row => row.status,
     createdAt: row => row.createdAt,
-    redeemedBy: row => row.redeemedBy ?? "",
+    redeemedBy: row => row.redeemedByUsername ?? row.redeemedBy ?? "",
     redeemedAt: row => row.redeemedAt ?? 0,
   }, "createdAt", "desc");
 
@@ -185,7 +186,7 @@ export function AdminGiftCards() {
                 <td className="mono">${card.amountUsd.toFixed(2)}</td>
                 <td>{card.status === "active" ? <span className="status ok"><span className="dot ok" />可核销</span> : <span className="status"><span className="dot" />已核销</span>}</td>
                 <td className="mono dim">{formatShanghaiDateTime(card.createdAt)}</td>
-                <td className="mono dim">{card.redeemedBy || "—"}</td>
+                <td className="mono dim">{card.redeemedByUsername ?? card.redeemedBy ?? "—"}</td>
                 <td className="mono dim">{card.redeemedAt ? formatShanghaiDateTime(card.redeemedAt) : "—"}</td>
               </tr>
             ))}
