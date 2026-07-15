@@ -220,6 +220,8 @@
   .model-map-name { @apply inline-flex flex-wrap items-center gap-1; }
   .model-map-arrow { @apply mx-1 text-muted-foreground; }
   .mapping-channel-picker { @apply flex flex-wrap items-center gap-1; }
+  .mapping-channel-picker button { @apply inline-flex h-7 items-center rounded-full border bg-background px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring; }
+  .mapping-channel-picker button.active { @apply border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground; }
   .mapping-failures { @apply mt-2 rounded-md border bg-destructive/5 px-2 py-1 text-xs text-destructive; }
   .pricing-actions { @apply flex flex-wrap items-center gap-2; }
   .pricing-error { @apply mt-1.5 text-xs leading-5 text-destructive; }
