@@ -50,6 +50,15 @@
 - **Error/edge path**: 非第一页切换后回到第一页；筛选、排序及暂停状态不改变。
 - **Regression scope**: 模型、礼品卡、审计、渠道、映射、Key、定价等服务端分页，以及模型广场、排行、用户详情等客户端分页。
 
+## Validation Results
+
+- `bunx tsc --noEmit`：通过。
+- `bun run build`：通过。
+- `git diff --check`：通过。
+- 运行应用后分别请求 `pageSize=10/20/50/100` 的用户 API，响应均返回对应 `pageSize` 和第一页数据。
+- 日志 SSE effect 已将其回调读取的 `pageSize` 纳入依赖；切换值会重建 EventSource 并使用新截断值。
+- 本地原 3000 端口的旧开发进程在 production build 后产物失效，改用隔离的 3001 端口完成运行时 API 验证。
+
 ## Risks & Mitigation
 
 - `pageSize` 变化会重建日志 EventSource，这是刷新闭包值所需的最小改动；现有自动重连机制保持不变。

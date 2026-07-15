@@ -204,9 +204,9 @@
 | # | 任务 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | 审计全部分页选择器 | [x] | 详见 [`docs/plan/page-size-refresh.md`](./plan/page-size-refresh.md) |
-| 2 | 修复用户列表刷新依赖 | [ ] | |
-| 3 | 修复日志实时流 Page Size 闭包 | [ ] | |
-| 4 | 类型检查、构建与运行时验证 | [ ] | |
+| 2 | 修复用户列表刷新依赖 | [x] | 加载 effect 已依赖 `pageSize` |
+| 3 | 修复日志实时流 Page Size 闭包 | [x] | SSE effect 已依赖 `pageSize` |
+| 4 | 类型检查、构建与运行时验证 | [x] | `bunx tsc --noEmit` / `bun run build` / 用户 API Page Size 验证通过 |
 
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19
