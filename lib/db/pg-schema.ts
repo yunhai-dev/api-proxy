@@ -107,6 +107,7 @@ export const channelTestLogs = pgTable("channel_test_logs", {
 
 export const modelMappings = pgTable("model_mappings", {
   id: text("id").primaryKey(),
+  groupId: text("group_id"),
   provider: text("provider", { enum: ["claude", "openai"] }).notNull(),
   targetProvider: text("target_provider", { enum: ["claude", "openai"] }).notNull().default("claude"),
   inboundModel: text("inbound_model").notNull(),
@@ -114,7 +115,9 @@ export const modelMappings = pgTable("model_mappings", {
   channelIds: text("channel_ids").array().notNull().default([]),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
-});
+}, table => [
+  index("model_mappings_group_id_idx").on(table.groupId),
+]);
 
 export const modelCatalog = pgTable("model_catalog", {
   id: text("id").primaryKey(),

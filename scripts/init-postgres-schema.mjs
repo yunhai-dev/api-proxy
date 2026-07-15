@@ -185,6 +185,7 @@ const statements = [
   )`,
   `CREATE TABLE IF NOT EXISTS model_mappings (
     id text PRIMARY KEY,
+    group_id text,
     provider text NOT NULL,
     target_provider text NOT NULL DEFAULT 'claude',
     inbound_model text NOT NULL,
@@ -193,9 +194,11 @@ const statements = [
     enabled boolean NOT NULL DEFAULT true,
     created_at bigint NOT NULL
   )`,
+  `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS group_id text`,
   `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`,
   `ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`,
   `UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`,
+  `CREATE INDEX IF NOT EXISTS model_mappings_group_id_idx ON model_mappings (group_id)`,
   `CREATE TABLE IF NOT EXISTS model_catalog (
     id text PRIMARY KEY,
     provider text NOT NULL,
@@ -299,10 +302,12 @@ try {
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_state text NOT NULL DEFAULT 'closed'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_opened_at bigint NOT NULL DEFAULT 0`);
       await sql.unsafe(`ALTER TABLE model_catalog ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
+      await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS group_id text`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS target_provider text NOT NULL DEFAULT 'claude'`);
       await sql.unsafe(`ALTER TABLE model_mappings ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true`);
       await sql.unsafe(`UPDATE model_mappings SET target_provider = provider WHERE target_provider = 'claude' AND provider <> 'claude'`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_mappings_provider_inbound_unique`);
+      await sql.unsafe(`CREATE INDEX IF NOT EXISTS model_mappings_group_id_idx ON model_mappings (group_id)`);
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);
