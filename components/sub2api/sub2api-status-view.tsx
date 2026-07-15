@@ -130,7 +130,7 @@ function Summary({ status }: { status: Status }) {
   const { health, today } = status;
   return (
     <>
-      <div className="stat-strip">
+      <div className="stat-strip mb-4">
         <Stat label="账号" value={health.total.toLocaleString()} extra={`可调度 ${health.schedulable} / 异常 ${health.error}`} />
         <Stat label="限流 / 过期" value={`${health.rateLimited} / ${health.expired}`} />
         <Stat label="并发" value={`${health.currentConcurrency} / ${health.maxConcurrency}`} />
