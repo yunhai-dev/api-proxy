@@ -220,7 +220,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
       // 让浏览器自动重连
     };
     return () => es.close();
-  }, [isAdminMode, selectedUserId, page, status, search, providerFilter, channelFilter, modelFilter]);
+  }, [isAdminMode, selectedUserId, page, pageSize, status, search, providerFilter, channelFilter, modelFilter]);
 
   const channelOptions = isAdminMode ? [...new Set(rows.map(r => r.channelName).filter(Boolean))].sort() : [];
   const modelOptions = [...new Set(rows.flatMap(r => isAdminMode ? [r.inboundModel, r.upstreamModel || r.model] : [r.inboundModel || r.model]).filter((name): name is string => !!name))].sort();

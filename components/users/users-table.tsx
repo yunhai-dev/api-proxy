@@ -65,7 +65,7 @@ export function UsersTable() {
     createdAt: row => row.createdAt,
   }, "username");
 
-  useEffect(() => { load(); }, [page, query, roleFilter, statusFilter, sort.key, sort.dir]);
+  useEffect(() => { load(); }, [page, pageSize, query, roleFilter, statusFilter, sort.key, sort.dir]);
   useEffect(() => { setPage(1); }, [query, roleFilter, statusFilter, sort.key, sort.dir]);
 
   async function load() {
