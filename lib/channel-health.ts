@@ -1,7 +1,6 @@
 import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
 import { endpointFor, headersFor } from "./upstream";
-import { modelRequiresResponsesLiteSerialTools, withOpenAiSerialTools } from "./openai-responses-lite";
 import { usePostgres } from "./db/runtime";
 
 const TIMEOUT_MS = 15_000;
@@ -65,20 +64,6 @@ function testBody(channel: typeof schema.channels.$inferSelect, model: string) {
       max_tokens: 1,
       messages: [{ role: "user", content: "ping" }],
     });
-  }
-  if (modelRequiresResponsesLiteSerialTools(model)) {
-    const body = withOpenAiSerialTools({
-      model,
-      input: "ping",
-      max_output_tokens: 1,
-      parallel_tool_calls: true,
-      reasoning: { effort: "low" },
-    }, {
-      type: "openai",
-      openAiEndpoint: "responses",
-      model,
-    });
-    return JSON.stringify(body);
   }
   return JSON.stringify({
     model,
