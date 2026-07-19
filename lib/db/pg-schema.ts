@@ -210,6 +210,33 @@ export const giftCards = pgTable("gift_cards", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+export const notificationStates = pgTable("notification_states", {
+  stateKey: text("state_key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  generation: integer("generation").notNull().default(0),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const notificationOutbox = pgTable("notification_outbox", {
+  id: serial("id").primaryKey(),
+  dedupeKey: text("dedupe_key").notNull(),
+  channel: text("channel").notNull(),
+  recipient: text("recipient").notNull().default(""),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
+  leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  sentAt: bigint("sent_at", { mode: "number" }),
+}, table => [
+  uniqueIndex("notification_outbox_dedupe_unique").on(table.dedupeKey),
+  index("notification_outbox_ready_idx").on(table.status, table.nextAttemptAt, table.leaseUntil),
+]);
+
 export type Key = typeof keys.$inferSelect;
 export type Channel = typeof channels.$inferSelect;
 export type RequestLog = typeof requestLogs.$inferSelect;

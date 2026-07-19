@@ -29,6 +29,8 @@ const requiredTables = [
   "model_prices",
   "email_verifications",
   "gift_cards",
+  "notification_states",
+  "notification_outbox",
 ];
 
 const statements = [
@@ -255,6 +257,29 @@ const statements = [
     redeemed_at bigint,
     created_at bigint NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS notification_states (
+    state_key text PRIMARY KEY,
+    active boolean NOT NULL DEFAULT false,
+    generation integer NOT NULL DEFAULT 0,
+    updated_at bigint NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS notification_outbox (
+    id serial PRIMARY KEY,
+    dedupe_key text NOT NULL UNIQUE,
+    channel text NOT NULL,
+    recipient text NOT NULL DEFAULT '',
+    event_type text NOT NULL,
+    payload text NOT NULL,
+    status text NOT NULL DEFAULT 'pending',
+    attempts integer NOT NULL DEFAULT 0,
+    next_attempt_at bigint NOT NULL,
+    lease_until bigint NOT NULL DEFAULT 0,
+    last_error text,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    sent_at bigint
+  )`,
+  `CREATE INDEX IF NOT EXISTS notification_outbox_ready_idx ON notification_outbox (status, next_attempt_at, lease_until)`,
 ];
 
 const sql = postgres(url, { max: 1, onnotice: () => {} });
