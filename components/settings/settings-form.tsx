@@ -328,7 +328,7 @@ export function SettingsForm() {
         <div className="settings-card wide" hidden={activeTab !== "notifications"}>
           <h2>平台通知 · ServerChan</h2>
           <Toggle label="启用平台通知" hint="平台级故障只发送到此 ServerChan 管理员通道。" checked={settings.notificationsAdminEnabled} onChange={notificationsAdminEnabled => setSettings({ ...settings, notificationsAdminEnabled })} />
-          <div className="field-row">
+          <div className="field-row mb-3">
             <div className="field"><label>ServerChan UID</label><input className="mono" value={settings.serverChanUid} onChange={e => setSettings({ ...settings, serverChanUid: e.target.value.replace(/\D/g, "") })} /></div>
             <div className="field"><label>SendKey</label><input className="mono" type="password" value={settings.serverChanSendKey === "__configured__" ? "" : settings.serverChanSendKey} placeholder={settings.serverChanSendKey === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, serverChanSendKey: e.target.value })} /></div>
           </div>
@@ -440,8 +440,12 @@ export function SettingsForm() {
           <h2>默认用户限制</h2>
           <div className="field-row"><div className="field"><LabelHelp label="默认 RPM" help="Requests Per Minute，每分钟最多允许的请求次数。" /><input className="mono" value={settings.defaultRateLimitRpm || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultRateLimitRpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div><div className="field"><LabelHelp label="默认 TPM" help="Tokens Per Minute，每分钟最多允许消耗的输入与输出 Token 总数。" /><input className="mono" value={settings.defaultRateLimitTpm || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultRateLimitTpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div></div>
           <div className="field"><LabelHelp label="默认最大并发" help="同一用户同一时间最多允许多少个请求正在运行。" /><input className="mono" value={settings.defaultMaxConcurrency || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultMaxConcurrency: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
-          <div className="field"><LabelHelp label="全局计费倍率" help="按模型定价计算出的费用会统一乘以该倍率，影响费用展示和用户额度扣减。" /><input className="mono" value={settings.globalBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, globalBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
-          <div className="hint">用户未单独配置这些限制时使用这里的默认值；填空或 0 表示不限制。</div>
+          <div className="field"><LabelHelp label="全局计费倍率" help="所有费用先乘以全局倍率，再乘以对应服务商倍率。" /><input className="mono" value={settings.globalBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, globalBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
+          <div className="field-row">
+            <div className="field"><LabelHelp label="Claude 计费倍率" help="Claude 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" value={settings.claudeBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, claudeBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
+            <div className="field"><LabelHelp label="OpenAI 计费倍率" help="OpenAI 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" value={settings.openaiBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, openaiBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
+          </div>
+          <div className="hint">用户未单独配置这些限制时使用这里的默认值；限制填空或 0 表示不限，计费倍率 0 表示不计费。</div>
           {renderSaveButton()}
         </div>
       </div>

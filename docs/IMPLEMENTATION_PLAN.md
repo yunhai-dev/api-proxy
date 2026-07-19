@@ -228,6 +228,15 @@
 | 5 | 用户额度事件接入 | [x] | |
 | 6 | 测试与发布检查 | [x] | 聚焦测试、`bunx tsc --noEmit`、`bun run build` 通过；本地未配置 `DATABASE_URL`，未执行 schema 初始化 |
 
+## 服务商计费倍率
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 设置与管理接口 | [x] | 详见 [`docs/plan/provider-billing-multiplier.md`](./plan/provider-billing-multiplier.md) |
+| 2 | 统一倍率计算 | [x] | |
+| 3 | 管理界面 | [x] | |
+| 4 | 测试与发布检查 | [x] | 聚焦测试、`bunx tsc --noEmit`、`bun run build`、`git diff --check` 通过 |
+
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19
 - **数据库**：PostgreSQL + Drizzle ORM，Redis 承载跨实例限流/并发/日志 fanout

@@ -21,6 +21,8 @@ export type AppSettings = {
   defaultRateLimitTpm: number;
   defaultMaxConcurrency: number;
   globalBillingMultiplier: number;
+  claudeBillingMultiplier: number;
+  openaiBillingMultiplier: number;
   siteUrl: string;
   siteName: string;
   siteLogoUrl: string;
@@ -73,6 +75,8 @@ const defaults: AppSettings = {
   defaultRateLimitTpm: 0,
   defaultMaxConcurrency: 0,
   globalBillingMultiplier: 1,
+  claudeBillingMultiplier: 1,
+  openaiBillingMultiplier: 1,
   siteUrl: "http://localhost:3000",
   siteName: "api-proxy",
   siteLogoUrl: "",
@@ -138,6 +142,8 @@ export function updateSettings(input: Partial<AppSettings>) {
     defaultRateLimitTpm: Math.max(0, Number(input.defaultRateLimitTpm) || current.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(input.defaultMaxConcurrency) || current.defaultMaxConcurrency),
     globalBillingMultiplier: input.globalBillingMultiplier === undefined ? current.globalBillingMultiplier : Math.max(0, Number(input.globalBillingMultiplier) || 0),
+    claudeBillingMultiplier: input.claudeBillingMultiplier === undefined ? current.claudeBillingMultiplier : Math.max(0, Number(input.claudeBillingMultiplier) || 0),
+    openaiBillingMultiplier: input.openaiBillingMultiplier === undefined ? current.openaiBillingMultiplier : Math.max(0, Number(input.openaiBillingMultiplier) || 0),
     siteUrl: input.siteUrl ?? current.siteUrl,
     siteName: input.siteName ?? current.siteName,
     siteLogoUrl: input.siteLogoUrl ?? current.siteLogoUrl,
@@ -221,6 +227,8 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     defaultRateLimitTpm: Math.max(0, Number(values.get("defaultRateLimitTpm")) || defaults.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(values.get("defaultMaxConcurrency")) || defaults.defaultMaxConcurrency),
     globalBillingMultiplier: nonNegativeNumber(values.get("globalBillingMultiplier"), defaults.globalBillingMultiplier),
+    claudeBillingMultiplier: nonNegativeNumber(values.get("claudeBillingMultiplier"), defaults.claudeBillingMultiplier),
+    openaiBillingMultiplier: nonNegativeNumber(values.get("openaiBillingMultiplier"), defaults.openaiBillingMultiplier),
     siteUrl: values.get("siteUrl") || defaults.siteUrl,
     siteName: values.get("siteName") || defaults.siteName,
     siteLogoUrl: values.get("siteLogoUrl") || defaults.siteLogoUrl,
@@ -275,6 +283,8 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     defaultRateLimitTpm: Math.max(0, Number(input.defaultRateLimitTpm) || current.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(input.defaultMaxConcurrency) || current.defaultMaxConcurrency),
     globalBillingMultiplier: input.globalBillingMultiplier === undefined ? current.globalBillingMultiplier : Math.max(0, Number(input.globalBillingMultiplier) || 0),
+    claudeBillingMultiplier: input.claudeBillingMultiplier === undefined ? current.claudeBillingMultiplier : Math.max(0, Number(input.claudeBillingMultiplier) || 0),
+    openaiBillingMultiplier: input.openaiBillingMultiplier === undefined ? current.openaiBillingMultiplier : Math.max(0, Number(input.openaiBillingMultiplier) || 0),
     siteUrl: input.siteUrl ?? current.siteUrl,
     siteName: input.siteName ?? current.siteName,
     siteLogoUrl: input.siteLogoUrl ?? current.siteLogoUrl,

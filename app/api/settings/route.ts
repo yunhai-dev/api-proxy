@@ -39,6 +39,8 @@ export async function PATCH(req: NextRequest) {
     defaultRateLimitTpm: body.defaultRateLimitTpm === undefined ? undefined : Number(body.defaultRateLimitTpm),
     defaultMaxConcurrency: body.defaultMaxConcurrency === undefined ? undefined : Number(body.defaultMaxConcurrency),
     globalBillingMultiplier: body.globalBillingMultiplier === undefined ? undefined : Number(body.globalBillingMultiplier),
+    claudeBillingMultiplier: body.claudeBillingMultiplier === undefined ? undefined : Number(body.claudeBillingMultiplier),
+    openaiBillingMultiplier: body.openaiBillingMultiplier === undefined ? undefined : Number(body.openaiBillingMultiplier),
     siteUrl: typeof body.siteUrl === "string" ? body.siteUrl.trim() : undefined,
     siteName: typeof body.siteName === "string" ? body.siteName.trim() : undefined,
     siteLogoUrl: typeof body.siteLogoUrl === "string" ? body.siteLogoUrl.trim() : undefined,

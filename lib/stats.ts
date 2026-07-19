@@ -5,6 +5,7 @@ import { usePostgres } from "./db/runtime";
 import { modelLookupCandidates } from "./model-variants";
 import { getSettings, getSettingsAsync } from "./settings";
 import { startOfShanghaiDay } from "./time";
+import { applyBillingMultipliers } from "./billing";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -126,8 +127,8 @@ export function getDashboardStats(period: DashboardPeriod = "24h", opts: { userI
   cleanupStaleActiveRequests(now);
   const prices = db.select().from(schema.modelPrices).all();
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = getSettings().globalBillingMultiplier;
-  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap) * billingMultiplier;
+  const settings = getSettings();
+  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => applyBillingMultipliers(logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap), provider, settings);
   const { since, until } = resolvePeriod(period, now);
   const periodMs = Math.max(1, until - since);
   const prevSince = since - periodMs;
@@ -461,8 +462,8 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const { pgDb, pgSchema } = await import("./db/pg");
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
-  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap) * billingMultiplier;
+  const settings = await getSettingsAsync();
+  const costFor = (provider: "claude" | "openai", channelId: string, model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheCreationTokens = 0) => applyBillingMultipliers(logCost(provider, channelId, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, priceMap), provider, settings);
   const { since, until } = resolvePeriod(period, now);
   const periodMs = Math.max(1, until - since);
   const prevSince = since - periodMs;
@@ -870,7 +871,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
 
   const prices = db.select().from(schema.modelPrices).all();
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = getSettings().globalBillingMultiplier;
+  const settings = getSettings();
 
   return rows.map(row => {
     const { requestDetail, ...rest } = row;
@@ -883,7 +884,7 @@ export function getRecentLogs(limit = 200, statusFilter: string = "all", opts: {
       userName: row.userName ?? row.username ?? "未知用户",
       username: row.username ?? "",
       reasoningEffort: reasoningEffortFromDetail(requestDetail),
-      cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
+      cost: applyBillingMultipliers(logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap), row.channelType ?? "openai", settings),
     };
   }) as LogListEntry[];
 }
@@ -941,7 +942,7 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
   const rows = await query.orderBy(desc(pgSchema.requestLogs.ts)).limit(limit);
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
+  const settings = await getSettingsAsync();
   return rows.map(row => {
     const { requestDetail, ...rest } = row;
     return {
@@ -953,7 +954,7 @@ export async function getRecentLogsAsync(limit = 200, statusFilter: string = "al
       userName: row.userName ?? row.username ?? "未知用户",
       username: row.username ?? "",
       reasoningEffort: reasoningEffortFromDetail(requestDetail),
-      cost: logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap) * billingMultiplier,
+      cost: applyBillingMultipliers(logCost(row.channelType ?? "openai", row.channelId, row.model, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap), row.channelType ?? "openai", settings),
     };
   }) as LogListEntry[];
 }

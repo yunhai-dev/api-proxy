@@ -8,6 +8,7 @@ import { getSettings, getSettingsAsync } from "@/lib/settings";
 import { upsertRequestStatAsync } from "@/lib/request-stats";
 import type { pgDb } from "./db/pg";
 import { enqueueUserThresholds, kickNotificationDrain } from "@/lib/notifications";
+import { applyBillingMultipliers } from "@/lib/billing";
 
 type PgWriter = Pick<typeof pgDb, "insert" | "select" | "update">;
 type Subscriber = (entry: LogListEntry) => void;
@@ -388,10 +389,11 @@ function logCost(provider: "claude" | "openai", channelId: string, model: string
   const prices = db.select().from(schema.modelPrices).all().filter(row => candidates.includes(row.model));
   const resolvedPrice = resolvePrice(provider, channelId, candidates, prices);
   if (!resolvedPrice) return 0;
-  return ((tokensIn / 1_000_000) * resolvedPrice.inputPricePerMTok
+  const baseCost = (tokensIn / 1_000_000) * resolvedPrice.inputPricePerMTok
     + (tokensOut / 1_000_000) * resolvedPrice.outputPricePerMTok
     + (cacheReadTokens / 1_000_000) * resolvedPrice.cacheReadPricePerMTok
-    + (cacheCreationTokens / 1_000_000) * resolvedPrice.cacheCreationPricePerMTok) * getSettings().globalBillingMultiplier;
+    + (cacheCreationTokens / 1_000_000) * resolvedPrice.cacheCreationPricePerMTok;
+  return applyBillingMultipliers(baseCost, provider, getSettings());
 }
 
 async function logCostAsync(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
@@ -400,11 +402,12 @@ async function logCostAsync(provider: "claude" | "openai", channelId: string, mo
   const prices = (await pgDb.select().from(pgSchema.modelPrices)).filter(row => candidates.includes(row.model));
   const price = resolvePrice(provider, channelId, candidates, prices);
   if (!price) return 0;
-  const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
-  return ((tokensIn / 1_000_000) * price.inputPricePerMTok
+  const settings = await getSettingsAsync();
+  const baseCost = (tokensIn / 1_000_000) * price.inputPricePerMTok
     + (tokensOut / 1_000_000) * price.outputPricePerMTok
     + (cacheReadTokens / 1_000_000) * price.cacheReadPricePerMTok
-    + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok) * billingMultiplier;
+    + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok;
+  return applyBillingMultipliers(baseCost, provider, settings);
 }
 
 function resolvePrice<T extends { provider: string; channelId?: string; model: string }>(provider: "claude" | "openai", channelId: string, models: string[], prices: T[]) {
