@@ -2,6 +2,7 @@ import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
 import { endpointFor, headersFor } from "./upstream";
 import { usePostgres } from "./db/runtime";
+import { kickNotificationDrain, setPlatformIncident } from "./notifications";
 
 const TIMEOUT_MS = 15_000;
 const CIRCUIT_COOLDOWN_MS = 10_000;
@@ -141,6 +142,17 @@ export async function recordChannelObservation(
       .set({ p50Ms: p50, errRate: err, status, circuitState: circuit.state, circuitOpenedAt: circuit.openedAt })
       .where(eq(pgSchema.channels.id, channel.id));
     await pgDb.insert(pgSchema.channelTestLogs).values({ channelId: channel.id, ts, ok: ping.ok, latencyMs: ping.latencyMs, errorMsg: ping.error ?? null });
+    if (channel.circuitState !== circuit.state && (circuit.state === "open" || circuit.state === "closed")) {
+      void setPlatformIncident({
+        stateKey: `channel-circuit:${channel.id}`,
+        eventType: "channel-circuit",
+        active: circuit.state === "open",
+        payload: {
+          title: circuit.state === "open" ? `渠道熔断：${channel.name}` : `渠道恢复：${channel.name}`,
+          desp: circuit.state === "open" ? `渠道 ${channel.name} 已进入熔断状态。${ping.error ? `错误：${ping.error.slice(0, 120)}` : ""}` : `渠道 ${channel.name} 已恢复并关闭熔断。`,
+        },
+      }).then(changed => { if (changed) kickNotificationDrain(); }).catch(() => null);
+    }
     return { ping, p50, err, status, circuit };
   }
 
