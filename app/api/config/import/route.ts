@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   }
 
   for (const row of Array.isArray(body.settings) ? body.settings : []) {
-    if (!row?.key || typeof row.value !== "string" || row.key === "smtpPassword" || row.key === "sub2apiAdminKey") continue;
+    if (!row?.key || typeof row.value !== "string" || row.key === "smtpPassword" || row.key === "sub2apiAdminKey" || row.key === "serverChanSendKey") continue;
     const value = { key: row.key, value: row.value, updatedAt: Date.now() };
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.settings).where(eq(pg.pgSchema.settings.key, row.key)).limit(1))[0]

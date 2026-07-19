@@ -21,6 +21,8 @@ export type AppSettings = {
   defaultRateLimitTpm: number;
   defaultMaxConcurrency: number;
   globalBillingMultiplier: number;
+  claudeBillingMultiplier: number;
+  openaiBillingMultiplier: number;
   siteUrl: string;
   siteName: string;
   siteLogoUrl: string;
@@ -38,6 +40,21 @@ export type AppSettings = {
   smtpFromName: string;
   sub2apiBaseUrl: string;
   sub2apiAdminKey: string;
+  notificationsAdminEnabled: boolean;
+  serverChanUid: string;
+  serverChanSendKey: string;
+  notifyAdminChannelCircuit: boolean;
+  notifyAdminChannelCircuitRecovery: boolean;
+  notifyAdminNoLiveChannel: boolean;
+  notifyAdminNoLiveChannelRecovery: boolean;
+  notifyAdminUpstreamExhausted: boolean;
+  notifyAdminUpstreamExhaustedRecovery: boolean;
+  notificationsUserEmailEnabled: boolean;
+  notifyUserUsdBalance20: boolean;
+  notifyUserUsdBalance10: boolean;
+  notifyUserUsdBalance0: boolean;
+  notifyUserKeyQuota80: boolean;
+  notifyUserKeyQuota100: boolean;
 };
 
 const defaults: AppSettings = {
@@ -58,6 +75,8 @@ const defaults: AppSettings = {
   defaultRateLimitTpm: 0,
   defaultMaxConcurrency: 0,
   globalBillingMultiplier: 1,
+  claudeBillingMultiplier: 1,
+  openaiBillingMultiplier: 1,
   siteUrl: "http://localhost:3000",
   siteName: "api-proxy",
   siteLogoUrl: "",
@@ -75,6 +94,21 @@ const defaults: AppSettings = {
   smtpFromName: "api-proxy",
   sub2apiBaseUrl: "",
   sub2apiAdminKey: "",
+  notificationsAdminEnabled: false,
+  serverChanUid: "",
+  serverChanSendKey: "",
+  notifyAdminChannelCircuit: false,
+  notifyAdminChannelCircuitRecovery: false,
+  notifyAdminNoLiveChannel: false,
+  notifyAdminNoLiveChannelRecovery: false,
+  notifyAdminUpstreamExhausted: false,
+  notifyAdminUpstreamExhaustedRecovery: false,
+  notificationsUserEmailEnabled: false,
+  notifyUserUsdBalance20: false,
+  notifyUserUsdBalance10: false,
+  notifyUserUsdBalance0: false,
+  notifyUserKeyQuota80: false,
+  notifyUserKeyQuota100: false,
 };
 
 export function getSettings(): AppSettings {
@@ -108,6 +142,8 @@ export function updateSettings(input: Partial<AppSettings>) {
     defaultRateLimitTpm: Math.max(0, Number(input.defaultRateLimitTpm) || current.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(input.defaultMaxConcurrency) || current.defaultMaxConcurrency),
     globalBillingMultiplier: input.globalBillingMultiplier === undefined ? current.globalBillingMultiplier : Math.max(0, Number(input.globalBillingMultiplier) || 0),
+    claudeBillingMultiplier: input.claudeBillingMultiplier === undefined ? current.claudeBillingMultiplier : Math.max(0, Number(input.claudeBillingMultiplier) || 0),
+    openaiBillingMultiplier: input.openaiBillingMultiplier === undefined ? current.openaiBillingMultiplier : Math.max(0, Number(input.openaiBillingMultiplier) || 0),
     siteUrl: input.siteUrl ?? current.siteUrl,
     siteName: input.siteName ?? current.siteName,
     siteLogoUrl: input.siteLogoUrl ?? current.siteLogoUrl,
@@ -125,10 +161,25 @@ export function updateSettings(input: Partial<AppSettings>) {
     smtpFromName: input.smtpFromName ?? current.smtpFromName,
     sub2apiBaseUrl: input.sub2apiBaseUrl ?? current.sub2apiBaseUrl,
     sub2apiAdminKey: input.sub2apiAdminKey === undefined ? current.sub2apiAdminKey : input.sub2apiAdminKey,
+    notificationsAdminEnabled: input.notificationsAdminEnabled ?? current.notificationsAdminEnabled,
+    serverChanUid: input.serverChanUid ?? current.serverChanUid,
+    serverChanSendKey: input.serverChanSendKey === undefined ? current.serverChanSendKey : input.serverChanSendKey,
+    notifyAdminChannelCircuit: input.notifyAdminChannelCircuit ?? current.notifyAdminChannelCircuit,
+    notifyAdminChannelCircuitRecovery: input.notifyAdminChannelCircuitRecovery ?? current.notifyAdminChannelCircuitRecovery,
+    notifyAdminNoLiveChannel: input.notifyAdminNoLiveChannel ?? current.notifyAdminNoLiveChannel,
+    notifyAdminNoLiveChannelRecovery: input.notifyAdminNoLiveChannelRecovery ?? current.notifyAdminNoLiveChannelRecovery,
+    notifyAdminUpstreamExhausted: input.notifyAdminUpstreamExhausted ?? current.notifyAdminUpstreamExhausted,
+    notifyAdminUpstreamExhaustedRecovery: input.notifyAdminUpstreamExhaustedRecovery ?? current.notifyAdminUpstreamExhaustedRecovery,
+    notificationsUserEmailEnabled: input.notificationsUserEmailEnabled ?? current.notificationsUserEmailEnabled,
+    notifyUserUsdBalance20: input.notifyUserUsdBalance20 ?? current.notifyUserUsdBalance20,
+    notifyUserUsdBalance10: input.notifyUserUsdBalance10 ?? current.notifyUserUsdBalance10,
+    notifyUserUsdBalance0: input.notifyUserUsdBalance0 ?? current.notifyUserUsdBalance0,
+    notifyUserKeyQuota80: input.notifyUserKeyQuota80 ?? current.notifyUserKeyQuota80,
+    notifyUserKeyQuota100: input.notifyUserKeyQuota100 ?? current.notifyUserKeyQuota100,
   };
   const now = Date.now();
   for (const [key, value] of Object.entries(next)) {
-    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey") ? encryptSecret(String(value)) : String(value);
+    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey" || key === "serverChanSendKey") ? encryptSecret(String(value)) : String(value);
     const encoded = typeof value === "boolean" ? (value ? "1" : "0") : raw;
     const exists = db.select().from(schema.settings).where(eq(schema.settings.key, key)).get();
     if (exists) {
@@ -147,7 +198,7 @@ export async function updateSettingsAsync(input: Partial<AppSettings>) {
   const next = nextSettings(current, input);
   const now = Date.now();
   for (const [key, value] of Object.entries(next)) {
-    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey") ? encryptSecret(String(value)) : String(value);
+    const raw = (key === "smtpPassword" || key === "sub2apiAdminKey" || key === "serverChanSendKey") ? encryptSecret(String(value)) : String(value);
     const encoded = typeof value === "boolean" ? (value ? "1" : "0") : raw;
     await pgDb.insert(pgSchema.settings)
       .values({ key, value: encoded, updatedAt: now })
@@ -176,6 +227,8 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     defaultRateLimitTpm: Math.max(0, Number(values.get("defaultRateLimitTpm")) || defaults.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(values.get("defaultMaxConcurrency")) || defaults.defaultMaxConcurrency),
     globalBillingMultiplier: nonNegativeNumber(values.get("globalBillingMultiplier"), defaults.globalBillingMultiplier),
+    claudeBillingMultiplier: nonNegativeNumber(values.get("claudeBillingMultiplier"), defaults.claudeBillingMultiplier),
+    openaiBillingMultiplier: nonNegativeNumber(values.get("openaiBillingMultiplier"), defaults.openaiBillingMultiplier),
     siteUrl: values.get("siteUrl") || defaults.siteUrl,
     siteName: values.get("siteName") || defaults.siteName,
     siteLogoUrl: values.get("siteLogoUrl") || defaults.siteLogoUrl,
@@ -193,6 +246,21 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     smtpFromName: values.get("smtpFromName") || defaults.smtpFromName,
     sub2apiBaseUrl: values.get("sub2apiBaseUrl") || defaults.sub2apiBaseUrl,
     sub2apiAdminKey: decryptSecret(values.get("sub2apiAdminKey") || defaults.sub2apiAdminKey),
+    notificationsAdminEnabled: bool(values.get("notificationsAdminEnabled"), defaults.notificationsAdminEnabled),
+    serverChanUid: values.get("serverChanUid") || defaults.serverChanUid,
+    serverChanSendKey: decryptSecret(values.get("serverChanSendKey") || defaults.serverChanSendKey),
+    notifyAdminChannelCircuit: bool(values.get("notifyAdminChannelCircuit"), defaults.notifyAdminChannelCircuit),
+    notifyAdminChannelCircuitRecovery: bool(values.get("notifyAdminChannelCircuitRecovery"), defaults.notifyAdminChannelCircuitRecovery),
+    notifyAdminNoLiveChannel: bool(values.get("notifyAdminNoLiveChannel"), defaults.notifyAdminNoLiveChannel),
+    notifyAdminNoLiveChannelRecovery: bool(values.get("notifyAdminNoLiveChannelRecovery"), defaults.notifyAdminNoLiveChannelRecovery),
+    notifyAdminUpstreamExhausted: bool(values.get("notifyAdminUpstreamExhausted"), defaults.notifyAdminUpstreamExhausted),
+    notifyAdminUpstreamExhaustedRecovery: bool(values.get("notifyAdminUpstreamExhaustedRecovery"), defaults.notifyAdminUpstreamExhaustedRecovery),
+    notificationsUserEmailEnabled: bool(values.get("notificationsUserEmailEnabled"), defaults.notificationsUserEmailEnabled),
+    notifyUserUsdBalance20: bool(values.get("notifyUserUsdBalance20"), defaults.notifyUserUsdBalance20),
+    notifyUserUsdBalance10: bool(values.get("notifyUserUsdBalance10"), defaults.notifyUserUsdBalance10),
+    notifyUserUsdBalance0: bool(values.get("notifyUserUsdBalance0"), defaults.notifyUserUsdBalance0),
+    notifyUserKeyQuota80: bool(values.get("notifyUserKeyQuota80"), defaults.notifyUserKeyQuota80),
+    notifyUserKeyQuota100: bool(values.get("notifyUserKeyQuota100"), defaults.notifyUserKeyQuota100),
   };
 }
 
@@ -215,6 +283,8 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     defaultRateLimitTpm: Math.max(0, Number(input.defaultRateLimitTpm) || current.defaultRateLimitTpm),
     defaultMaxConcurrency: Math.max(0, Number(input.defaultMaxConcurrency) || current.defaultMaxConcurrency),
     globalBillingMultiplier: input.globalBillingMultiplier === undefined ? current.globalBillingMultiplier : Math.max(0, Number(input.globalBillingMultiplier) || 0),
+    claudeBillingMultiplier: input.claudeBillingMultiplier === undefined ? current.claudeBillingMultiplier : Math.max(0, Number(input.claudeBillingMultiplier) || 0),
+    openaiBillingMultiplier: input.openaiBillingMultiplier === undefined ? current.openaiBillingMultiplier : Math.max(0, Number(input.openaiBillingMultiplier) || 0),
     siteUrl: input.siteUrl ?? current.siteUrl,
     siteName: input.siteName ?? current.siteName,
     siteLogoUrl: input.siteLogoUrl ?? current.siteLogoUrl,
@@ -232,6 +302,21 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     smtpFromName: input.smtpFromName ?? current.smtpFromName,
     sub2apiBaseUrl: input.sub2apiBaseUrl ?? current.sub2apiBaseUrl,
     sub2apiAdminKey: input.sub2apiAdminKey === undefined ? current.sub2apiAdminKey : input.sub2apiAdminKey,
+    notificationsAdminEnabled: input.notificationsAdminEnabled ?? current.notificationsAdminEnabled,
+    serverChanUid: input.serverChanUid ?? current.serverChanUid,
+    serverChanSendKey: input.serverChanSendKey === undefined ? current.serverChanSendKey : input.serverChanSendKey,
+    notifyAdminChannelCircuit: input.notifyAdminChannelCircuit ?? current.notifyAdminChannelCircuit,
+    notifyAdminChannelCircuitRecovery: input.notifyAdminChannelCircuitRecovery ?? current.notifyAdminChannelCircuitRecovery,
+    notifyAdminNoLiveChannel: input.notifyAdminNoLiveChannel ?? current.notifyAdminNoLiveChannel,
+    notifyAdminNoLiveChannelRecovery: input.notifyAdminNoLiveChannelRecovery ?? current.notifyAdminNoLiveChannelRecovery,
+    notifyAdminUpstreamExhausted: input.notifyAdminUpstreamExhausted ?? current.notifyAdminUpstreamExhausted,
+    notifyAdminUpstreamExhaustedRecovery: input.notifyAdminUpstreamExhaustedRecovery ?? current.notifyAdminUpstreamExhaustedRecovery,
+    notificationsUserEmailEnabled: input.notificationsUserEmailEnabled ?? current.notificationsUserEmailEnabled,
+    notifyUserUsdBalance20: input.notifyUserUsdBalance20 ?? current.notifyUserUsdBalance20,
+    notifyUserUsdBalance10: input.notifyUserUsdBalance10 ?? current.notifyUserUsdBalance10,
+    notifyUserUsdBalance0: input.notifyUserUsdBalance0 ?? current.notifyUserUsdBalance0,
+    notifyUserKeyQuota80: input.notifyUserKeyQuota80 ?? current.notifyUserKeyQuota80,
+    notifyUserKeyQuota100: input.notifyUserKeyQuota100 ?? current.notifyUserKeyQuota100,
   };
 }
 

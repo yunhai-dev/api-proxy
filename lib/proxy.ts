@@ -17,6 +17,7 @@ import { usePostgres } from "./db/runtime";
 import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
 import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
+import { kickNotificationDrain, setPlatformIncident } from "./notifications";
 
 const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
@@ -646,6 +647,31 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 400, error: "缺少 model 字段" };
   }
+  const incidentKey = (type: "no-live-channel" | "upstream-exhausted") => `${type}:${req.type}:${model}`;
+  function updateProxyIncident(type: "no-live-channel" | "upstream-exhausted", active: boolean, attempts: { channel: string; error: string; status: number }[] = []) {
+    const label = type === "no-live-channel" ? "无可用渠道" : "上游尝试耗尽";
+    const details = attempts.slice(-3).map(attempt => `${attempt.channel}: HTTP ${attempt.status || 0} ${attempt.error.slice(0, 100)}`).join("\n");
+    void setPlatformIncident({
+      stateKey: incidentKey(type),
+      eventType: type,
+      active,
+      payload: {
+        title: active ? `${label}：${req.type}/${model}` : `${label}已恢复：${req.type}/${model}`,
+        desp: active ? `服务商 ${req.type}、模型 ${model} 触发${label}。${details ? `\n${details}` : ""}` : `服务商 ${req.type}、模型 ${model} 的请求已恢复成功。`,
+      },
+      settings,
+    }).then(changed => { if (changed) kickNotificationDrain(); }).catch(() => null);
+  }
+  function resolveProxyIncidents() {
+    updateProxyIncident("no-live-channel", false);
+    updateProxyIncident("upstream-exhausted", false);
+  }
+  function upstreamFailure(status: number, attempts: { channel: string; error: string; status: number }[]): ProxyResult {
+    if (attempts.length) updateProxyIncident("upstream-exhausted", true, attempts);
+    else updateProxyIncident("no-live-channel", true);
+    return { kind: "upstream_error", requestId, status, error: USER_UPSTREAM_ERROR, attempts };
+  }
+
   const modelCandidates = modelLookupCandidates(model);
   const { mappings, matchedModel: mappingMatchedModel } = await modelMappingCandidateAsync(req.type, modelCandidates);
   const primaryMapping = mappings[0] ?? null;
@@ -771,7 +797,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
           await settleTpm(null);
-          return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+          return upstreamFailure(502, attempts);
         }
         if (!prepared.ok) {
           releaseSlot();
@@ -779,9 +805,10 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: prepared.message, status: result.status }];
           await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${prepared.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
           await settleTpm(null);
-          return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+          return upstreamFailure(502, attempts);
         }
         await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
+        resolveProxyIncidents();
         return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
       }
       const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
@@ -796,7 +823,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         const attempts = [...previousAttempts, { channel: fallbackChannel.name, error, status: 502 }];
         await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error }, { failureStatus: "err" });
         await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
-        return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+        return upstreamFailure(502, attempts);
       } finally {
         releaseSlot();
         releaseAllKeySlots();
@@ -806,7 +833,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         await recordChannelObservation(fallbackChannel, { ok: false, latencyMs: Date.now() - attemptStart, error: processed.message }, { failureStatus: "warn" });
         const attempts = [...previousAttempts, { channel: fallbackChannel.name, error: processed.message, status: result.status }];
         await recordFailure({ requestId, ts: t0, type: req.type, status: 502, error: `fallback ${fallbackChannel.name}: ${processed.message}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
-        return { kind: "upstream_error", requestId, status: 502, error: USER_UPSTREAM_ERROR, attempts };
+        return upstreamFailure(502, attempts);
       }
 
       const response = processed.ok ? processed.response : new Response(processed.info.responseBody ?? "", {
@@ -828,6 +855,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         errorMsg,
       );
       await settleTpm(processed.info.tokensIn + processed.info.tokensOut);
+      resolveProxyIncidents();
       return { kind: "success", requestId, response, logged: { ...processed.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
     }
 
@@ -838,7 +866,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     await recordFailure({ requestId, ts: t0, type: req.type, status: fallbackStatus, error: `fallback ${fallbackChannel.name}: ${result.errorMsg}`, body: req.body, requestHeaders: req.incomingHeaders, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key, channel: fallbackChannel, attempts });
     await settleTpm(0);
     releaseAllKeySlots();
-    return { kind: "upstream_error", requestId, status: fallbackStatus, error: USER_UPSTREAM_ERROR, attempts };
+    return upstreamFailure(fallbackStatus, attempts);
   }
 
   const requestedOutputTokens = numericField(parsed, req.type === "claude" ? "max_tokens" : req.openAiEndpoint === "responses" ? "max_output_tokens" : "max_completion_tokens")
@@ -875,7 +903,10 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     await recordFailure({ requestId, ts: t0, type: req.type, status, error, body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: primaryMapping?.upstreamModel ?? model, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key });
     await settleTpm(0);
     releaseAllKeySlots();
-    if (mappings.length || fallbackConfigured) return { kind: "upstream_error", requestId, status, error, attempts: [] };
+    if (mappings.length || fallbackConfigured) {
+      updateProxyIncident("no-live-channel", true);
+      return { kind: "upstream_error", requestId, status, error, attempts: [] };
+    }
     return { kind: "client_error", requestId, status: 404, error };
   }
 
@@ -958,6 +989,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         }
 
         await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
+        resolveProxyIncidents();
         return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: route.channel.id, channelName: route.channel.name } };
       }
       const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
@@ -1000,6 +1032,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       );
       await settleTpm(processed.info.tokensIn + processed.info.tokensOut);
       releaseAllKeySlots();
+      resolveProxyIncidents();
       return { kind: "success", requestId, response, logged: { ...processed.info, channelId: route.channel.id, channelName: route.channel.name } };
     }
 
@@ -1029,6 +1062,8 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   await recordFailure({ requestId, ts: t0, type: req.type, status: finalStatus, error: internalError, body: req.body, requestHeaders: req.incomingHeaders, model: finalModel, inboundModel: model, upstreamModel: finalModel, mappingId: lastRoute?.mapping?.id ?? primaryMapping?.id, mappedChannelIds: lastRoute?.mappedChannelIds ?? primaryMapping?.channelIds ?? [], key, channel: lastRoute?.channel, attempts });
   await settleTpm(0);
   releaseAllKeySlots();
+  if (attempts.length) updateProxyIncident("upstream-exhausted", true, attempts);
+  else updateProxyIncident("no-live-channel", true);
   return {
     kind: "upstream_error",
     requestId,

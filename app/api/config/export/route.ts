@@ -32,5 +32,5 @@ export async function GET() {
 }
 
 function redactSettings<T extends { key: string }>(settings: T[]) {
-  return settings.filter(row => row.key !== "smtpPassword" && row.key !== "sub2apiAdminKey");
+  return settings.filter(row => row.key !== "smtpPassword" && row.key !== "sub2apiAdminKey" && row.key !== "serverChanSendKey");
 }

@@ -7,6 +7,8 @@ import { modelLookupCandidates } from "@/lib/model-variants";
 import { getSettings, getSettingsAsync } from "@/lib/settings";
 import { upsertRequestStatAsync } from "@/lib/request-stats";
 import type { pgDb } from "./db/pg";
+import { enqueueUserThresholds, kickNotificationDrain } from "@/lib/notifications";
+import { applyBillingMultipliers } from "@/lib/billing";
 
 type PgWriter = Pick<typeof pgDb, "insert" | "select" | "update">;
 type Subscriber = (entry: LogListEntry) => void;
@@ -134,10 +136,16 @@ class LogHub {
       if (e.keyId) {
         const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
         await tx.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
-        await addUserUsageAsync(key?.userId, e.tokensIn + e.tokensOut, cost, tx);
+        if (key?.userId) {
+          const user = (await tx.select().from(pgSchema.users).where(eq(pgSchema.users.id, key.userId)).limit(1))[0];
+          const settings = await getSettingsAsync();
+          await enqueueUserThresholds({ kind: "key-quota", ownerId: key.id, ownerName: key.name, email: user?.email ?? "", oldUsed: key.used, newUsed: key.used + addTok, quota: key.quota, settings, writer: tx });
+          await addUserUsageAsync(key.userId, e.tokensIn + e.tokensOut, cost, tx, settings, user);
+        }
       }
       await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
     });
+    kickNotificationDrain();
     const entry = logEntryFromInput(rawLogId, ts, e);
     const listEntry = toLogListEntry(entry);
     this.emit(listEntry);
@@ -346,12 +354,22 @@ function addUserUsage(userId: string | undefined, tokens: number, usd: number) {
     .run();
 }
 
-async function addUserUsageAsync(userId: string | undefined, tokens: number, usd: number, writer?: PgWriter) {
+async function addUserUsageAsync(
+  userId: string | undefined,
+  tokens: number,
+  usd: number,
+  writer?: PgWriter,
+  settings?: Awaited<ReturnType<typeof getSettingsAsync>>,
+  knownUser?: { email: string; displayName: string },
+) {
   if (!userId || (tokens === 0 && usd === 0)) return;
   const { pgDb, pgSchema } = await import("@/lib/db/pg");
   const db = writer ?? pgDb;
+  settings ??= await getSettingsAsync();
   const quota = (await db.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0];
   if (!quota) return;
+  const user = knownUser ?? (await db.select().from(pgSchema.users).where(eq(pgSchema.users.id, userId)).limit(1))[0];
+  const newUsedUsd = Math.max(0, quota.usedUsd + usd);
   await db.update(pgSchema.userQuotas)
     .set({
       dailyUsedTokens: sql`GREATEST(0, ${pgSchema.userQuotas.dailyUsedTokens} + ${tokens})`,
@@ -362,6 +380,8 @@ async function addUserUsageAsync(userId: string | undefined, tokens: number, usd
       updatedAt: Date.now(),
     })
     .where(eq(pgSchema.userQuotas.userId, userId));
+  await enqueueUserThresholds({ kind: "user-usd", ownerId: userId, ownerName: user?.displayName ?? userId, email: user?.email ?? "", oldUsed: quota.usedUsd, newUsed: newUsedUsd, quota: quota.quotaUsd, settings, writer: db });
+  kickNotificationDrain();
 }
 
 function logCost(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
@@ -369,10 +389,11 @@ function logCost(provider: "claude" | "openai", channelId: string, model: string
   const prices = db.select().from(schema.modelPrices).all().filter(row => candidates.includes(row.model));
   const resolvedPrice = resolvePrice(provider, channelId, candidates, prices);
   if (!resolvedPrice) return 0;
-  return ((tokensIn / 1_000_000) * resolvedPrice.inputPricePerMTok
+  const baseCost = (tokensIn / 1_000_000) * resolvedPrice.inputPricePerMTok
     + (tokensOut / 1_000_000) * resolvedPrice.outputPricePerMTok
     + (cacheReadTokens / 1_000_000) * resolvedPrice.cacheReadPricePerMTok
-    + (cacheCreationTokens / 1_000_000) * resolvedPrice.cacheCreationPricePerMTok) * getSettings().globalBillingMultiplier;
+    + (cacheCreationTokens / 1_000_000) * resolvedPrice.cacheCreationPricePerMTok;
+  return applyBillingMultipliers(baseCost, provider, getSettings());
 }
 
 async function logCostAsync(provider: "claude" | "openai", channelId: string, model: string, tokensIn: number, tokensOut: number, cacheReadTokens: number, cacheCreationTokens: number) {
@@ -381,11 +402,12 @@ async function logCostAsync(provider: "claude" | "openai", channelId: string, mo
   const prices = (await pgDb.select().from(pgSchema.modelPrices)).filter(row => candidates.includes(row.model));
   const price = resolvePrice(provider, channelId, candidates, prices);
   if (!price) return 0;
-  const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
-  return ((tokensIn / 1_000_000) * price.inputPricePerMTok
+  const settings = await getSettingsAsync();
+  const baseCost = (tokensIn / 1_000_000) * price.inputPricePerMTok
     + (tokensOut / 1_000_000) * price.outputPricePerMTok
     + (cacheReadTokens / 1_000_000) * price.cacheReadPricePerMTok
-    + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok) * billingMultiplier;
+    + (cacheCreationTokens / 1_000_000) * price.cacheCreationPricePerMTok;
+  return applyBillingMultipliers(baseCost, provider, settings);
 }
 
 function resolvePrice<T extends { provider: string; channelId?: string; model: string }>(provider: "claude" | "openai", channelId: string, models: string[], prices: T[]) {

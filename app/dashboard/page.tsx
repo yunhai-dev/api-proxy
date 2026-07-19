@@ -67,6 +67,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           }
           actions={
             <>
+              <a href="https://pay.ldxp.cn/shop/DJI1HTH7" className="btn primary" target="_blank" rel="noreferrer">
+                购买礼品卡 ↗
+              </a>
               <Link href="/keys" className="btn">
                 管理密钥 <span className="mono kbd">K</span>
               </Link>

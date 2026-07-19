@@ -1,7 +1,8 @@
 import { db, schema } from "./db";
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { usePostgres } from "./db/runtime";
-import { getSettings, getSettingsAsync } from "./settings";
+import { getSettings, getSettingsAsync, type AppSettings } from "./settings";
+import { applyBillingMultipliers } from "./billing";
 
 export function getUserDetail(userId: string, period?: { since: number; until: number }) {
   const user = db.select().from(schema.users).where(eq(schema.users.id, userId)).get();
@@ -16,7 +17,7 @@ export function getUserDetail(userId: string, period?: { since: number; until: n
   });
   const prices = db.select().from(schema.modelPrices).all();
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = getSettings().globalBillingMultiplier;
+  const settings = getSettings();
 
   const requests = logs.length;
   const successes = logs.filter(log => log.status >= 200 && log.status < 300).length;
@@ -24,7 +25,7 @@ export function getUserDetail(userId: string, period?: { since: number; until: n
   const tokensOut = logs.reduce((sum, log) => sum + log.tokensOut, 0);
   const cacheReadTokens = logs.reduce((sum, log) => sum + log.cacheReadTokens, 0);
   const cacheCreationTokens = logs.reduce((sum, log) => sum + log.cacheCreationTokens, 0);
-  const cost = logs.reduce((sum, log) => sum + costFor(log.model, tokensProvider(log.channelId), log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, billingMultiplier), 0);
+  const cost = logs.reduce((sum, log) => sum + costFor(log.model, tokensProvider(log.channelId), log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, settings), 0);
   const byModel = new Map<string, { model: string; requests: number; tokens: number; cost: number }>();
   const byKey = new Map<string, { keyId: string; requests: number; tokens: number; cost: number }>();
   const now = period?.until ?? Date.now();
@@ -43,12 +44,12 @@ export function getUserDetail(userId: string, period?: { since: number; until: n
     const cur = byModel.get(log.model) ?? { model: log.model, requests: 0, tokens: 0, cost: 0 };
     cur.requests += 1;
     cur.tokens += log.tokensIn + log.tokensOut + log.cacheReadTokens + log.cacheCreationTokens;
-    cur.cost += costFor(log.model, provider, log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, billingMultiplier);
+    cur.cost += costFor(log.model, provider, log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, settings);
     byModel.set(log.model, cur);
     const keyCur = byKey.get(log.keyId) ?? { keyId: log.keyId, requests: 0, tokens: 0, cost: 0 };
     keyCur.requests += 1;
     keyCur.tokens += log.tokensIn + log.tokensOut + log.cacheReadTokens + log.cacheCreationTokens;
-    keyCur.cost += costFor(log.model, provider, log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, billingMultiplier);
+    keyCur.cost += costFor(log.model, provider, log.channelId, log.tokensIn, log.tokensOut, log.cacheReadTokens, log.cacheCreationTokens, priceMap, settings);
     byKey.set(log.keyId, keyCur);
     if (log.ts >= since && log.ts <= now) {
       const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((log.ts - since) / bucketMs)));
@@ -92,7 +93,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const keyIds = keys.map(key => key.id);
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
-  const billingMultiplier = (await getSettingsAsync()).globalBillingMultiplier;
+  const settings = await getSettingsAsync();
   const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn} + ${pgSchema.requestStats.tokensOut} + ${pgSchema.requestStats.cacheReadTokens} + ${pgSchema.requestStats.cacheCreationTokens}), 0)::int`;
 
   const [summary] = await pgDb
@@ -119,7 +120,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
     .from(pgSchema.requestStats)
     .where(logWhere)
     .groupBy(pgSchema.requestStats.channelType, pgSchema.requestStats.channelId, pgSchema.requestStats.model);
-  const cost = costRows.reduce((sum, row) => sum + costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, billingMultiplier), 0);
+  const cost = costRows.reduce((sum, row) => sum + costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, settings), 0);
 
   const keyStatRows = await pgDb
     .select({
@@ -142,7 +143,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
     const cur = byKey.get(row.keyId) ?? { keyId: row.keyId, requests: 0, tokens: 0, cost: 0 };
     cur.requests += row.requests;
     cur.tokens += row.tokens;
-    cur.cost += costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, billingMultiplier);
+    cur.cost += costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, settings);
     byKey.set(row.keyId, cur);
   }
 
@@ -166,7 +167,7 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
     const cur = byModel.get(row.model) ?? { model: row.model, requests: 0, tokens: 0, cost: 0 };
     cur.requests += row.requests;
     cur.tokens += row.tokens;
-    cur.cost += costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, billingMultiplier);
+    cur.cost += costFor(row.model, row.provider, row.channelId, row.tokensIn, row.tokensOut, row.cacheReadTokens, row.cacheCreationTokens, priceMap, settings);
     byModel.set(row.model, cur);
   }
 
@@ -245,11 +246,12 @@ function tokensProvider(channelId: string): "claude" | "openai" {
   return channel?.type ?? "openai";
 }
 
-function costFor(model: string, provider: "claude" | "openai", channelId: string, input: number, output: number, cacheRead: number, cacheCreate: number, prices: Map<string, Pick<typeof schema.modelPrices.$inferSelect, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok">>, billingMultiplier: number) {
+function costFor(model: string, provider: "claude" | "openai", channelId: string, input: number, output: number, cacheRead: number, cacheCreate: number, prices: Map<string, Pick<typeof schema.modelPrices.$inferSelect, "inputPricePerMTok" | "outputPricePerMTok" | "cacheReadPricePerMTok" | "cacheCreationPricePerMTok">>, settings: AppSettings) {
   const price = prices.get(`${channelId}:${model}`) ?? prices.get(`${provider}:${model}`);
   if (!price) return 0;
-  return ((input / 1_000_000) * price.inputPricePerMTok
+  const baseCost = (input / 1_000_000) * price.inputPricePerMTok
     + (output / 1_000_000) * price.outputPricePerMTok
     + (cacheRead / 1_000_000) * price.cacheReadPricePerMTok
-    + (cacheCreate / 1_000_000) * price.cacheCreationPricePerMTok) * billingMultiplier;
+    + (cacheCreate / 1_000_000) * price.cacheCreationPricePerMTok;
+  return applyBillingMultipliers(baseCost, provider, settings);
 }

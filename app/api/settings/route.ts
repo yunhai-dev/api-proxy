@@ -19,6 +19,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const actor = await requireAdmin();
     const body = await req.json().catch(() => ({}));
+    if (typeof body.serverChanUid === "string" && body.serverChanUid.trim() && !/^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) {
+      return NextResponse.json({ error: "ServerChan UID 格式无效" }, { status: 400 });
+    }
   const settings = await updateSettingsAsync({
     debugModels: typeof body.debugModels === "boolean" ? body.debugModels : undefined,
     proxyMaxRetries: body.proxyMaxRetries === undefined ? undefined : Number(body.proxyMaxRetries),
@@ -36,6 +39,8 @@ export async function PATCH(req: NextRequest) {
     defaultRateLimitTpm: body.defaultRateLimitTpm === undefined ? undefined : Number(body.defaultRateLimitTpm),
     defaultMaxConcurrency: body.defaultMaxConcurrency === undefined ? undefined : Number(body.defaultMaxConcurrency),
     globalBillingMultiplier: body.globalBillingMultiplier === undefined ? undefined : Number(body.globalBillingMultiplier),
+    claudeBillingMultiplier: body.claudeBillingMultiplier === undefined ? undefined : Number(body.claudeBillingMultiplier),
+    openaiBillingMultiplier: body.openaiBillingMultiplier === undefined ? undefined : Number(body.openaiBillingMultiplier),
     siteUrl: typeof body.siteUrl === "string" ? body.siteUrl.trim() : undefined,
     siteName: typeof body.siteName === "string" ? body.siteName.trim() : undefined,
     siteLogoUrl: typeof body.siteLogoUrl === "string" ? body.siteLogoUrl.trim() : undefined,
@@ -53,6 +58,21 @@ export async function PATCH(req: NextRequest) {
     smtpFromName: typeof body.smtpFromName === "string" ? body.smtpFromName.trim() : undefined,
     sub2apiBaseUrl: typeof body.sub2apiBaseUrl === "string" ? body.sub2apiBaseUrl.trim() : undefined,
     sub2apiAdminKey: typeof body.sub2apiAdminKey === "string" && body.sub2apiAdminKey && body.sub2apiAdminKey !== "__configured__" ? body.sub2apiAdminKey : undefined,
+    notificationsAdminEnabled: typeof body.notificationsAdminEnabled === "boolean" ? body.notificationsAdminEnabled : undefined,
+    serverChanUid: typeof body.serverChanUid === "string" && (!body.serverChanUid.trim() || /^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) ? body.serverChanUid.trim() : undefined,
+    serverChanSendKey: typeof body.serverChanSendKey === "string" && body.serverChanSendKey && body.serverChanSendKey !== "__configured__" ? body.serverChanSendKey : undefined,
+    notifyAdminChannelCircuit: typeof body.notifyAdminChannelCircuit === "boolean" ? body.notifyAdminChannelCircuit : undefined,
+    notifyAdminChannelCircuitRecovery: typeof body.notifyAdminChannelCircuitRecovery === "boolean" ? body.notifyAdminChannelCircuitRecovery : undefined,
+    notifyAdminNoLiveChannel: typeof body.notifyAdminNoLiveChannel === "boolean" ? body.notifyAdminNoLiveChannel : undefined,
+    notifyAdminNoLiveChannelRecovery: typeof body.notifyAdminNoLiveChannelRecovery === "boolean" ? body.notifyAdminNoLiveChannelRecovery : undefined,
+    notifyAdminUpstreamExhausted: typeof body.notifyAdminUpstreamExhausted === "boolean" ? body.notifyAdminUpstreamExhausted : undefined,
+    notifyAdminUpstreamExhaustedRecovery: typeof body.notifyAdminUpstreamExhaustedRecovery === "boolean" ? body.notifyAdminUpstreamExhaustedRecovery : undefined,
+    notificationsUserEmailEnabled: typeof body.notificationsUserEmailEnabled === "boolean" ? body.notificationsUserEmailEnabled : undefined,
+    notifyUserUsdBalance20: typeof body.notifyUserUsdBalance20 === "boolean" ? body.notifyUserUsdBalance20 : undefined,
+    notifyUserUsdBalance10: typeof body.notifyUserUsdBalance10 === "boolean" ? body.notifyUserUsdBalance10 : undefined,
+    notifyUserUsdBalance0: typeof body.notifyUserUsdBalance0 === "boolean" ? body.notifyUserUsdBalance0 : undefined,
+    notifyUserKeyQuota80: typeof body.notifyUserKeyQuota80 === "boolean" ? body.notifyUserKeyQuota80 : undefined,
+    notifyUserKeyQuota100: typeof body.notifyUserKeyQuota100 === "boolean" ? body.notifyUserKeyQuota100 : undefined,
   });
     await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: "更新系统设置", actor: actor.username });
     return NextResponse.json(publicSettings(settings));
@@ -67,5 +87,6 @@ function publicSettings(settings: AppSettings) {
     ...settings,
     smtpPassword: settings.smtpPassword ? "__configured__" : "",
     sub2apiAdminKey: settings.sub2apiAdminKey ? "__configured__" : "",
+    serverChanSendKey: settings.serverChanSendKey ? "__configured__" : "",
   };
 }
