@@ -5,6 +5,7 @@ import { db, schema } from "@/lib/db";
 import { usePostgres } from "@/lib/db/runtime";
 import { hashGiftCardCode } from "@/lib/gift-cards";
 import { insertDefaultUserQuotaAsync } from "@/lib/user-quota";
+import { rearmUserThresholds } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +28,12 @@ export async function POST(req: NextRequest) {
         await insertDefaultUserQuotaAsync(user.id, now);
         quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, user.id)).limit(1))[0];
       }
-      await pgDb.update(pgSchema.giftCards).set({ status: "redeemed", redeemedBy: user.id, redeemedAt: now }).where(eq(pgSchema.giftCards.id, card.id));
-      await pgDb.update(pgSchema.userQuotas).set({ quotaUsd: (quota?.quotaUsd ?? 0) + card.amountUsd, updatedAt: now }).where(eq(pgSchema.userQuotas.userId, user.id));
-      await pgDb.insert(pgSchema.activities).values({ ts: now, event: `核销礼品卡 $${card.amountUsd.toFixed(2)}`, actor: user.username });
+      await pgDb.transaction(async tx => {
+        await tx.update(pgSchema.giftCards).set({ status: "redeemed", redeemedBy: user.id, redeemedAt: now }).where(eq(pgSchema.giftCards.id, card.id));
+        await tx.update(pgSchema.userQuotas).set({ quotaUsd: (quota?.quotaUsd ?? 0) + card.amountUsd, updatedAt: now }).where(eq(pgSchema.userQuotas.userId, user.id));
+        await rearmUserThresholds({ kind: "user-usd", ownerId: user.id, used: quota?.usedUsd ?? 0, quota: (quota?.quotaUsd ?? 0) + card.amountUsd, writer: tx });
+        await tx.insert(pgSchema.activities).values({ ts: now, event: `核销礼品卡 $${card.amountUsd.toFixed(2)}`, actor: user.username });
+      });
       return NextResponse.json({ ok: true, amountUsd: card.amountUsd, quotaUsd: (quota?.quotaUsd ?? 0) + card.amountUsd });
     }
 

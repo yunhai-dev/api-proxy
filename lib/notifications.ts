@@ -48,7 +48,7 @@ export async function setPlatformIncident(input: {
   const run = async (writer: PgWriter) => {
     const now = Date.now();
     await writer.insert(pgSchema.notificationStates).values({ stateKey: input.stateKey, active: false, generation: 0, updatedAt: now }).onConflictDoNothing();
-    const current = (await writer.select().from(pgSchema.notificationStates).where(eq(pgSchema.notificationStates.stateKey, input.stateKey)).limit(1))[0];
+    const current = (await writer.select().from(pgSchema.notificationStates).where(eq(pgSchema.notificationStates.stateKey, input.stateKey)).limit(1).for("update"))[0];
     if (!current || current.active === input.active) return false;
     const generation = input.active ? current.generation + 1 : current.generation;
     await writer.update(pgSchema.notificationStates).set({ active: input.active, generation, updatedAt: now }).where(eq(pgSchema.notificationStates.stateKey, input.stateKey));
@@ -105,11 +105,15 @@ export async function enqueueUserThresholds(input: {
       : input.settings[`notifyUserKeyQuota${threshold}` as "notifyUserKeyQuota80"];
     if (!enabled) continue;
     const stateKey = `${input.kind}:${input.ownerId}:${threshold}`;
-    await input.writer.insert(pgSchema.notificationStates).values({ stateKey, active: true, generation: 1, updatedAt: now }).onConflictDoNothing();
+    await input.writer.insert(pgSchema.notificationStates).values({ stateKey, active: false, generation: 0, updatedAt: now }).onConflictDoNothing();
+    const state = (await input.writer.select().from(pgSchema.notificationStates).where(eq(pgSchema.notificationStates.stateKey, stateKey)).limit(1).for("update"))[0];
+    if (!state || state.active) continue;
+    const generation = state.generation + 1;
+    await input.writer.update(pgSchema.notificationStates).set({ active: true, generation, updatedAt: now }).where(eq(pgSchema.notificationStates.stateKey, stateKey));
     const label = input.kind === "user-usd" ? `美元额度剩余 ${threshold}%` : `API Key 配额已用 ${threshold}%`;
     const text = `${input.ownerName}：${label}。当前已用 ${input.newUsed.toFixed(4)} / ${input.quota.toFixed(4)}。`;
     await enqueue(input.writer, {
-      dedupeKey: `${stateKey}:1:alert`, channel: "email", recipient: input.email.trim(), eventType: `${input.kind}:${threshold}`,
+      dedupeKey: `${stateKey}:${generation}:alert`, channel: "email", recipient: input.email.trim(), eventType: `${input.kind}:${threshold}`,
       payload: { title: label, desp: text, subject: `[${input.settings.siteName}] ${label}`, text }, now,
     });
   }
