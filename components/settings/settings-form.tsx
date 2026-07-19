@@ -50,6 +50,19 @@ const settingsTabs = [
 ] as const;
 
 type SettingsTabId = typeof settingsTabs[number]["id"];
+type BillingMultiplierDrafts = {
+  globalBillingMultiplier: string;
+  claudeBillingMultiplier: string;
+  openaiBillingMultiplier: string;
+};
+
+function billingMultiplierDraftValues(settings: Pick<AppSettings, "globalBillingMultiplier" | "claudeBillingMultiplier" | "openaiBillingMultiplier">): BillingMultiplierDrafts {
+  return {
+    globalBillingMultiplier: String(settings.globalBillingMultiplier),
+    claudeBillingMultiplier: String(settings.claudeBillingMultiplier),
+    openaiBillingMultiplier: String(settings.openaiBillingMultiplier),
+  };
+}
 
 export function SettingsForm() {
   const router = useRouter();
@@ -58,6 +71,7 @@ export function SettingsForm() {
   const initialTab = settingsTabs.some(tab => tab.id === tabParam) ? tabParam as SettingsTabId : "proxy";
   const toast = useToast();
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [billingMultiplierDrafts, setBillingMultiplierDrafts] = useState<BillingMultiplierDrafts | null>(null);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [importText, setImportText] = useState("");
   const [testEmail, setTestEmail] = useState("");
@@ -91,22 +105,37 @@ export function SettingsForm() {
   }
 
   useEffect(() => {
-    fetch("/api/settings").then(r => r.json()).then(setSettings).catch(() => null);
+    fetch("/api/settings").then(r => r.json()).then(data => {
+      setSettings(data);
+      setBillingMultiplierDrafts(billingMultiplierDraftValues(data));
+    }).catch(() => null);
     fetch("/api/channels").then(r => r.json()).then(data => setChannels(Array.isArray(data) ? data : data.rows ?? [])).catch(() => null);
   }, []);
 
   async function save() {
-    if (!settings) return;
+    if (!settings || !billingMultiplierDrafts) return;
+    const values = Object.values(billingMultiplierDrafts);
+    if (!values.every(value => /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value))) {
+      toast("计费倍率必须是非负小数");
+      return;
+    }
     setBusy(true);
     try {
+      const nextSettings = {
+        ...settings,
+        globalBillingMultiplier: Number(billingMultiplierDrafts.globalBillingMultiplier),
+        claudeBillingMultiplier: Number(billingMultiplierDrafts.claudeBillingMultiplier),
+        openaiBillingMultiplier: Number(billingMultiplierDrafts.openaiBillingMultiplier),
+      };
       const r = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(nextSettings),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { toast(data.error || "保存失败"); return; }
       setSettings(data);
+      setBillingMultiplierDrafts(billingMultiplierDraftValues(data));
       toast("设置已保存");
     } finally {
       setBusy(false);
@@ -199,7 +228,7 @@ export function SettingsForm() {
     }
   }
 
-  if (!settings) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
+  if (!settings || !billingMultiplierDrafts) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
   const fallbackChannel = channels.find(channel => channel.id === settings.fallbackChannelId);
   const fallbackModelOptions = fallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
@@ -440,10 +469,10 @@ export function SettingsForm() {
           <h2>默认用户限制</h2>
           <div className="field-row"><div className="field"><LabelHelp label="默认 RPM" help="Requests Per Minute，每分钟最多允许的请求次数。" /><input className="mono" value={settings.defaultRateLimitRpm || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultRateLimitRpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div><div className="field"><LabelHelp label="默认 TPM" help="Tokens Per Minute，每分钟最多允许消耗的输入与输出 Token 总数。" /><input className="mono" value={settings.defaultRateLimitTpm || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultRateLimitTpm: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div></div>
           <div className="field"><LabelHelp label="默认最大并发" help="同一用户同一时间最多允许多少个请求正在运行。" /><input className="mono" value={settings.defaultMaxConcurrency || ""} placeholder="不限" onChange={e => setSettings({ ...settings, defaultMaxConcurrency: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
-          <div className="field"><LabelHelp label="全局计费倍率" help="所有费用先乘以全局倍率，再乘以对应服务商倍率。" /><input className="mono" value={settings.globalBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, globalBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
+          <div className="field"><LabelHelp label="全局计费倍率" help="所有费用先乘以全局倍率，再乘以对应服务商倍率。" /><input className="mono" inputMode="decimal" value={billingMultiplierDrafts.globalBillingMultiplier} placeholder="1" onChange={e => setBillingMultiplierDrafts({ ...billingMultiplierDrafts, globalBillingMultiplier: e.target.value })} /></div>
           <div className="field-row">
-            <div className="field"><LabelHelp label="Claude 计费倍率" help="Claude 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" value={settings.claudeBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, claudeBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
-            <div className="field"><LabelHelp label="OpenAI 计费倍率" help="OpenAI 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" value={settings.openaiBillingMultiplier} placeholder="1" onChange={e => setSettings({ ...settings, openaiBillingMultiplier: Math.max(0, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} /></div>
+            <div className="field"><LabelHelp label="Claude 计费倍率" help="Claude 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" inputMode="decimal" value={billingMultiplierDrafts.claudeBillingMultiplier} placeholder="1" onChange={e => setBillingMultiplierDrafts({ ...billingMultiplierDrafts, claudeBillingMultiplier: e.target.value })} /></div>
+            <div className="field"><LabelHelp label="OpenAI 计费倍率" help="OpenAI 费用会在全局倍率基础上继续乘以该倍率；默认 1，设为 0 表示不计费。" /><input className="mono" inputMode="decimal" value={billingMultiplierDrafts.openaiBillingMultiplier} placeholder="1" onChange={e => setBillingMultiplierDrafts({ ...billingMultiplierDrafts, openaiBillingMultiplier: e.target.value })} /></div>
           </div>
           <div className="hint">用户未单独配置这些限制时使用这里的默认值；限制填空或 0 表示不限，计费倍率 0 表示不计费。</div>
           {renderSaveButton()}
