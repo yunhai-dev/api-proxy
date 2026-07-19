@@ -9,6 +9,7 @@ let statUpdates = 0;
 const pgSchema = {
   requestLogs: { id: "request-log-id" },
   keys: { id: "key-id", used: "key-used", lastUsedAt: "key-last-used" },
+  users: { id: "user-id" },
   userQuotas: { userId: "quota-user-id", dailyUsedTokens: "daily-tokens", monthlyUsedTokens: "monthly-tokens", dailyUsedUsd: "daily-usd", monthlyUsedUsd: "monthly-usd", usedUsd: "used-usd", updatedAt: "updated-at" },
   modelPrices: {},
 };
@@ -19,7 +20,7 @@ function writer() {
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
-          limit: async () => table === pgSchema.requestLogs ? [{ id: 42 }] : table === pgSchema.keys ? [{ userId: "user-1" }] : [{}],
+          limit: async () => table === pgSchema.requestLogs ? [{ id: 42 }] : table === pgSchema.keys ? [{ id: "key-1", name: "test key", userId: "user-1", used: 0, quota: 0 }] : table === pgSchema.users ? [{ email: "", displayName: "Test User" }] : table === pgSchema.userQuotas ? [{ usedUsd: 0, quotaUsd: 0 }] : [{}],
         }),
       }),
     }),
@@ -43,7 +44,8 @@ mock.module("./db/runtime", () => ({ usePostgres: () => true }));
 mock.module("./db/pg", () => ({ pgDb, pgSchema }));
 mock.module("./model-variants", () => ({ modelLookupCandidates: (model: string) => [model] }));
 mock.module("./redis", () => ({ getRedis: async () => null }));
-mock.module("./settings", () => ({ getSettings: () => ({ globalBillingMultiplier: 1 }), getSettingsAsync: async () => ({ globalBillingMultiplier: 1 }) }));
+mock.module("./settings", () => ({ getSettings: () => ({ globalBillingMultiplier: 1 }), getSettingsAsync: async () => ({ globalBillingMultiplier: 1, notificationsUserEmailEnabled: false, smtpEnabled: false }) }));
+mock.module("./notifications", () => ({ enqueueUserThresholds: async () => {}, kickNotificationDrain: () => {} }));
 mock.module("./request-stats", () => ({ upsertRequestStatAsync: async () => { statUpdates += 1; } }));
 
 const { logHub } = await import("./log-generator");
