@@ -97,6 +97,17 @@ export default async function Home() {
         <div className="landing-metric"><span className="dim mono">controls</span><strong>配额 · 路由 · 公告</strong></div>
       </section>
 
+      <section className="landing-section" aria-labelledby="api-report-title">
+        <div className="landing-section-head">
+          <span className="landing-kicker mono">independent verification</span>
+          <h2 id="api-report-title">禾维 API 检测报告</h2>
+          <p>查看第三方对本站 API 可用性与服务表现的检测结果。</p>
+        </div>
+        <div className="landing-section-foot">
+          <a className="btn primary" href="https://www.hvoy.ai/report/-M9o0LrM--o" target="_blank" rel="noreferrer">查看检测报告 ↗</a>
+        </div>
+      </section>
+
       <section id="features" className="landing-section">
         <div className="landing-section-head">
           <span className="landing-kicker mono">capabilities</span>
