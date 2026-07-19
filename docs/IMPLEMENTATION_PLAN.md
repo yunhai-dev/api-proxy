@@ -223,7 +223,7 @@
 |---|---|---|---|
 | 1 | 持久化状态与 outbox | [x] | 详见 [`docs/plan/configurable-notifications.md`](./plan/configurable-notifications.md) |
 | 2 | 后台设置与密钥保护 | [x] | |
-| 3 | 可靠投递与 worker | [ ] | |
+| 3 | 可靠投递与 worker | [x] | |
 | 4 | 平台事件接入 | [ ] | |
 | 5 | 用户额度事件接入 | [ ] | |
 | 6 | 测试与发布检查 | [ ] | |
