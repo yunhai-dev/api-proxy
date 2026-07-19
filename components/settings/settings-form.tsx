@@ -42,6 +42,7 @@ const settingsTabs = [
   { id: "maintenance", label: "维护模式" },
   { id: "announcement", label: "公告" },
   { id: "site-mail", label: "网站与邮件" },
+  { id: "notifications", label: "通知" },
   { id: "sub2api", label: "Sub2API" },
   { id: "config", label: "配置导入/导出" },
   { id: "logs", label: "日志归档" },
@@ -128,6 +129,12 @@ export function SettingsForm() {
     const r = await fetch("/api/settings/email/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: testEmail }) });
     const data = await r.json().catch(() => ({}));
     toast(r.ok ? "测试邮件已发送" : data.error || "发送失败");
+  }
+
+  async function sendTestServerChan() {
+    const r = await fetch("/api/settings/serverchan/test", { method: "POST" });
+    const data = await r.json().catch(() => ({}));
+    toast(r.ok ? "ServerChan 测试通知已发送" : data.error || "发送失败");
   }
 
   function archiveBefore() {
@@ -315,6 +322,30 @@ export function SettingsForm() {
           <div className="field"><label>SMTP 密码 / 授权码</label><input className="mono" type="password" value={settings.smtpPassword === "__configured__" ? "" : settings.smtpPassword} placeholder={settings.smtpPassword === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, smtpPassword: e.target.value })} /></div>
           <div className="field-row"><div className="field"><label>发件邮箱</label><input className="mono" value={settings.smtpFromEmail} onChange={e => setSettings({ ...settings, smtpFromEmail: e.target.value })} /></div><div className="field"><label>发件名称</label><input value={settings.smtpFromName} onChange={e => setSettings({ ...settings, smtpFromName: e.target.value })} /></div></div>
           <div className="field-row"><div className="field"><label>测试收件邮箱</label><input className="mono" value={testEmail} onChange={e => setTestEmail(e.target.value)} /></div><div className="field"><label>&nbsp;</label><button className="btn" type="button" onClick={sendTestEmail}>发送测试邮件</button></div></div>
+          {renderSaveButton()}
+        </div>
+
+        <div className="settings-card wide" hidden={activeTab !== "notifications"}>
+          <h2>平台通知 · ServerChan</h2>
+          <Toggle label="启用平台通知" hint="平台级故障只发送到此 ServerChan 管理员通道。" checked={settings.notificationsAdminEnabled} onChange={notificationsAdminEnabled => setSettings({ ...settings, notificationsAdminEnabled })} />
+          <div className="field-row">
+            <div className="field"><label>ServerChan UID</label><input className="mono" value={settings.serverChanUid} onChange={e => setSettings({ ...settings, serverChanUid: e.target.value.replace(/\D/g, "") })} /></div>
+            <div className="field"><label>SendKey</label><input className="mono" type="password" value={settings.serverChanSendKey === "__configured__" ? "" : settings.serverChanSendKey} placeholder={settings.serverChanSendKey === "__configured__" ? "已配置，留空不修改" : ""} onChange={e => setSettings({ ...settings, serverChanSendKey: e.target.value })} /></div>
+          </div>
+          <Toggle label="渠道熔断" hint="渠道熔断为 open 时通知。" checked={settings.notifyAdminChannelCircuit} onChange={notifyAdminChannelCircuit => setSettings({ ...settings, notifyAdminChannelCircuit })} />
+          <Toggle label="渠道恢复" hint="已告警渠道恢复为 closed 时通知。" checked={settings.notifyAdminChannelCircuitRecovery} onChange={notifyAdminChannelCircuitRecovery => setSettings({ ...settings, notifyAdminChannelCircuitRecovery })} />
+          <Toggle label="无可用渠道" hint="服务商与入站模型没有可路由渠道时通知。" checked={settings.notifyAdminNoLiveChannel} onChange={notifyAdminNoLiveChannel => setSettings({ ...settings, notifyAdminNoLiveChannel })} />
+          <Toggle label="无可用渠道恢复" hint="同服务商与模型后续请求成功时通知。" checked={settings.notifyAdminNoLiveChannelRecovery} onChange={notifyAdminNoLiveChannelRecovery => setSettings({ ...settings, notifyAdminNoLiveChannelRecovery })} />
+          <Toggle label="上游尝试耗尽" hint="所有重试及 fallback 最终失败时通知。" checked={settings.notifyAdminUpstreamExhausted} onChange={notifyAdminUpstreamExhausted => setSettings({ ...settings, notifyAdminUpstreamExhausted })} />
+          <Toggle label="上游尝试恢复" hint="同服务商与模型后续请求成功时通知。" checked={settings.notifyAdminUpstreamExhaustedRecovery} onChange={notifyAdminUpstreamExhaustedRecovery => setSettings({ ...settings, notifyAdminUpstreamExhaustedRecovery })} />
+          <div className="settings-card-foot"><button className="btn" type="button" onClick={sendTestServerChan}>发送测试通知</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? "保存中…" : "保存设置"}</button></div>
+          <h2>用户额度邮件</h2>
+          <Toggle label="启用用户额度邮件" hint="使用上方 SMTP，发送到对应账号的非空邮箱。" checked={settings.notificationsUserEmailEnabled} onChange={notificationsUserEmailEnabled => setSettings({ ...settings, notificationsUserEmailEnabled })} />
+          <Toggle label="美元额度剩余 20%" hint="首次从 20% 上方降至 20% 或以下时发送。" checked={settings.notifyUserUsdBalance20} onChange={notifyUserUsdBalance20 => setSettings({ ...settings, notifyUserUsdBalance20 })} />
+          <Toggle label="美元额度剩余 10%" hint="首次从 10% 上方降至 10% 或以下时发送。" checked={settings.notifyUserUsdBalance10} onChange={notifyUserUsdBalance10 => setSettings({ ...settings, notifyUserUsdBalance10 })} />
+          <Toggle label="美元额度用尽" hint="可用美元额度降至 0 时发送。" checked={settings.notifyUserUsdBalance0} onChange={notifyUserUsdBalance0 => setSettings({ ...settings, notifyUserUsdBalance0 })} />
+          <Toggle label="API Key 配额已用 80%" hint="Key 用量首次达到 80% 时发送。" checked={settings.notifyUserKeyQuota80} onChange={notifyUserKeyQuota80 => setSettings({ ...settings, notifyUserKeyQuota80 })} />
+          <Toggle label="API Key 配额已用 100%" hint="Key 用量首次达到 100% 时发送。" checked={settings.notifyUserKeyQuota100} onChange={notifyUserKeyQuota100 => setSettings({ ...settings, notifyUserKeyQuota100 })} />
           {renderSaveButton()}
         </div>
 
