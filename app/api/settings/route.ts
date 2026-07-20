@@ -22,6 +22,10 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.serverChanUid === "string" && body.serverChanUid.trim() && !/^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) {
       return NextResponse.json({ error: "ServerChan UID 格式无效" }, { status: 400 });
     }
+    const cooldownMinutes = Number(body.platformIncidentCooldownMinutes);
+    if (body.platformIncidentCooldownMinutes !== undefined && (!Number.isInteger(cooldownMinutes) || cooldownMinutes < 0 || cooldownMinutes > 1440)) {
+      return NextResponse.json({ error: "事件通知冷却时间必须是 0 到 1440 的整数" }, { status: 400 });
+    }
   const settings = await updateSettingsAsync({
     debugModels: typeof body.debugModels === "boolean" ? body.debugModels : undefined,
     proxyMaxRetries: body.proxyMaxRetries === undefined ? undefined : Number(body.proxyMaxRetries),
@@ -61,6 +65,7 @@ export async function PATCH(req: NextRequest) {
     notificationsAdminEnabled: typeof body.notificationsAdminEnabled === "boolean" ? body.notificationsAdminEnabled : undefined,
     serverChanUid: typeof body.serverChanUid === "string" && (!body.serverChanUid.trim() || /^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) ? body.serverChanUid.trim() : undefined,
     serverChanSendKey: typeof body.serverChanSendKey === "string" && body.serverChanSendKey && body.serverChanSendKey !== "__configured__" ? body.serverChanSendKey : undefined,
+    platformIncidentCooldownMinutes: body.platformIncidentCooldownMinutes === undefined ? undefined : cooldownMinutes,
     notifyAdminChannelCircuit: typeof body.notifyAdminChannelCircuit === "boolean" ? body.notifyAdminChannelCircuit : undefined,
     notifyAdminChannelCircuitRecovery: typeof body.notifyAdminChannelCircuitRecovery === "boolean" ? body.notifyAdminChannelCircuitRecovery : undefined,
     notifyAdminNoLiveChannel: typeof body.notifyAdminNoLiveChannel === "boolean" ? body.notifyAdminNoLiveChannel : undefined,

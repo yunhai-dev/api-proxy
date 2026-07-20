@@ -214,6 +214,7 @@ export const notificationStates = pgTable("notification_states", {
   stateKey: text("state_key").primaryKey(),
   active: boolean("active").notNull().default(false),
   generation: integer("generation").notNull().default(0),
+  lastNotifiedAt: bigint("last_notified_at", { mode: "number" }).notNull().default(0),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
