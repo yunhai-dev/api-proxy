@@ -1817,14 +1817,15 @@ function openAiCacheReadTokens(usage: Record<string, unknown>, fallback = 0) {
   return num((details as Record<string, unknown>).cached_tokens, fallback);
 }
 
-function openAiInputTokens(usage: Record<string, unknown>, fallback = 0) {
-  if (hasToken(usage, "input_tokens")) return Math.max(0, num(usage.input_tokens) - openAiCacheReadTokens(usage));
-  if (!hasToken(usage, "prompt_tokens")) return fallback;
+export function openAiInputTokens(usage: Record<string, unknown>, fallback = 0) {
+  const modern = num(usage.input_tokens);
+  if (modern > 0 || !hasToken(usage, "prompt_tokens")) return Math.max(0, modern - openAiCacheReadTokens(usage));
   return Math.max(0, num(usage.prompt_tokens) - openAiCacheReadTokens(usage));
 }
 
-function openAiOutputTokens(usage: Record<string, unknown>, fallback = 0) {
-  if (hasToken(usage, "output_tokens")) return num(usage.output_tokens, fallback);
+export function openAiOutputTokens(usage: Record<string, unknown>, fallback = 0) {
+  const modern = num(usage.output_tokens);
+  if (modern > 0 || !hasToken(usage, "completion_tokens")) return modern || fallback;
   return num(usage.completion_tokens, fallback);
 }
 
