@@ -303,7 +303,7 @@ export function KeysTable({ mode = "user" }: { mode?: "user" | "admin" }) {
           ]}
         />
         <span className="spacer" />
-        {mode === "admin" && <KeyForm allowUserSelect onCreated={() => load()} inline />}
+        <KeyForm allowUserSelect={mode === "admin"} onCreated={() => load()} inline />
       </div>
 
       <div className="table-wrap">
