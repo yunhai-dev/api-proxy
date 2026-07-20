@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play, Trash2 } from "lucide-react";
-import { fmtClockStamp, statusClass, statusLabel } from "@/lib/utils";
+import { statusClass, statusLabel } from "@/lib/utils";
+import { formatShanghaiDateTime } from "@/lib/time";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -328,7 +329,7 @@ export function LogStream({ initial, mode = "user", users = [] }: { initial: Log
                   key={`${r.id}-${r.ts}`}
                   onClick={isAdminMode && r.hasDetail ? () => { void openDetail(r); } : undefined}
                 >
-                  <td className="mono dim nowrap">{fmtClockStamp(r.ts)}</td>
+                  <td className="mono dim nowrap">{formatShanghaiDateTime(r.ts)}</td>
                   <td className="mono truncate-cell" title={r.requestId}>{r.requestId ? r.requestId.slice(0, 8) : "—"}</td>
                   <td className="mono truncate-cell" title={r.keyPrefix}>{r.keyPrefix}</td>
                   {isAdminMode && <td className="truncate-cell" title={r.username ? `${r.userName || "未知用户"} (${r.username})` : r.userName || "未知用户"}>{r.userName || "未知用户"}</td>}
