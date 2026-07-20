@@ -787,7 +787,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(fallbackChannel.type), capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: fallbackChannel, model: settings.fallbackModel, inboundModel: model, upstreamModel: settings.fallbackModel, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(fallbackChannel.type), capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok && prepared.reason === "empty") {
@@ -975,7 +975,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, openAiEndpoint: req.openAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
         if (!prepared.ok) {
@@ -1092,6 +1092,7 @@ type Ctx = {
   openAiEndpoint?: ProxyRequest["openAiEndpoint"];
   body: string;
   requestHeaders?: Headers;
+  signal?: AbortSignal;
   releaseSlot?: () => void;
   settleTpm?: (actualTokens: number | null) => Promise<void>;
   fallbackReason?: string;
@@ -1331,17 +1332,27 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
   function releaseSlot() {
     if (released) return;
     released = true;
+    ctx.signal?.removeEventListener("abort", onAbort);
     ctx.releaseSlot?.();
   }
 
   async function record(status: number, errorMsg: string | null) {
     if (logged) return;
     logged = true;
+    releaseSlot();
     const id = await ensureInitialLog();
     await recordStreamFinal(id, ctx, status, Date.now() - ctx.t0, prelude, errorMsg);
     await ctx.settleTpm?.(errorMsg ? null : prelude.tokensIn + prelude.tokensOut);
-    releaseSlot();
   }
+
+  function onAbort() {
+    cancelled = true;
+    void prelude.reader.cancel().catch(() => {});
+    void record(499, "客户端取消/连接中断").catch(() => {});
+  }
+
+  ctx.signal?.addEventListener("abort", onAbort, { once: true });
+  if (ctx.signal?.aborted) onAbort();
 
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -1399,7 +1410,7 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
     cancel() {
       cancelled = true;
       try { prelude.reader.cancel(); } catch { /* */ }
-      void record(499, "客户端取消/连接中断");
+      void record(499, "客户端取消/连接中断").catch(() => {});
     },
   });
   return new Response(stream, { status: prelude.upstreamStatus, headers: outHeaders });

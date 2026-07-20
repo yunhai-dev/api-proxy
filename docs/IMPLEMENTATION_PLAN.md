@@ -246,6 +246,14 @@
 | 3 | 管理界面 | [x] | |
 | 4 | 测试与发布检查 | [x] | 聚焦测试、`bunx tsc --noEmit`、`bun run build`、`git diff --check` 通过 |
 
+## 并发槽位泄漏修复
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 流式生命周期可靠释放 | [x] | 详见 [`docs/plan/concurrency-slot-leak.md`](./plan/concurrency-slot-leak.md) |
+| 2 | Redis 信号量可靠释放 | [x] | |
+| 3 | 回归测试与发布检查 | [x] | `bun test lib/proxy-lifecycle.test.ts lib/redis-semaphore.test.ts` / `bunx tsc --noEmit` / `bun run build` / `git diff --check` 通过 |
+
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19
 - **数据库**：PostgreSQL + Drizzle ORM，Redis 承载跨实例限流/并发/日志 fanout

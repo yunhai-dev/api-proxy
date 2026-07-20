@@ -30,6 +30,7 @@ let keyReleases = 0;
 let circuitAllowed = true;
 let channelObservations: { ok: boolean; failureStatus?: string }[] = [];
 let logRecords: Record<string, unknown>[] = [];
+let failLogUpdate = false;
 
 const schema = Object.fromEntries([
   "keys", "channels", "modelMappings", "userQuotas", "requestLogs",
@@ -80,7 +81,7 @@ mock.module("./rate-limit", () => ({
 mock.module("./log-generator", () => ({
   logHub: {
     recordAsync: async (entry: Record<string, unknown>) => { logRecords.push(entry); return { id: 1 }; },
-    updateAsync: async (_id: number, entry: Record<string, unknown>) => { logRecords.push(entry); },
+    updateAsync: async (_id: number, entry: Record<string, unknown>) => { if (failLogUpdate) throw new Error("log update failed"); logRecords.push(entry); },
   },
 }));
 mock.module("./user-quota", () => ({
@@ -125,6 +126,7 @@ beforeEach(() => {
   circuitAllowed = true;
   channelObservations = [];
   logRecords = [];
+  failLogUpdate = false;
   upstreamResponses = [];
   key.status = "active";
   key.quota = 0;
@@ -524,6 +526,41 @@ describe("proxy TPM reservation lifecycle", () => {
     await reader.cancel();
     await flush();
     expect(settlements).toEqual([null]);
+    expect(channelReleases).toBe(1);
+    expect(keyReleases).toBe(2);
+  });
+
+  test("releases stream slots when the request aborts after headers", async () => {
+    const controller = new AbortController();
+    const upstream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
+      },
+    });
+    upstreamResponses = [{ ok: true, status: 200, headers: new Headers({ "content-type": "text/event-stream" }), contentType: "text/event-stream", body: upstream }];
+
+    const result = await proxyOnce({ ...request(true), signal: controller.signal });
+    expect(result.kind).toBe("success");
+    controller.abort();
+    await flush();
+
+    expect(settlements).toEqual([null]);
+    expect(channelReleases).toBe(1);
+    expect(keyReleases).toBe(2);
+  });
+
+  test("releases stream slots when final logging fails", async () => {
+    failLogUpdate = true;
+    upstreamResponses = [streamResponse(
+      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n' + "data: [DONE]\n\n",
+    )];
+
+    const result = await proxyOnce(request(true));
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected stream success");
+    await result.response.text().catch(() => null);
+    await flush();
+
     expect(channelReleases).toBe(1);
     expect(keyReleases).toBe(2);
   });

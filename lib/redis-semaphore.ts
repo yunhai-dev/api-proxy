@@ -35,6 +35,7 @@ return 0
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const RETRY_MS = 50;
+const RELEASE_ATTEMPTS = 3;
 
 export class SemaphoreAcquireError extends Error {
   constructor(message: "semaphore wait aborted" | "semaphore wait timed out") {
@@ -67,12 +68,21 @@ export async function acquireRedisSemaphore(
           arguments: [token, String(Date.now()), String(ttlMs)],
         });
       }, Math.max(1_000, Math.floor(ttlMs / 2)));
-      let released = false;
-      return async () => {
-        if (released) return;
-        released = true;
+      let releasePromise: Promise<void> | null = null;
+      return () => {
+        if (releasePromise) return releasePromise;
         clearInterval(refresh);
-        await redis.eval(RELEASE_SCRIPT, { keys: [key], arguments: [token] });
+        releasePromise = (async () => {
+          for (let attempt = 1; attempt <= RELEASE_ATTEMPTS; attempt += 1) {
+            try {
+              await redis.eval(RELEASE_SCRIPT, { keys: [key], arguments: [token] });
+              return;
+            } catch {
+              if (attempt < RELEASE_ATTEMPTS) await new Promise(resolve => setTimeout(resolve, RETRY_MS));
+            }
+          }
+        })();
+        return releasePromise;
       };
     }
     await new Promise(resolve => setTimeout(resolve, RETRY_MS));
