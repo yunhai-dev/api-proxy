@@ -45,6 +45,14 @@
 - Error path: 10 分钟内快速恢复被抑制；非法设置返回 400；设置为 0 时恢复原有频率。
 - Regression scope: 渠道熔断/恢复、无可用渠道、上游尝试耗尽、用户额度邮件、通知 outbox 重试。
 
+## Validation Results
+
+- `bun test lib/notifications.test.ts`: 6 passed, 0 failed。
+- `bunx tsc --noEmit`: 通过。
+- `bun run build`: 通过。
+- `git diff --check`: 通过。
+- 本地未配置 `DATABASE_URL`，未执行 PostgreSQL schema 初始化和事件集成检查。
+
 ## Risks & Mitigation
 
 - 快速恢复通知可能被故障告警抑制，这是降噪的预期取舍；管理员可将冷却设为 0。

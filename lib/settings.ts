@@ -337,6 +337,10 @@ function nonNegativeNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(number) ? Math.max(0, number) : fallback;
 }
 
+export function validPlatformIncidentCooldownMinutes(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1440;
+}
+
 function boundedInteger(value: string | undefined, fallback: number, min: number, max: number) {
   const number = Number(value);
   return Number.isInteger(number) && number >= min && number <= max ? number : fallback;

@@ -23,7 +23,7 @@ export function validServerChanUid(value: string) {
 }
 
 export function platformIncidentCooldownElapsed(lastNotifiedAt: number, cooldownMinutes: number, now: number) {
-  return cooldownMinutes === 0 || now - lastNotifiedAt >= cooldownMinutes * 60_000;
+  return lastNotifiedAt === 0 || cooldownMinutes === 0 || now - lastNotifiedAt >= cooldownMinutes * 60_000;
 }
 
 export async function sendServerChan(uid: string, sendKey: string, title: string, desp: string, fetcher: typeof fetch = fetch) {

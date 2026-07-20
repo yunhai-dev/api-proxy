@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AppSettings, getSettingsAsync, updateSettingsAsync } from "@/lib/settings";
+import { AppSettings, getSettingsAsync, updateSettingsAsync, validPlatformIncidentCooldownMinutes } from "@/lib/settings";
 import { pgDb, pgSchema } from "@/lib/db/pg";
 import { AuthError, requireAdmin } from "@/lib/auth";
 
@@ -22,8 +22,8 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.serverChanUid === "string" && body.serverChanUid.trim() && !/^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) {
       return NextResponse.json({ error: "ServerChan UID 格式无效" }, { status: 400 });
     }
-    const cooldownMinutes = Number(body.platformIncidentCooldownMinutes);
-    if (body.platformIncidentCooldownMinutes !== undefined && (!Number.isInteger(cooldownMinutes) || cooldownMinutes < 0 || cooldownMinutes > 1440)) {
+    const cooldownMinutes = body.platformIncidentCooldownMinutes;
+    if (cooldownMinutes !== undefined && !validPlatformIncidentCooldownMinutes(cooldownMinutes)) {
       return NextResponse.json({ error: "事件通知冷却时间必须是 0 到 1440 的整数" }, { status: 400 });
     }
   const settings = await updateSettingsAsync({
