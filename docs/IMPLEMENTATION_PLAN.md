@@ -228,6 +228,15 @@
 | 5 | 用户额度事件接入 | [x] | |
 | 6 | 测试与发布检查 | [x] | 聚焦测试、`bunx tsc --noEmit`、`bun run build` 通过；本地未配置 `DATABASE_URL`，未执行 schema 初始化 |
 
+## 平台事件通知冷却
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 持久化冷却设置与事件通知时间 | [x] | 详见 [`docs/plan/platform-incident-notification-cooldown.md`](./plan/platform-incident-notification-cooldown.md) |
+| 2 | 共享状态机抑制冷却窗口内通知 | [x] | 不改变事件状态、熔断或重试逻辑 |
+| 3 | 管理界面配置冷却分钟数 | [x] | 默认 10 分钟，0 表示关闭 |
+| 4 | 边界测试与发布检查 | [x] | `bun test lib/notifications.test.ts` / `bunx tsc --noEmit` / `bun run build` / `git diff --check` 通过；本地未配置 `DATABASE_URL`，未执行 schema 初始化 |
+
 ## 服务商计费倍率
 
 | # | 任务 | 状态 | 备注 |

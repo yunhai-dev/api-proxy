@@ -1,6 +1,7 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { crossedKeyThresholds, crossedUsdThresholds, sendServerChan, validServerChanUid } from "./notifications";
+import { crossedKeyThresholds, crossedUsdThresholds, platformIncidentCooldownElapsed, sendServerChan, validServerChanUid } from "./notifications";
+import { validPlatformIncidentCooldownMinutes } from "./settings";
 
 describe("notification helpers", () => {
   test("validates ServerChan UID", () => {
@@ -22,6 +23,23 @@ describe("notification helpers", () => {
     expect(request?.url).toBe("https://123.push.ft07.com/send/send%2Fkey.send");
     expect(request?.init?.method).toBe("POST");
     expect(String(request?.init?.body)).toBe("title=%E6%A0%87%E9%A2%98&desp=%E5%86%85%E5%AE%B9");
+  });
+
+  test("applies platform incident cooldown boundaries", () => {
+    const now = 1_000_000;
+    expect(platformIncidentCooldownElapsed(0, 10, now)).toBe(true);
+    expect(platformIncidentCooldownElapsed(now - 600_000 + 1, 10, now)).toBe(false);
+    expect(platformIncidentCooldownElapsed(now - 600_000, 10, now)).toBe(true);
+    expect(platformIncidentCooldownElapsed(now, 0, now)).toBe(true);
+  });
+
+  test("validates platform incident cooldown settings", () => {
+    expect(validPlatformIncidentCooldownMinutes(0)).toBe(true);
+    expect(validPlatformIncidentCooldownMinutes(1440)).toBe(true);
+    expect(validPlatformIncidentCooldownMinutes(-1)).toBe(false);
+    expect(validPlatformIncidentCooldownMinutes(1.5)).toBe(false);
+    expect(validPlatformIncidentCooldownMinutes("10")).toBe(false);
+    expect(validPlatformIncidentCooldownMinutes(1441)).toBe(false);
   });
 
   test("detects USD remaining threshold crossings", () => {

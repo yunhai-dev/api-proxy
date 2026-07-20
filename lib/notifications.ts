@@ -22,6 +22,10 @@ export function validServerChanUid(value: string) {
   return SERVERCHAN_UID.test(value);
 }
 
+export function platformIncidentCooldownElapsed(lastNotifiedAt: number, cooldownMinutes: number, now: number) {
+  return lastNotifiedAt === 0 || cooldownMinutes === 0 || now - lastNotifiedAt >= cooldownMinutes * 60_000;
+}
+
 export async function sendServerChan(uid: string, sendKey: string, title: string, desp: string, fetcher: typeof fetch = fetch) {
   if (!validServerChanUid(uid) || !sendKey) throw new Error("ServerChan 配置不完整");
   const response = await fetcher(`https://${uid}.push.ft07.com/send/${encodeURIComponent(sendKey)}.send`, {
@@ -57,7 +61,7 @@ export async function setPlatformIncident(input: {
       && !!settings.serverChanUid
       && !!settings.serverChanSendKey
       && Boolean(settings[input.active ? switches.alert : switches.recovery]);
-    if (!enabled) return true;
+    if (!enabled || !platformIncidentCooldownElapsed(current.lastNotifiedAt, settings.platformIncidentCooldownMinutes, now)) return true;
     await enqueue(writer, {
       dedupeKey: `${input.stateKey}:${generation}:${input.active ? "alert" : "recovery"}`,
       channel: "serverchan",
@@ -66,6 +70,7 @@ export async function setPlatformIncident(input: {
       payload: input.payload,
       now,
     });
+    await writer.update(pgSchema.notificationStates).set({ lastNotifiedAt: now }).where(eq(pgSchema.notificationStates.stateKey, input.stateKey));
     return true;
   };
   return input.writer ? run(input.writer) : pgDb.transaction(run);

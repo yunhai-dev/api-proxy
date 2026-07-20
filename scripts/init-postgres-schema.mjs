@@ -261,8 +261,10 @@ const statements = [
     state_key text PRIMARY KEY,
     active boolean NOT NULL DEFAULT false,
     generation integer NOT NULL DEFAULT 0,
+    last_notified_at bigint NOT NULL DEFAULT 0,
     updated_at bigint NOT NULL
   )`,
+  `ALTER TABLE notification_states ADD COLUMN IF NOT EXISTS last_notified_at bigint NOT NULL DEFAULT 0`,
   `CREATE TABLE IF NOT EXISTS notification_outbox (
     id serial PRIMARY KEY,
     dedupe_key text NOT NULL UNIQUE,
@@ -334,6 +336,7 @@ try {
       await sql.unsafe(`DROP INDEX IF EXISTS model_mappings_provider_inbound_unique`);
       await sql.unsafe(`CREATE INDEX IF NOT EXISTS model_mappings_group_id_idx ON model_mappings (group_id)`);
       await sql.unsafe(`ALTER TABLE model_prices ADD COLUMN IF NOT EXISTS channel_id text NOT NULL DEFAULT ''`);
+      await sql.unsafe(`ALTER TABLE notification_states ADD COLUMN IF NOT EXISTS last_notified_at bigint NOT NULL DEFAULT 0`);
       await sql.unsafe(`DROP INDEX IF EXISTS model_prices_provider_model_unique`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS model_prices_channel_model_unique ON model_prices (channel_id, model)`);
       await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS request_logs_key_request_id_idx ON request_logs (key_id, request_id) WHERE key_id <> '' AND request_id <> ''`);

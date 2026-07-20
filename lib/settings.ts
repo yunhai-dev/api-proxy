@@ -43,6 +43,7 @@ export type AppSettings = {
   notificationsAdminEnabled: boolean;
   serverChanUid: string;
   serverChanSendKey: string;
+  platformIncidentCooldownMinutes: number;
   notifyAdminChannelCircuit: boolean;
   notifyAdminChannelCircuitRecovery: boolean;
   notifyAdminNoLiveChannel: boolean;
@@ -97,6 +98,7 @@ const defaults: AppSettings = {
   notificationsAdminEnabled: false,
   serverChanUid: "",
   serverChanSendKey: "",
+  platformIncidentCooldownMinutes: 10,
   notifyAdminChannelCircuit: false,
   notifyAdminChannelCircuitRecovery: false,
   notifyAdminNoLiveChannel: false,
@@ -164,6 +166,7 @@ export function updateSettings(input: Partial<AppSettings>) {
     notificationsAdminEnabled: input.notificationsAdminEnabled ?? current.notificationsAdminEnabled,
     serverChanUid: input.serverChanUid ?? current.serverChanUid,
     serverChanSendKey: input.serverChanSendKey === undefined ? current.serverChanSendKey : input.serverChanSendKey,
+    platformIncidentCooldownMinutes: input.platformIncidentCooldownMinutes ?? current.platformIncidentCooldownMinutes,
     notifyAdminChannelCircuit: input.notifyAdminChannelCircuit ?? current.notifyAdminChannelCircuit,
     notifyAdminChannelCircuitRecovery: input.notifyAdminChannelCircuitRecovery ?? current.notifyAdminChannelCircuitRecovery,
     notifyAdminNoLiveChannel: input.notifyAdminNoLiveChannel ?? current.notifyAdminNoLiveChannel,
@@ -249,6 +252,7 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     notificationsAdminEnabled: bool(values.get("notificationsAdminEnabled"), defaults.notificationsAdminEnabled),
     serverChanUid: values.get("serverChanUid") || defaults.serverChanUid,
     serverChanSendKey: decryptSecret(values.get("serverChanSendKey") || defaults.serverChanSendKey),
+    platformIncidentCooldownMinutes: boundedInteger(values.get("platformIncidentCooldownMinutes"), defaults.platformIncidentCooldownMinutes, 0, 1440),
     notifyAdminChannelCircuit: bool(values.get("notifyAdminChannelCircuit"), defaults.notifyAdminChannelCircuit),
     notifyAdminChannelCircuitRecovery: bool(values.get("notifyAdminChannelCircuitRecovery"), defaults.notifyAdminChannelCircuitRecovery),
     notifyAdminNoLiveChannel: bool(values.get("notifyAdminNoLiveChannel"), defaults.notifyAdminNoLiveChannel),
@@ -305,6 +309,7 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     notificationsAdminEnabled: input.notificationsAdminEnabled ?? current.notificationsAdminEnabled,
     serverChanUid: input.serverChanUid ?? current.serverChanUid,
     serverChanSendKey: input.serverChanSendKey === undefined ? current.serverChanSendKey : input.serverChanSendKey,
+    platformIncidentCooldownMinutes: input.platformIncidentCooldownMinutes ?? current.platformIncidentCooldownMinutes,
     notifyAdminChannelCircuit: input.notifyAdminChannelCircuit ?? current.notifyAdminChannelCircuit,
     notifyAdminChannelCircuitRecovery: input.notifyAdminChannelCircuitRecovery ?? current.notifyAdminChannelCircuitRecovery,
     notifyAdminNoLiveChannel: input.notifyAdminNoLiveChannel ?? current.notifyAdminNoLiveChannel,
@@ -330,6 +335,15 @@ function nonNegativeNumber(value: string | undefined, fallback: number) {
   if (value === undefined) return fallback;
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, number) : fallback;
+}
+
+export function validPlatformIncidentCooldownMinutes(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1440;
+}
+
+function boundedInteger(value: string | undefined, fallback: number, min: number, max: number) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= min && number <= max ? number : fallback;
 }
 
 function secure(value: string | undefined): AppSettings["smtpSecure"] {

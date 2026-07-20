@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AppSettings, getSettingsAsync, updateSettingsAsync } from "@/lib/settings";
+import { AppSettings, getSettingsAsync, updateSettingsAsync, validPlatformIncidentCooldownMinutes } from "@/lib/settings";
 import { pgDb, pgSchema } from "@/lib/db/pg";
 import { AuthError, requireAdmin } from "@/lib/auth";
 
@@ -21,6 +21,10 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     if (typeof body.serverChanUid === "string" && body.serverChanUid.trim() && !/^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) {
       return NextResponse.json({ error: "ServerChan UID 格式无效" }, { status: 400 });
+    }
+    const cooldownMinutes = body.platformIncidentCooldownMinutes;
+    if (cooldownMinutes !== undefined && !validPlatformIncidentCooldownMinutes(cooldownMinutes)) {
+      return NextResponse.json({ error: "事件通知冷却时间必须是 0 到 1440 的整数" }, { status: 400 });
     }
   const settings = await updateSettingsAsync({
     debugModels: typeof body.debugModels === "boolean" ? body.debugModels : undefined,
@@ -61,6 +65,7 @@ export async function PATCH(req: NextRequest) {
     notificationsAdminEnabled: typeof body.notificationsAdminEnabled === "boolean" ? body.notificationsAdminEnabled : undefined,
     serverChanUid: typeof body.serverChanUid === "string" && (!body.serverChanUid.trim() || /^[1-9]\d{0,19}$/.test(body.serverChanUid.trim())) ? body.serverChanUid.trim() : undefined,
     serverChanSendKey: typeof body.serverChanSendKey === "string" && body.serverChanSendKey && body.serverChanSendKey !== "__configured__" ? body.serverChanSendKey : undefined,
+    platformIncidentCooldownMinutes: body.platformIncidentCooldownMinutes === undefined ? undefined : cooldownMinutes,
     notifyAdminChannelCircuit: typeof body.notifyAdminChannelCircuit === "boolean" ? body.notifyAdminChannelCircuit : undefined,
     notifyAdminChannelCircuitRecovery: typeof body.notifyAdminChannelCircuitRecovery === "boolean" ? body.notifyAdminChannelCircuitRecovery : undefined,
     notifyAdminNoLiveChannel: typeof body.notifyAdminNoLiveChannel === "boolean" ? body.notifyAdminNoLiveChannel : undefined,
