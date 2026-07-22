@@ -7,9 +7,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
-const PREDEFINED: Record<"claude" | "openai", string[]> = {
+const PREDEFINED: Record<"claude" | "openai" | "tavily", string[]> = {
   claude: ["claude-opus-4-7", "claude-sonnet-4-5", "claude-haiku-4-5"],
   openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"],
+  tavily: ["*"],
 };
 
 const CAPABILITIES = [
@@ -20,7 +21,7 @@ const CAPABILITIES = [
 type Channel = {
   id: string;
   name: string;
-  type: "claude" | "openai";
+  type: "claude" | "openai" | "tavily";
   openAiProtocol: "auto" | "chat_completions" | "responses";
   baseUrl: string;
   weight: number;
@@ -46,7 +47,7 @@ export function ChannelForm({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
-  const [type, setType] = useState<"claude" | "openai">("claude");
+  const [type, setType] = useState<"claude" | "openai" | "tavily">("claude");
   const [openAiProtocol, setOpenAiProtocol] = useState<"auto" | "chat_completions" | "responses">("auto");
   const [baseUrl, setBaseUrl] = useState("");
   const [weight, setWeight] = useState("1");
@@ -220,10 +221,16 @@ export function ChannelForm({
                   <Select
                     className="fill-select"
                     value={type}
-                    onChange={v => { resetFetchedModels(); setType(v as "claude" | "openai"); }}
+                    onChange={v => {
+                      resetFetchedModels();
+                      setType(v as "claude" | "openai" | "tavily");
+                      if (v === "tavily" && !baseUrl.trim()) setBaseUrl("https://mcp.tavily.com/mcp/");
+                      if (v === "tavily" && models.length === 0) setModels(["*"]);
+                    }}
                     options={[
                       { value: "claude", label: "claude" },
                       { value: "openai", label: "openai" },
+                      { value: "tavily", label: "tavily" },
                     ]}
                   />
                 </div>

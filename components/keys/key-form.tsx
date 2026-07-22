@@ -9,7 +9,7 @@ type Key = {
   name: string;
   userId: string;
   prefix: string;
-  channelScope: "all" | "claude" | "openai";
+  channelScope: "all" | "claude" | "openai" | "tavily";
   channelId: string | null;
   status: "active" | "disabled";
   quota: number;
@@ -19,7 +19,7 @@ type Key = {
 };
 
 type User = { id: string; username: string; displayName: string };
-type Channel = { id: string; name: string; type: "claude" | "openai"; enabled: boolean };
+type Channel = { id: string; name: string; type: "claude" | "openai" | "tavily"; enabled: boolean };
 
 export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: { onCreated: (k: Key & { fullKey: string }) => void; allowUserSelect?: boolean; inline?: boolean }) {
   const toast = useToast();
@@ -141,6 +141,7 @@ export function KeyForm({ onCreated, allowUserSelect = false, inline = false }: 
                         { value: "all",    label: "全部" },
                         { value: "claude", label: "Claude" },
                         { value: "openai", label: "OpenAI" },
+                        { value: "tavily", label: "Tavily" },
                       ]}
                     />
                   </div>

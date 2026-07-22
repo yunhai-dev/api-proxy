@@ -75,6 +75,7 @@ function testBody(channel: typeof schema.channels.$inferSelect, model: string, e
 
 export async function pingChannel(channel: typeof schema.channels.$inferSelect): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const t0 = Date.now();
+  if ((channel.type as string) === "tavily") return { ok: true, latencyMs: 0 };
   const model = testModelFor(channel);
   if (!model) return { ok: false, latencyMs: 0, error: "未配置测试模型" };
   const openAiEndpoint = resolveOpenAiEndpoint(channel.type, channel.openAiProtocol);

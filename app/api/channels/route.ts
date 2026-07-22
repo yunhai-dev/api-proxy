@@ -21,16 +21,35 @@ export async function GET(req: NextRequest) {
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
       const rows = await pgDb.select().from(pgSchema.channels).orderBy(desc(pgSchema.channels.weight), pgSchema.channels.name);
-      const filtered = sortChannels(req.nextUrl, filterChannels(rows.map(({ apiKey, ...rest }) => rest), q, type, status, enabled));
+      const filtered = sortChannels(req.nextUrl, filterChannels(await withTavilyUsage(rows.map(({ apiKey, ...rest }) => rest)), q, type, status, enabled));
       return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
     }
     const rows = db.select().from(schema.channels).orderBy(desc(schema.channels.weight), schema.channels.name).all();
-    const filtered = sortChannels(req.nextUrl, filterChannels(rows.map(({ apiKey, ...rest }) => rest), q, type, status, enabled));
+    const filtered = sortChannels(req.nextUrl, filterChannels(await withTavilyUsage(rows.map(({ apiKey, ...rest }) => rest)), q, type, status, enabled));
     return NextResponse.json(hasPagination ? pageRows(filtered, page, pageSize) : filtered);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
   }
+}
+
+async function withTavilyUsage<T extends { id: string; type: string }>(rows: T[]) {
+  const tavilyRows = rows.filter(row => row.type === "tavily");
+  if (!tavilyRows.length) return rows;
+  const settings = usePostgres()
+    ? await (async () => {
+      const { pgDb, pgSchema } = await import("@/lib/db/pg");
+      return pgDb.select().from(pgSchema.settings);
+    })()
+    : db.select().from(schema.settings).all();
+  const values = new Map(settings.map(row => [row.key, row.value]));
+  return rows.map(row => row.type === "tavily" ? { ...row, tavilyUsage: parseTavilyUsage(values.get(`tavily_usage:${row.id}`)) } : row);
+}
+
+function parseTavilyUsage(value: string | undefined) {
+  if (!value) return null;
+  try { return JSON.parse(value); }
+  catch { return null; }
 }
 
 function filterChannels<T extends { name: string; baseUrl: string; testModel: string; models: string[]; type: string; status: string; enabled: boolean }>(rows: T[], q: string, type: string, status: string, enabled: string) {
@@ -65,7 +84,7 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body.name !== "string" || !body.name.trim()) {
     return NextResponse.json({ error: "请输入名称" }, { status: 400 });
   }
-  if (!["claude", "openai"].includes(body.type)) {
+  if (!["claude", "openai", "tavily"].includes(body.type)) {
     return NextResponse.json({ error: "无效 type" }, { status: 400 });
   }
   if (body.openAiProtocol !== undefined && !["auto", "chat_completions", "responses"].includes(body.openAiProtocol)) {
@@ -95,12 +114,12 @@ export async function POST(req: NextRequest) {
   };
     if (usePostgres()) {
       const { pgDb, pgSchema } = await import("@/lib/db/pg");
-      await pgDb.insert(pgSchema.channels).values(row);
+      await pgDb.insert(pgSchema.channels).values(row as typeof pgSchema.channels.$inferInsert);
       await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `添加渠道 ${row.name}`, actor: actor.username });
       const { apiKey, ...rest } = row;
       return NextResponse.json(rest, { status: 201 });
     }
-    db.insert(schema.channels).values(row).run();
+    db.insert(schema.channels).values(row as typeof schema.channels.$inferInsert).run();
     db.insert(schema.activities).values({
       ts: Date.now(),
       event: `添加渠道 ${row.name}`,

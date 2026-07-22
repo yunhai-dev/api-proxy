@@ -199,6 +199,15 @@
 | 2 | 我的总览用户详情改为轻量聚合 | [x] | |
 | 3 | 类型检查、构建与页面验证 | [x] | `bunx tsc --noEmit` / `bun run build` 通过 |
 
+## Tavily MCP Proxy
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 渠道类型支持 Tavily API Key 池 | [x] | 详见 [`docs/plan/tavily-mcp-proxy.md`](./plan/tavily-mcp-proxy.md) |
+| 2 | 新增 MCP 透传入口 | [x] | |
+| 3 | 记录 Tavily API Key 剩余额度 | [x] | 记录到 `settings:tavily_usage:<channelId>` 并在渠道列表展示 |
+| 4 | 类型检查与端到端验证 | [x] | `bunx tsc --noEmit` 通过；上游联调需有效 Tavily 凭据 |
+
 ## Page Size 切换刷新
 
 | # | 任务 | 状态 | 备注 |

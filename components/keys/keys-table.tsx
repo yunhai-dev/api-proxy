@@ -17,7 +17,7 @@ type Key = {
   userId: string;
   prefix: string;
   fullKey: string;
-  channelScope: "all" | "claude" | "openai";
+  channelScope: "all" | "claude" | "openai" | "tavily";
   status: "active" | "disabled";
   quota: number;
   used: number;

@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
       if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
       if (body.type === "claude" || body.type === "openai") update.type = body.type;
+      else if (body.type === "tavily") (update as { type?: string }).type = body.type;
       if (body.openAiProtocol !== undefined && !["auto", "chat_completions", "responses"].includes(body.openAiProtocol)) {
         return NextResponse.json({ error: "无效 OpenAI 协议" }, { status: 400 });
       }
@@ -41,7 +42,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (capabilities.capabilities) update.capabilities = capabilities.capabilities;
       if (Object.keys(update).length === 0) return NextResponse.json({ error: "无更新字段" }, { status: 400 });
       await pgDb.update(pgSchema.channels).set(update).where(eq(pgSchema.channels.id, id));
-      if (update.type && update.type !== row.type) {
+      if ((update.type === "claude" || update.type === "openai") && update.type !== row.type && (row.type === "claude" || row.type === "openai")) {
         const models: string[] = Array.isArray(update.models) ? update.models : row.models;
         const scopedModels = models.filter(model => model && model !== "*");
         if (scopedModels.length > 0) {
@@ -85,7 +86,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ error: "无更新字段" }, { status: 400 });
     }
     db.update(schema.channels).set(update).where(eq(schema.channels.id, id)).run();
-    if (update.type && update.type !== row.type) {
+    if ((update.type === "claude" || update.type === "openai") && update.type !== row.type && (row.type === "claude" || row.type === "openai")) {
       const models: string[] = Array.isArray(update.models) ? update.models : row.models;
       const scopedModels = models.filter(model => model && model !== "*");
       if (scopedModels.length > 0) {

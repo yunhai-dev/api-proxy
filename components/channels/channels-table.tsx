@@ -14,7 +14,7 @@ import { ChannelForm } from "./channel-form";
 type Channel = {
   id: string;
   name: string;
-  type: "claude" | "openai";
+  type: "claude" | "openai" | "tavily";
   openAiProtocol: "auto" | "chat_completions" | "responses";
   baseUrl: string;
   weight: number;
@@ -27,6 +27,7 @@ type Channel = {
   errRate: number;
   enabled: boolean;
   capabilities: string[];
+  tavilyUsage?: { remaining?: number; quota?: number; used?: number; lastCredits?: number; updatedAt?: number } | null;
 };
 
 type EditTarget = "add" | { kind: "edit"; channel: Channel } | null;
@@ -157,7 +158,7 @@ export function ChannelsTable() {
     <>
       <div className="list-toolbar">
         <Input tone="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称 / 地址 / 模型" />
-        <Select value={typeFilter} onChange={setTypeFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }]} />
+        <Select value={typeFilter} onChange={setTypeFilter} options={[{ value: "all", label: "全部服务商" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "tavily", label: "Tavily" }]} />
         <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "全部状态" }, { value: "ok", label: "正常" }, { value: "warn", label: "限流" }, { value: "err", label: "降级" }]} />
         <Select value={enabledFilter} onChange={setEnabledFilter} options={[{ value: "all", label: "全部启用状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} />
         <span className="spacer" />
@@ -269,15 +270,19 @@ export function ChannelsTable() {
           {sortedRows.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
-                <td><span className={`type-pill ${c.type}`}>{c.type === "claude" ? "Claude" : "OpenAI"}</span></td>
+                <td><span className={`type-pill ${c.type}`}>{c.type === "claude" ? "Claude" : c.type === "openai" ? "OpenAI" : "Tavily"}</span></td>
                 <td className="mono dim">{c.type === "openai" ? c.openAiProtocol.replace("chat_completions", "chat") : "—"}</td>
                 <td className="mono dim channel-base-cell">{c.baseUrl}</td>
                 <td>
-                  <div className="models" title={c.models.length ? c.models.join("\n") : "未配置"}>
-                    {c.models.slice(0, 2).map(m => <span className="model" key={m}>{m}</span>)}
-                    {c.models.length > 2 && <span className="model dim">+{c.models.length - 2}</span>}
-                    {!c.models.length && <span className="dim mono text-[11px]">未配置</span>}
-                  </div>
+                  {c.type === "tavily" ? (
+                    <span className="dim mono text-[11px]">{formatTavilyUsage(c.tavilyUsage)}</span>
+                  ) : (
+                    <div className="models" title={c.models.length ? c.models.join("\n") : "未配置"}>
+                      {c.models.slice(0, 2).map(m => <span className="model" key={m}>{m}</span>)}
+                      {c.models.length > 2 && <span className="model dim">+{c.models.length - 2}</span>}
+                      {!c.models.length && <span className="dim mono text-[11px]">未配置</span>}
+                    </div>
+                  )}
                 </td>
                 <td className="mono">{c.weight}</td>
                 <td className="mono">{c.maxConcurrency > 0 ? c.maxConcurrency : "不限"}</td>
@@ -326,6 +331,13 @@ export function ChannelsTable() {
       <ListPagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </>
   );
+}
+
+function formatTavilyUsage(usage: Channel["tavilyUsage"]) {
+  if (!usage) return "—";
+  if (usage.remaining !== undefined) return `剩余 ${usage.remaining}`;
+  if (usage.lastCredits !== undefined) return `最近消耗 ${usage.lastCredits}`;
+  return "—";
 }
 
 function averageLatencyMs(rows: TestLog[]) {

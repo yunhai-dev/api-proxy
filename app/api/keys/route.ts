@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       const rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
       const rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
       const maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
-      let channelScope = admin && (body.channelScope === "claude" || body.channelScope === "openai") ? body.channelScope : "all";
+      let channelScope = admin && (body.channelScope === "claude" || body.channelScope === "openai" || body.channelScope === "tavily") ? body.channelScope : "all";
       const channelId = admin && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
       if (channelId) {
         const channel = (await pgDb.select().from(pgSchema.channels).where(eq(pgSchema.channels.id, channelId)).limit(1))[0];
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     const rateLimitRpm = Math.max(0, Number(body.rateLimitRpm) || 0);
     const rateLimitTpm = Math.max(0, Number(body.rateLimitTpm) || 0);
     const maxConcurrency = Math.max(0, Number(body.maxConcurrency) || 0);
-    let channelScope = body.channelScope === "claude" || body.channelScope === "openai" ? body.channelScope : "all";
+    let channelScope = body.channelScope === "claude" || body.channelScope === "openai" || body.channelScope === "tavily" ? body.channelScope : "all";
     const channelId = isAdmin(currentUser) && typeof body.channelId === "string" && body.channelId ? body.channelId : null;
     if (channelId) {
       const channel = db.select().from(schema.channels).where(eq(schema.channels.id, channelId)).get();
