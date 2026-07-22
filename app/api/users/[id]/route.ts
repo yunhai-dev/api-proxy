@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { AuthError, requireAdmin } from "@/lib/auth";
 import { usePostgres } from "@/lib/db/runtime";
+import { backfillRequestStatsForKeyAsync } from "@/lib/request-stats";
 
 const roles = new Set(["super_admin", "admin", "user"]);
 
@@ -50,13 +51,19 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     const row = (await pgDb.select().from(pgSchema.users).where(eq(pgSchema.users.id, id)).limit(1))[0];
     if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
     if (row.id === actor.id) return NextResponse.json({ error: "不能删除自己" }, { status: 400 });
-    await pgDb.delete(pgSchema.users).where(eq(pgSchema.users.id, id));
-    await pgDb.insert(pgSchema.activities).values({ ts: Date.now(), event: `删除用户 ${row.username}`, actor: actor.username });
+    const ownedKeys = await pgDb.select({ id: pgSchema.keys.id }).from(pgSchema.keys).where(eq(pgSchema.keys.userId, id));
+    for (const key of ownedKeys) await backfillRequestStatsForKeyAsync(key.id, id);
+    await pgDb.transaction(async tx => {
+      await tx.delete(pgSchema.keys).where(eq(pgSchema.keys.userId, id));
+      await tx.delete(pgSchema.users).where(eq(pgSchema.users.id, id));
+      await tx.insert(pgSchema.activities).values({ ts: Date.now(), event: `删除用户 ${row.username}`, actor: actor.username });
+    });
     return NextResponse.json({ ok: true });
   }
   const row = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
   if (!row) return NextResponse.json({ error: "未找到" }, { status: 404 });
   if (row.id === actor.id) return NextResponse.json({ error: "不能删除自己" }, { status: 400 });
+  db.delete(schema.keys).where(eq(schema.keys.userId, id)).run();
   db.delete(schema.users).where(eq(schema.users.id, id)).run();
     db.insert(schema.activities).values({ ts: Date.now(), event: `删除用户 ${row.username}`, actor: actor.username }).run();
     return NextResponse.json({ ok: true });
