@@ -10,9 +10,12 @@ export type AppSettings = {
   proxyRetry5xx: boolean;
   proxyRetryNetwork: boolean;
   proxyTreatEmptyOutputAsFailure: boolean;
-  fallbackEnabled: boolean;
-  fallbackChannelId: string;
-  fallbackModel: string;
+  claudeFallbackEnabled: boolean;
+  claudeFallbackChannelId: string;
+  claudeFallbackModel: string;
+  openaiFallbackEnabled: boolean;
+  openaiFallbackChannelId: string;
+  openaiFallbackModel: string;
   recordAllRequestDetails: boolean;
   bridgeCapabilityAudit: boolean;
   maintenanceMode: boolean;
@@ -65,9 +68,12 @@ const defaults: AppSettings = {
   proxyRetry5xx: true,
   proxyRetryNetwork: true,
   proxyTreatEmptyOutputAsFailure: false,
-  fallbackEnabled: false,
-  fallbackChannelId: "",
-  fallbackModel: "",
+  claudeFallbackEnabled: false,
+  claudeFallbackChannelId: "",
+  claudeFallbackModel: "",
+  openaiFallbackEnabled: false,
+  openaiFallbackChannelId: "",
+  openaiFallbackModel: "",
   recordAllRequestDetails: false,
   bridgeCapabilityAudit: false,
   maintenanceMode: false,
@@ -133,9 +139,12 @@ export function updateSettings(input: Partial<AppSettings>) {
     proxyRetry5xx: input.proxyRetry5xx ?? current.proxyRetry5xx,
     proxyRetryNetwork: input.proxyRetryNetwork ?? current.proxyRetryNetwork,
     proxyTreatEmptyOutputAsFailure: input.proxyTreatEmptyOutputAsFailure ?? current.proxyTreatEmptyOutputAsFailure,
-    fallbackEnabled: input.fallbackEnabled ?? current.fallbackEnabled,
-    fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
-    fallbackModel: input.fallbackModel ?? current.fallbackModel,
+    claudeFallbackEnabled: input.claudeFallbackEnabled ?? current.claudeFallbackEnabled,
+    claudeFallbackChannelId: input.claudeFallbackChannelId ?? current.claudeFallbackChannelId,
+    claudeFallbackModel: input.claudeFallbackModel ?? current.claudeFallbackModel,
+    openaiFallbackEnabled: input.openaiFallbackEnabled ?? current.openaiFallbackEnabled,
+    openaiFallbackChannelId: input.openaiFallbackChannelId ?? current.openaiFallbackChannelId,
+    openaiFallbackModel: input.openaiFallbackModel ?? current.openaiFallbackModel,
     recordAllRequestDetails: input.recordAllRequestDetails ?? current.recordAllRequestDetails,
     bridgeCapabilityAudit: input.bridgeCapabilityAudit ?? current.bridgeCapabilityAudit,
     maintenanceMode: input.maintenanceMode ?? current.maintenanceMode,
@@ -210,7 +219,7 @@ export async function updateSettingsAsync(input: Partial<AppSettings>) {
   return next;
 }
 
-function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
+export function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
   const values = new Map(rows.map(row => [row.key, row.value]));
   return {
     debugModels: bool(values.get("debugModels"), defaults.debugModels),
@@ -219,9 +228,12 @@ function settingsFromRows(rows: { key: string; value: string }[]): AppSettings {
     proxyRetry5xx: bool(values.get("proxyRetry5xx"), defaults.proxyRetry5xx),
     proxyRetryNetwork: bool(values.get("proxyRetryNetwork"), defaults.proxyRetryNetwork),
     proxyTreatEmptyOutputAsFailure: bool(values.get("proxyTreatEmptyOutputAsFailure"), defaults.proxyTreatEmptyOutputAsFailure),
-    fallbackEnabled: bool(values.get("fallbackEnabled"), defaults.fallbackEnabled),
-    fallbackChannelId: values.get("fallbackChannelId") || defaults.fallbackChannelId,
-    fallbackModel: values.get("fallbackModel") || defaults.fallbackModel,
+    claudeFallbackEnabled: bool(values.get(values.has("claudeFallbackEnabled") ? "claudeFallbackEnabled" : "fallbackEnabled"), defaults.claudeFallbackEnabled),
+    claudeFallbackChannelId: values.get(values.has("claudeFallbackChannelId") ? "claudeFallbackChannelId" : "fallbackChannelId") ?? defaults.claudeFallbackChannelId,
+    claudeFallbackModel: values.get(values.has("claudeFallbackModel") ? "claudeFallbackModel" : "fallbackModel") ?? defaults.claudeFallbackModel,
+    openaiFallbackEnabled: bool(values.get(values.has("openaiFallbackEnabled") ? "openaiFallbackEnabled" : "fallbackEnabled"), defaults.openaiFallbackEnabled),
+    openaiFallbackChannelId: values.get(values.has("openaiFallbackChannelId") ? "openaiFallbackChannelId" : "fallbackChannelId") ?? defaults.openaiFallbackChannelId,
+    openaiFallbackModel: values.get(values.has("openaiFallbackModel") ? "openaiFallbackModel" : "fallbackModel") ?? defaults.openaiFallbackModel,
     recordAllRequestDetails: bool(values.get("recordAllRequestDetails"), defaults.recordAllRequestDetails),
     bridgeCapabilityAudit: bool(values.get("bridgeCapabilityAudit"), defaults.bridgeCapabilityAudit),
     maintenanceMode: bool(values.get("maintenanceMode"), defaults.maintenanceMode),
@@ -276,9 +288,12 @@ function nextSettings(current: AppSettings, input: Partial<AppSettings>): AppSet
     proxyRetry5xx: input.proxyRetry5xx ?? current.proxyRetry5xx,
     proxyRetryNetwork: input.proxyRetryNetwork ?? current.proxyRetryNetwork,
     proxyTreatEmptyOutputAsFailure: input.proxyTreatEmptyOutputAsFailure ?? current.proxyTreatEmptyOutputAsFailure,
-    fallbackEnabled: input.fallbackEnabled ?? current.fallbackEnabled,
-    fallbackChannelId: input.fallbackChannelId ?? current.fallbackChannelId,
-    fallbackModel: input.fallbackModel ?? current.fallbackModel,
+    claudeFallbackEnabled: input.claudeFallbackEnabled ?? current.claudeFallbackEnabled,
+    claudeFallbackChannelId: input.claudeFallbackChannelId ?? current.claudeFallbackChannelId,
+    claudeFallbackModel: input.claudeFallbackModel ?? current.claudeFallbackModel,
+    openaiFallbackEnabled: input.openaiFallbackEnabled ?? current.openaiFallbackEnabled,
+    openaiFallbackChannelId: input.openaiFallbackChannelId ?? current.openaiFallbackChannelId,
+    openaiFallbackModel: input.openaiFallbackModel ?? current.openaiFallbackModel,
     recordAllRequestDetails: input.recordAllRequestDetails ?? current.recordAllRequestDetails,
     bridgeCapabilityAudit: input.bridgeCapabilityAudit ?? current.bridgeCapabilityAudit,
     maintenanceMode: input.maintenanceMode ?? current.maintenanceMode,

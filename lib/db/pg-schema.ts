@@ -23,6 +23,7 @@ export const channels = pgTable("channels", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   type: text("type", { enum: ["claude", "openai"] }).notNull(),
+  openAiProtocol: text("open_ai_protocol", { enum: ["auto", "chat_completions", "responses"] }).notNull().default("auto"),
   baseUrl: text("base_url").notNull(),
   apiKey: text("api_key").notNull(),
   weight: integer("weight").notNull().default(1),

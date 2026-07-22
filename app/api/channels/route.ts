@@ -68,6 +68,9 @@ export async function POST(req: NextRequest) {
   if (!["claude", "openai"].includes(body.type)) {
     return NextResponse.json({ error: "无效 type" }, { status: 400 });
   }
+  if (body.openAiProtocol !== undefined && !["auto", "chat_completions", "responses"].includes(body.openAiProtocol)) {
+    return NextResponse.json({ error: "无效 OpenAI 协议" }, { status: 400 });
+  }
   const capabilities = validateCapabilities(body.capabilities);
   if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
   const baseUrlError = validateUpstreamBaseUrl(body.baseUrl);
@@ -76,6 +79,7 @@ export async function POST(req: NextRequest) {
     id: "c_" + nanoid(8),
     name: body.name.trim(),
     type: body.type as "claude" | "openai",
+    openAiProtocol: body.type === "openai" ? (body.openAiProtocol ?? "auto") as "auto" | "chat_completions" | "responses" : "auto" as const,
     baseUrl: body.baseUrl.trim(),
     apiKey: body.apiKey ?? "sk-" + nanoid(32),
     weight: Number(body.weight) || 1,

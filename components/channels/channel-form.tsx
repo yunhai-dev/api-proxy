@@ -21,6 +21,7 @@ type Channel = {
   id: string;
   name: string;
   type: "claude" | "openai";
+  openAiProtocol: "auto" | "chat_completions" | "responses";
   baseUrl: string;
   weight: number;
   maxConcurrency: number;
@@ -46,6 +47,7 @@ export function ChannelForm({
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState<"claude" | "openai">("claude");
+  const [openAiProtocol, setOpenAiProtocol] = useState<"auto" | "chat_completions" | "responses">("auto");
   const [baseUrl, setBaseUrl] = useState("");
   const [weight, setWeight] = useState("1");
   const [maxConcurrency, setMaxConcurrency] = useState("0");
@@ -68,7 +70,7 @@ export function ChannelForm({
     resetFetchedModels();
     if (trigger === "add") {
       setEditingId(null);
-      setName(""); setType("claude"); setBaseUrl(""); setWeight("1"); setMaxConcurrency("0"); setMonitorIntervalSec("0");
+      setName(""); setType("claude"); setOpenAiProtocol("auto"); setBaseUrl(""); setWeight("1"); setMaxConcurrency("0"); setMonitorIntervalSec("0");
       setApiKey(""); setModels([]); setCapabilities([]); setCustomModel(""); setTestModel("");
       setOpen(true);
     } else if (trigger.kind === "edit") {
@@ -76,6 +78,7 @@ export function ChannelForm({
       setEditingId(c.id);
       setName(c.name);
       setType(c.type);
+      setOpenAiProtocol(c.openAiProtocol ?? "auto");
       setBaseUrl(c.baseUrl);
       setWeight(String(c.weight));
       setMaxConcurrency(String(c.maxConcurrency ?? 0));
@@ -127,7 +130,7 @@ export function ChannelForm({
     try {
       const isEdit = !!editingId;
       const payload: Record<string, unknown> = {
-        name, type, baseUrl,
+        name, type, openAiProtocol: type === "openai" ? openAiProtocol : "auto", baseUrl,
         weight: Number(weight) || 1,
         maxConcurrency: Math.max(0, Number(maxConcurrency) || 0),
         monitorIntervalSec: Math.max(0, Number(monitorIntervalSec) || 0),
@@ -272,6 +275,21 @@ export function ChannelForm({
                   <div className="hint">用于渠道健康检查，会发起真实最小模型请求。</div>
                 </div>
               </div>
+              {type === "openai" && (
+                <div className="field">
+                  <label>OpenAI 上游协议</label>
+                  <Select
+                    className="fill-select"
+                    value={openAiProtocol}
+                    onChange={value => setOpenAiProtocol(value as "auto" | "chat_completions" | "responses")}
+                    options={[
+                      { value: "auto", label: "自动" },
+                      { value: "chat_completions", label: "Chat Completions" },
+                      { value: "responses", label: "Responses" },
+                    ]}
+                  />
+                </div>
+              )}
               <div className="field">
                 <label>基础地址</label>
                 <input

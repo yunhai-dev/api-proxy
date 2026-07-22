@@ -254,6 +254,15 @@
 | 2 | Redis 信号量可靠释放 | [x] | |
 | 3 | 回归测试与发布检查 | [x] | `bun test lib/proxy-lifecycle.test.ts lib/redis-semaphore.test.ts` / `bunx tsc --noEmit` / `bun run build` / `git diff --check` 通过 |
 
+## 协议独立 Fallback 与渠道上游协议
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 拆分 Claude/OpenAI Fallback 设置并兼容旧配置 | [x] | 详见 [`docs/plan/protocol-specific-fallback-and-openai-channel-protocol.md`](./plan/protocol-specific-fallback-and-openai-channel-protocol.md) |
+| 2 | 增加渠道级 OpenAI 上游协议配置 | [x] | 自动、Chat Completions、Responses |
+| 3 | 普通路由、Fallback 与渠道测试遵守协议设置 | [x] | 包含 Chat/Responses 双向转换 |
+| 4 | 聚焦测试、类型检查与构建验证 | [x] | 73 项聚焦测试、`bunx tsc --noEmit`、`bun run build`、`git diff --check` 通过 |
+
 - **运行时/包管理**：Bun（package manager + scripts），Next.js CLI 在 Node.js 之上运行
 - **框架**：Next.js 15 App Router + TypeScript + React 19
 - **数据库**：PostgreSQL + Drizzle ORM，Redis 承载跨实例限流/并发/日志 fanout

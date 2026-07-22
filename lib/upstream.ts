@@ -6,10 +6,22 @@
  */
 
 export type Provider = "claude" | "openai";
+export type OpenAiEndpoint = "chat_completions" | "responses" | "embeddings";
+export type OpenAiProtocol = "auto" | Exclude<OpenAiEndpoint, "embeddings">;
+
+export function resolveOpenAiEndpoint(
+  provider: Provider,
+  protocol: OpenAiProtocol = "auto",
+  inboundEndpoint?: OpenAiEndpoint,
+): OpenAiEndpoint | undefined {
+  if (provider === "claude") return undefined;
+  if (inboundEndpoint === "embeddings") return "embeddings";
+  return protocol === "auto" ? inboundEndpoint ?? "chat_completions" : protocol;
+}
 
 export type UpstreamOptions = {
   channelType: Provider;
-  openAiEndpoint?: "chat_completions" | "responses" | "embeddings";
+  openAiEndpoint?: OpenAiEndpoint;
   baseUrl: string;        // 不带尾斜杠
   upstreamKey: string;    // 上游 API 密钥
   model: string;          // 上游模型名

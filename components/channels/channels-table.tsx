@@ -15,6 +15,7 @@ type Channel = {
   id: string;
   name: string;
   type: "claude" | "openai";
+  openAiProtocol: "auto" | "chat_completions" | "responses";
   baseUrl: string;
   weight: number;
   maxConcurrency: number;
@@ -248,6 +249,7 @@ export function ChannelsTable() {
           <tr>
             {sortHeader("name", "名称")}
             {sortHeader("type", "服务商")}
+            <th>协议</th>
             {sortHeader("baseUrl", "基础地址", "channel-base-col")}
             {sortHeader("models", "模型", "channel-models-col")}
             {sortHeader("weight", "权重")}
@@ -260,14 +262,15 @@ export function ChannelsTable() {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><td colSpan={11} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
+          {loading && <tr><td colSpan={12} className="empty"><span className="loading-spinner" aria-label="加载中" /></td></tr>}
           {!loading && channels.length === 0 && (
-            <tr><td colSpan={11} className="empty">暂无渠道 <span className="mono dim">// no rows</span></td></tr>
+            <tr><td colSpan={12} className="empty">暂无渠道 <span className="mono dim">// no rows</span></td></tr>
           )}
           {sortedRows.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td><span className={`type-pill ${c.type}`}>{c.type === "claude" ? "Claude" : "OpenAI"}</span></td>
+                <td className="mono dim">{c.type === "openai" ? c.openAiProtocol.replace("chat_completions", "chat") : "—"}</td>
                 <td className="mono dim channel-base-cell">{c.baseUrl}</td>
                 <td>
                   <div className="models" title={c.models.length ? c.models.join("\n") : "未配置"}>

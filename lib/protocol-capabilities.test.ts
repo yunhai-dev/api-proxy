@@ -19,9 +19,10 @@ describe("protocol capabilities", () => {
     expect(requiredCapabilities({
       sourceType: "claude",
       targetType: "openai",
+      upstreamOpenAiEndpoint: "responses",
       body: {},
       stream: false,
-    })).toEqual(["chat_completions"]);
+    })).toEqual(["responses"]);
   });
 
   test("requires bridge features and excludes incompatible routes", () => {
@@ -59,14 +60,25 @@ describe("protocol capabilities", () => {
     })).toBe(false);
   });
 
-  test("keeps native traffic eligible and validates profiles", () => {
+  test("keeps only native same-endpoint traffic eligible without bridge capabilities", () => {
     expect(routeSupportsCapabilities({
       channelCapabilities: [],
       modelCapabilities: [],
       sourceType: "openai",
       targetType: "openai",
+      inboundOpenAiEndpoint: "responses",
+      upstreamOpenAiEndpoint: "responses",
       required: ["responses", "streaming"],
     })).toBe(true);
+    expect(routeSupportsCapabilities({
+      channelCapabilities: ["chat_completions"],
+      modelCapabilities: [],
+      sourceType: "openai",
+      targetType: "openai",
+      inboundOpenAiEndpoint: "responses",
+      upstreamOpenAiEndpoint: "chat_completions",
+      required: ["chat_completions", "streaming"],
+    })).toBe(false);
     expect(validateCapabilities(["messages", "messages", "tools"])).toEqual({
       ok: true,
       capabilities: ["messages", "tools"],

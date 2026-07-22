@@ -29,6 +29,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
       if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
       if (body.type === "claude" || body.type === "openai") update.type = body.type;
+      if (body.openAiProtocol !== undefined && !["auto", "chat_completions", "responses"].includes(body.openAiProtocol)) {
+        return NextResponse.json({ error: "无效 OpenAI 协议" }, { status: 400 });
+      }
+      const resultingType = update.type ?? row.type;
+      if (resultingType === "claude") update.openAiProtocol = "auto";
+      else if (body.openAiProtocol !== undefined) update.openAiProtocol = body.openAiProtocol;
       if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;
       const capabilities = validateCapabilities(body.capabilities);
       if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });
@@ -64,6 +70,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
     if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
     if (body.type === "claude" || body.type === "openai") update.type = body.type;
+    if (body.openAiProtocol !== undefined && !["auto", "chat_completions", "responses"].includes(body.openAiProtocol)) {
+      return NextResponse.json({ error: "无效 OpenAI 协议" }, { status: 400 });
+    }
+    const resultingType = update.type ?? row.type;
+    if (resultingType === "claude") update.openAiProtocol = "auto";
+    else if (body.openAiProtocol !== undefined) update.openAiProtocol = body.openAiProtocol;
     if (typeof body.apiKey === "string" && body.apiKey.length > 0) update.apiKey = body.apiKey;
     const capabilities = validateCapabilities(body.capabilities);
     if (!capabilities.ok) return NextResponse.json({ error: capabilities.error }, { status: 400 });

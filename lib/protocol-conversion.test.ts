@@ -206,6 +206,50 @@ describe("strict OpenAI to Claude conversion", () => {
   });
 });
 
+describe("same-provider OpenAI endpoint conversion", () => {
+  test("converts Chat requests and responses through Responses", () => {
+    const request = convertRequestBody({
+      sourceType: "openai", targetType: "openai",
+      inboundOpenAiEndpoint: "chat_completions", upstreamOpenAiEndpoint: "responses",
+      body: { model: "gpt-test", messages: [{ role: "user", content: "hi" }], response_format: { type: "json_object" } },
+      model: "gpt-upstream", stream: false,
+    });
+    expect(request).toMatchObject({ model: "gpt-upstream", input: [{ type: "message", role: "user" }], text: { format: { type: "json_object" } } });
+
+    const response = JSON.parse(convertResponseBody({
+      sourceType: "openai", targetType: "openai",
+      inboundOpenAiEndpoint: "chat_completions", upstreamOpenAiEndpoint: "responses",
+      body: JSON.stringify({ id: "resp_1", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }], usage: { input_tokens: 2, output_tokens: 3 } }),
+      model: "gpt-test",
+    }));
+    expect(response).toMatchObject({ object: "chat.completion", choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 3 } });
+  });
+
+  test("converts Responses requests with flat tools to Chat tools", () => {
+    const request = convertRequestBody({
+      sourceType: "openai", targetType: "openai",
+      inboundOpenAiEndpoint: "responses", upstreamOpenAiEndpoint: "chat_completions",
+      body: { model: "gpt-test", input: "hi", tools: [{ type: "function", name: "lookup", description: "find", parameters: { type: "object" } }] },
+      model: "gpt-upstream", stream: false,
+    });
+    expect(request).toMatchObject({ tools: [{ type: "function", function: { name: "lookup", description: "find", parameters: { type: "object" } } }] });
+  });
+
+  test("converts Responses SSE to Chat SSE", () => {
+    const convert = createSseResponseConverter({
+      sourceType: "openai", targetType: "openai",
+      inboundOpenAiEndpoint: "chat_completions", upstreamOpenAiEndpoint: "responses", model: "gpt-test",
+    });
+    const output = convert?.(
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ok"}\n\n'
+      + 'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3}}}\n\n',
+      true,
+    ) ?? "";
+    expect(output).toContain('"content":"ok"');
+    expect(output).toContain("data: [DONE]");
+  });
+});
+
 describe("Claude to Responses SSE conversion", () => {
   test("emits a complete terminal response with usage", () => {
     const convert = createSseResponseConverter({

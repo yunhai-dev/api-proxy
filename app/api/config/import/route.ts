@@ -37,6 +37,9 @@ export async function POST(req: NextRequest) {
     if (!row?.id || !row.name || !row.type || !row.baseUrl) continue;
     const capabilities = validateCapabilities(row.capabilities);
     if (!capabilities.ok || validateUpstreamBaseUrl(row.baseUrl)) continue;
+    const openAiProtocol = row.type === "openai" && ["auto", "chat_completions", "responses"].includes(row.openAiProtocol)
+      ? row.openAiProtocol as "auto" | "chat_completions" | "responses"
+      : "auto" as const;
     const current = pg
       ? (await pg.pgDb.select().from(pg.pgSchema.channels).where(eq(pg.pgSchema.channels.id, row.id)).limit(1))[0]
       : db.select().from(schema.channels).where(eq(schema.channels.id, row.id)).get();
@@ -44,6 +47,7 @@ export async function POST(req: NextRequest) {
       id: row.id,
       name: row.name,
       type: row.type,
+      openAiProtocol,
       baseUrl: row.baseUrl,
       apiKey: row.apiKey || current?.apiKey || "",
       weight: Number(row.weight) || 1,
@@ -117,7 +121,23 @@ export async function POST(req: NextRequest) {
     imported += 1;
   }
 
-  for (const row of Array.isArray(body.settings) ? body.settings : []) {
+  const importedSettings = Array.isArray(body.settings) ? body.settings : [];
+  const settingKeys = new Set(importedSettings.map((row: { key?: unknown }) => row?.key));
+  const legacyFallbackKeys: Record<string, string> = {
+    fallbackEnabled: "FallbackEnabled",
+    fallbackChannelId: "FallbackChannelId",
+    fallbackModel: "FallbackModel",
+  };
+  const normalizedSettings = [...importedSettings];
+  for (const [legacyKey, suffix] of Object.entries(legacyFallbackKeys)) {
+    const legacy = importedSettings.find((row: { key?: unknown }) => row?.key === legacyKey);
+    if (!legacy || typeof legacy.value !== "string") continue;
+    for (const provider of ["claude", "openai"]) {
+      const key = `${provider}${suffix}`;
+      if (!settingKeys.has(key)) normalizedSettings.push({ key, value: legacy.value });
+    }
+  }
+  for (const row of normalizedSettings) {
     if (!row?.key || typeof row.value !== "string" || row.key === "smtpPassword" || row.key === "sub2apiAdminKey" || row.key === "serverChanSendKey") continue;
     const value = { key: row.key, value: row.value, updatedAt: Date.now() };
     const current = pg

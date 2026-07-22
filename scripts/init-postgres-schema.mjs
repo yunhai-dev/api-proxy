@@ -88,6 +88,7 @@ const statements = [
     id text PRIMARY KEY,
     name text NOT NULL UNIQUE,
     type text NOT NULL,
+    open_ai_protocol text NOT NULL DEFAULT 'auto',
     base_url text NOT NULL,
     api_key text NOT NULL,
     weight integer NOT NULL DEFAULT 1,
@@ -103,6 +104,7 @@ const statements = [
     enabled boolean NOT NULL DEFAULT true,
     capabilities text[] NOT NULL DEFAULT '{}'
   )`,
+  `ALTER TABLE channels ADD COLUMN IF NOT EXISTS open_ai_protocol text NOT NULL DEFAULT 'auto'`,
   `CREATE TABLE IF NOT EXISTS request_logs (
     id serial PRIMARY KEY,
     request_id text NOT NULL DEFAULT '',
@@ -325,6 +327,7 @@ try {
     if (missing.length === 0) {
       console.log("[schema] PostgreSQL schema exists, applying safe migrations");
       await sql.unsafe(`ALTER TABLE keys ADD COLUMN IF NOT EXISTS channel_id text`);
+      await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS open_ai_protocol text NOT NULL DEFAULT 'auto'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_state text NOT NULL DEFAULT 'closed'`);
       await sql.unsafe(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS circuit_opened_at bigint NOT NULL DEFAULT 0`);

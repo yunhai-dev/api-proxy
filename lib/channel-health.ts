@@ -1,6 +1,6 @@
 import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
-import { endpointFor, headersFor } from "./upstream";
+import { endpointFor, headersFor, resolveOpenAiEndpoint, type OpenAiEndpoint } from "./upstream";
 import { usePostgres } from "./db/runtime";
 import { kickNotificationDrain, setPlatformIncident } from "./notifications";
 
@@ -58,12 +58,12 @@ function testModelFor(channel: typeof schema.channels.$inferSelect) {
   return channel.testModel || channel.models.find(model => model && model !== "*") || "";
 }
 
-function testBody(channel: typeof schema.channels.$inferSelect, model: string) {
-  if (channel.type === "claude") {
+function testBody(channel: typeof schema.channels.$inferSelect, model: string, endpoint?: OpenAiEndpoint) {
+  if (channel.type === "openai" && endpoint === "responses") {
     return JSON.stringify({
       model,
-      max_tokens: 1,
-      messages: [{ role: "user", content: "ping" }],
+      max_output_tokens: 1,
+      input: "ping",
     });
   }
   return JSON.stringify({
@@ -77,13 +77,14 @@ export async function pingChannel(channel: typeof schema.channels.$inferSelect):
   const t0 = Date.now();
   const model = testModelFor(channel);
   if (!model) return { ok: false, latencyMs: 0, error: "未配置测试模型" };
+  const openAiEndpoint = resolveOpenAiEndpoint(channel.type, channel.openAiProtocol);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(endpointFor(channel.type, channel.baseUrl), {
+    const res = await fetch(endpointFor(channel.type, channel.baseUrl, openAiEndpoint), {
       method: "POST",
       headers: headersFor(channel.type, channel.apiKey),
-      body: testBody(channel, model),
+      body: testBody(channel, model, openAiEndpoint),
       signal: controller.signal,
     });
     const text = await res.text().catch(() => "");

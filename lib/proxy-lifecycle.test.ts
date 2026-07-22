@@ -23,6 +23,7 @@ let mappings: Record<string, unknown>[] = [];
 let settings: Record<string, unknown> = {};
 let upstreamCalls: string[] = [];
 let upstreamBodies: string[] = [];
+let upstreamEndpoints: unknown[] = [];
 let reserveCalls = 0;
 let settlements: (number | null)[] = [];
 let channelReleases = 0;
@@ -89,9 +90,11 @@ mock.module("./user-quota", () => ({
   effectiveUserLimitsAsync: async () => ({ rateLimitTpm: 0, rateLimitRpm: 0, maxConcurrency: 0 }),
 }));
 mock.module("./upstream", () => ({
-  callUpstream: async (input: { baseUrl: string; body: string }) => {
+  resolveOpenAiEndpoint: (provider: string, protocol = "auto", inbound?: string) => provider === "claude" ? undefined : inbound === "embeddings" ? "embeddings" : protocol === "auto" ? inbound ?? "chat_completions" : protocol,
+  callUpstream: async (input: { baseUrl: string; body: string; openAiEndpoint?: unknown }) => {
     upstreamCalls.push(input.baseUrl);
     upstreamBodies.push(input.body);
+    upstreamEndpoints.push(input.openAiEndpoint);
     return upstreamResponses.shift();
   },
 }));
@@ -113,12 +116,15 @@ beforeEach(() => {
   channels = [primary];
   mappings = [];
   settings = {
-    maintenanceMode: false, fallbackEnabled: false, fallbackChannelId: "", fallbackModel: "",
+    maintenanceMode: false,
+    claudeFallbackEnabled: false, claudeFallbackChannelId: "", claudeFallbackModel: "",
+    openaiFallbackEnabled: false, openaiFallbackChannelId: "", openaiFallbackModel: "",
     proxyMaxRetries: 2, proxyRetryNetwork: true, proxyRetry429: false, proxyRetry5xx: true,
     proxyTreatEmptyOutputAsFailure: false, recordAllRequestDetails: false, bridgeCapabilityAudit: false,
   };
   upstreamCalls = [];
   upstreamBodies = [];
+  upstreamEndpoints = [];
   reserveCalls = 0;
   settlements = [];
   channelReleases = 0;
@@ -132,6 +138,8 @@ beforeEach(() => {
   key.quota = 0;
   key.used = 0;
   key.channelId = "";
+  fallback.openAiProtocol = "auto";
+  fallback.capabilities = [];
 });
 
 function request(stream = false) {
@@ -316,6 +324,65 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(JSON.parse(upstreamBodies[0]!)).toMatchObject(body);
   });
 
+  test("uses a channel's forced Responses endpoint for Chat traffic", async () => {
+    channels = [{ ...primary, openAiProtocol: "responses", capabilities: ["responses"] }];
+    upstreamResponses = [response({ id: "resp_1", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }], usage: { input_tokens: 2, output_tokens: 3 } })];
+
+    const result = await proxyOnce(request());
+
+    expect(result.kind).toBe("success");
+    expect(upstreamEndpoints).toEqual(["responses"]);
+    expect(JSON.parse(upstreamBodies[0]!)).toMatchObject({ model: "gpt-test", input: [{ type: "message", role: "user" }] });
+    if (result.kind !== "success") throw new Error("expected forced endpoint success");
+    expect(await result.response.json()).toMatchObject({ object: "chat.completion", choices: [{ message: { content: "ok" } }] });
+  });
+
+  test("skips a forced cross-endpoint fallback without declared capability", async () => {
+    fallback.openAiProtocol = "responses";
+    fallback.capabilities = [];
+    channels = [{ ...primary, models: ["other-model"] }, fallback];
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test" };
+
+    const result = await proxyOnce(request());
+
+    expect(result.kind).toBe("upstream_error");
+    expect(upstreamCalls).toEqual([]);
+  });
+
+  test("skips an incompatible forced route when a native route can handle the request", async () => {
+    channels = [
+      { ...primary, id: "native", name: "native", openAiProtocol: "auto" },
+      { ...primary, id: "forced", name: "forced", openAiProtocol: "responses", capabilities: ["responses"] },
+    ];
+    upstreamResponses = [response({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })];
+
+    const result = await proxyOnce({
+      ...request(),
+      body: JSON.stringify({ model: "gpt-test", messages: [{ role: "user", content: "hi" }], parallel_tool_calls: false }),
+    });
+
+    expect(result.kind).toBe("success");
+    expect(upstreamEndpoints).toEqual(["chat_completions"]);
+  });
+
+  test("selects only the inbound protocol's fallback tuple", async () => {
+    channels = [{ ...primary, models: ["other-model"] }, { ...fallback, openAiProtocol: "chat_completions", capabilities: ["chat_completions"] }];
+    settings = {
+      ...settings,
+      claudeFallbackEnabled: true, claudeFallbackChannelId: "missing", claudeFallbackModel: "claude-test",
+      openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test",
+    };
+    upstreamResponses = [response({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })];
+
+    const result = await proxyOnce(responsesRequest());
+
+    expect(result.kind).toBe("success");
+    expect(upstreamCalls).toEqual(["https://fallback.test"]);
+    expect(upstreamEndpoints).toEqual(["chat_completions"]);
+    if (result.kind !== "success") throw new Error("expected protocol fallback success");
+    expect(await result.response.json()).toMatchObject({ object: "response", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] });
+  });
+
   test("preserves parallel_tool_calls for native OpenAI text endpoints", async () => {
     channels = [{ ...primary, models: ["codex-mini", "gpt-test"] }];
     upstreamResponses = [
@@ -386,7 +453,7 @@ describe("proxy TPM reservation lifecycle", () => {
   test("does not dispatch an incompatible bridge request to fallback", async () => {
     mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
     channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "structured_output"] }, { ...fallback, type: "claude", models: ["claude-test"], capabilities: ["messages", "chat_completions", "structured_output"] }];
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "claude-test" };
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "claude-test" };
 
     const result = await proxyOnce({
       ...request(),
@@ -400,7 +467,7 @@ describe("proxy TPM reservation lifecycle", () => {
   test("uses fallback even when the key is bound to another channel", async () => {
     channels = [{ ...primary, models: ["other-model"] }, { ...fallback }];
     key.channelId = "primary";
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test" };
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test" };
     upstreamResponses = [response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } })];
 
     const result = await proxyOnce(request());
@@ -411,7 +478,7 @@ describe("proxy TPM reservation lifecycle", () => {
 
   test("uses fallback across providers without explicit capabilities", async () => {
     channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: [] }, { ...fallback, type: "openai", models: ["gpt-test"], capabilities: [] }];
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    settings = { ...settings, claudeFallbackEnabled: true, claudeFallbackChannelId: "fallback", claudeFallbackModel: "gpt-test", proxyMaxRetries: 1 };
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
       response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } }),
@@ -426,7 +493,7 @@ describe("proxy TPM reservation lifecycle", () => {
   test("uses fallback even when the fallback channel is circuit-open", async () => {
     channels = [{ ...primary, models: ["other-model"] }, { ...fallback, status: "err", circuitState: "open", circuitOpenedAt: Date.now() }];
     circuitAllowed = false;
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test" };
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test" };
     upstreamResponses = [response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } })];
 
     const result = await proxyOnce(request());
@@ -465,7 +532,7 @@ describe("proxy TPM reservation lifecycle", () => {
 
   test("shares one reservation with a successful fallback", async () => {
     channels = [{ ...primary }, { ...fallback, weight: 1 }];
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test", proxyMaxRetries: 1 };
     upstreamResponses = [
       { ok: false, status: 503, errorMsg: "unavailable" },
       response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } }),
@@ -481,7 +548,7 @@ describe("proxy TPM reservation lifecycle", () => {
 
   test("falls back after an upstream model 404", async () => {
     channels = [{ ...primary }, { ...fallback, weight: 1 }];
-    settings = { ...settings, fallbackEnabled: true, fallbackChannelId: "fallback", fallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test", proxyMaxRetries: 1 };
     upstreamResponses = [
       { ok: false, status: 404, errorMsg: "model not found" },
       response({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 2, completion_tokens: 7 } }),

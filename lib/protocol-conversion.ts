@@ -1,23 +1,29 @@
-import type { Provider } from "./upstream";
+import type { OpenAiEndpoint, Provider } from "./upstream";
 
 type Json = Record<string, unknown>;
-type OpenAiEndpoint = "chat_completions" | "responses" | "embeddings";
 
 export function convertRequestBody(input: {
   sourceType: Provider;
   targetType: Provider;
+  inboundOpenAiEndpoint?: OpenAiEndpoint;
+  upstreamOpenAiEndpoint?: OpenAiEndpoint;
   openAiEndpoint?: OpenAiEndpoint;
   body: Json;
   model: string;
   stream: boolean;
 }): Json {
-  if (input.sourceType === input.targetType) return { ...input.body, model: input.model };
+  const inboundEndpoint = input.inboundOpenAiEndpoint ?? input.openAiEndpoint;
+  const upstreamEndpoint = input.upstreamOpenAiEndpoint ?? (input.targetType === "openai" ? input.openAiEndpoint : undefined);
+  if (input.sourceType === input.targetType && inboundEndpoint === upstreamEndpoint) return { ...input.body, model: input.model };
+  if (input.sourceType === "openai" && input.targetType === "openai") {
+    return convertOpenAiRequest(input.body, inboundEndpoint, upstreamEndpoint, input.model, input.stream);
+  }
   if (input.sourceType === "openai" && input.targetType === "claude") {
-    return input.openAiEndpoint === "responses"
+    return inboundEndpoint === "responses"
       ? openAiResponsesToClaudeMessages(input.body, input.model, input.stream)
       : openAiChatToClaudeMessages(input.body, input.model, input.stream);
   }
-  return input.openAiEndpoint === "responses"
+  return upstreamEndpoint === "responses"
     ? claudeMessagesToOpenAiResponses(input.body, input.model, input.stream)
     : claudeMessagesToOpenAiChat(input.body, input.model, input.stream);
 }
@@ -25,17 +31,29 @@ export function convertRequestBody(input: {
 export function convertResponseBody(input: {
   sourceType: Provider;
   targetType: Provider;
+  inboundOpenAiEndpoint?: OpenAiEndpoint;
+  upstreamOpenAiEndpoint?: OpenAiEndpoint;
   openAiEndpoint?: OpenAiEndpoint;
   body: string;
   model: string;
 }): string {
-  if (input.sourceType === input.targetType) return input.body;
+  const inboundEndpoint = input.inboundOpenAiEndpoint ?? input.openAiEndpoint;
+  const upstreamEndpoint = input.upstreamOpenAiEndpoint ?? (input.targetType === "openai" ? input.openAiEndpoint : undefined);
+  if (input.sourceType === input.targetType && inboundEndpoint === upstreamEndpoint) return input.body;
   const parsed = JSON.parse(input.body) as Json;
+  if (input.sourceType === "openai" && input.targetType === "openai") {
+    const claude = upstreamEndpoint === "responses"
+      ? openAiResponseToClaudeMessage(parsed, input.model)
+      : openAiChatToClaudeMessage(parsed, input.model);
+    return JSON.stringify(inboundEndpoint === "responses"
+      ? claudeMessageToOpenAiResponse(claude, input.model)
+      : claudeMessageToOpenAiChat(claude, input.model));
+  }
   const converted = input.sourceType === "openai"
-    ? input.openAiEndpoint === "responses"
+    ? inboundEndpoint === "responses"
       ? claudeMessageToOpenAiResponse(parsed, input.model)
       : claudeMessageToOpenAiChat(parsed, input.model)
-    : input.openAiEndpoint === "responses"
+    : upstreamEndpoint === "responses"
       ? openAiResponseToClaudeMessage(parsed, input.model)
       : openAiChatToClaudeMessage(parsed, input.model);
   return JSON.stringify(converted);
@@ -44,16 +62,44 @@ export function convertResponseBody(input: {
 export function createSseResponseConverter(input: {
   sourceType: Provider;
   targetType: Provider;
+  inboundOpenAiEndpoint?: OpenAiEndpoint;
+  upstreamOpenAiEndpoint?: OpenAiEndpoint;
   openAiEndpoint?: OpenAiEndpoint;
   model: string;
 }) {
-  if (input.sourceType === input.targetType) return null;
+  const inboundEndpoint = input.inboundOpenAiEndpoint ?? input.openAiEndpoint;
+  const upstreamEndpoint = input.upstreamOpenAiEndpoint ?? (input.targetType === "openai" ? input.openAiEndpoint : undefined);
+  if (input.sourceType === input.targetType && inboundEndpoint === upstreamEndpoint) return null;
+  if (input.sourceType === "openai" && input.targetType === "openai") {
+    const toClaude = createOpenAiToClaudeSseConverter(input.model, upstreamEndpoint);
+    const fromClaude = inboundEndpoint === "responses"
+      ? createClaudeToOpenAiResponsesSseConverter(input.model)
+      : createClaudeToOpenAiSseConverter(input.model);
+    return (chunk: string, flush = false) => fromClaude(toClaude(chunk, flush), flush);
+  }
   if (input.sourceType === "openai") {
-    return input.openAiEndpoint === "responses"
+    return inboundEndpoint === "responses"
       ? createClaudeToOpenAiResponsesSseConverter(input.model)
       : createClaudeToOpenAiSseConverter(input.model);
   }
-  return createOpenAiToClaudeSseConverter(input.model, input.openAiEndpoint);
+  return createOpenAiToClaudeSseConverter(input.model, upstreamEndpoint);
+}
+
+function convertOpenAiRequest(body: Json, inboundEndpoint: OpenAiEndpoint | undefined, upstreamEndpoint: OpenAiEndpoint | undefined, model: string, stream: boolean): Json {
+  if (inboundEndpoint === "embeddings" || upstreamEndpoint === "embeddings") return { ...body, model };
+  if (inboundEndpoint === "responses" && upstreamEndpoint === "chat_completions") {
+    const { text, tools, ...bridgeBody } = body;
+    const chatTools = Array.isArray(tools) ? tools.map(responsesToolToChat) : tools;
+    const converted = claudeMessagesToOpenAiChat(openAiResponsesToClaudeMessages({ ...bridgeBody, ...(tools !== undefined ? { tools: chatTools } : {}) }, model, stream), model, stream);
+    if (isRecord(text) && text.format !== undefined) converted.response_format = text.format;
+    return converted;
+  }
+  const { response_format: responseFormat, ...bridgeBody } = body;
+  const converted = claudeMessagesToOpenAiResponses(openAiChatToClaudeMessages(bridgeBody, model, stream), model, stream);
+  if (Array.isArray(converted.input)) converted.input = converted.input.map(item => isRecord(item) && item.role !== undefined && item.type === undefined ? { type: "message", ...item } : item);
+  if (Array.isArray(converted.tools)) converted.tools = converted.tools.map(chatToolToResponses);
+  if (responseFormat !== undefined) converted.text = { format: responseFormat };
+  return converted;
 }
 
 function openAiChatToClaudeMessages(body: Json, model: string, stream: boolean): Json {
@@ -888,6 +934,17 @@ function openAiAssistantContentToClaude(message: Json): unknown[] {
     }
   }
   return content.length ? content : [{ type: "text", text: "" }];
+}
+
+function chatToolToResponses(tool: unknown) {
+  if (!isRecord(tool) || tool.type !== "function" || !isRecord(tool.function)) return tool;
+  return { type: "function", ...tool.function };
+}
+
+function responsesToolToChat(tool: unknown) {
+  if (!isRecord(tool) || tool.type !== "function" || isRecord(tool.function)) return tool;
+  const { type, ...fn } = tool;
+  return { type, function: fn };
 }
 
 function openAiToolsToClaude(tools: unknown): unknown[] {

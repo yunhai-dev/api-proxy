@@ -230,8 +230,10 @@ export function SettingsForm() {
 
   if (!settings || !billingMultiplierDrafts) return <div className="empty"><span className="loading-spinner" aria-label="加载中" /></div>;
 
-  const fallbackChannel = channels.find(channel => channel.id === settings.fallbackChannelId);
-  const fallbackModelOptions = fallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
+  const claudeFallbackChannel = channels.find(channel => channel.id === settings.claudeFallbackChannelId);
+  const claudeFallbackModelOptions = claudeFallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
+  const openaiFallbackChannel = channels.find(channel => channel.id === settings.openaiFallbackChannelId);
+  const openaiFallbackModelOptions = openaiFallbackChannel?.models.map(model => ({ value: model, label: model })) ?? [];
   const archiveReady = !!archivePreview && archivePreview.type === archiveType && archivePreview.before === archiveBefore();
 
   return (
@@ -274,36 +276,26 @@ export function SettingsForm() {
         </div>
 
         <div className="settings-card" hidden={activeTab !== "fallback"}>
-          <h2>Fallback 降级</h2>
-          <Toggle label="启用 Fallback" hint="常规渠道不可用或全部重试失败后，最后尝试指定渠道和模型。不是模型映射。" checked={settings.fallbackEnabled} onChange={fallbackEnabled => setSettings({ ...settings, fallbackEnabled })} />
+          <h2>Claude 入站</h2>
+          <Toggle label="启用 Fallback" hint="Claude 兼容请求的常规渠道不可用或全部重试失败后，最后尝试指定渠道和模型。" checked={settings.claudeFallbackEnabled} onChange={claudeFallbackEnabled => setSettings({ ...settings, claudeFallbackEnabled })} />
           <div className="field">
             <label>Fallback 渠道</label>
-            <Select
-              className="fill-select"
-              value={settings.fallbackChannelId || "__none"}
-              onChange={fallbackChannelId => setSettings({ ...settings, fallbackChannelId: fallbackChannelId === "__none" ? "" : fallbackChannelId })}
-              options={[
-                { value: "__none", label: "不使用 Fallback" },
-                ...channels.map(channel => ({
-                  value: channel.id,
-                  label: `${channel.name} (${channel.type})`,
-                  hint: `${channel.enabled ? "启用" : "停用"} / ${channel.status}`,
-                })),
-              ]}
-            />
-            <div className="hint">请求会重新转换到该渠道协议；停用渠道不会被代理使用。</div>
+            <Select className="fill-select" value={settings.claudeFallbackChannelId || "__none"} onChange={claudeFallbackChannelId => setSettings({ ...settings, claudeFallbackChannelId: claudeFallbackChannelId === "__none" ? "" : claudeFallbackChannelId })} options={[{ value: "__none", label: "不使用 Fallback" }, ...channels.map(channel => ({ value: channel.id, label: `${channel.name} (${channel.type})`, hint: `${channel.enabled ? "启用" : "停用"} / ${channel.status}` }))]} />
           </div>
           <div className="field">
             <label>Fallback 模型</label>
-            <Select
-              className="fill-select"
-              editable
-              value={settings.fallbackModel}
-              onChange={fallbackModel => setSettings({ ...settings, fallbackModel })}
-              options={fallbackModelOptions}
-              placeholder="例如 claude-sonnet-4-5 或 gpt-5-mini"
-            />
-            <div className="hint">允许手动输入。该模型仅在触发 fallback 时替换请求模型。</div>
+            <Select className="fill-select" editable value={settings.claudeFallbackModel} onChange={claudeFallbackModel => setSettings({ ...settings, claudeFallbackModel })} options={claudeFallbackModelOptions} placeholder="选择或输入模型" />
+          </div>
+          <h2>OpenAI 入站</h2>
+          <Toggle label="启用 Fallback" hint="OpenAI 兼容请求的常规渠道不可用或全部重试失败后，最后尝试指定渠道和模型。" checked={settings.openaiFallbackEnabled} onChange={openaiFallbackEnabled => setSettings({ ...settings, openaiFallbackEnabled })} />
+          <div className="field">
+            <label>Fallback 渠道</label>
+            <Select className="fill-select" value={settings.openaiFallbackChannelId || "__none"} onChange={openaiFallbackChannelId => setSettings({ ...settings, openaiFallbackChannelId: openaiFallbackChannelId === "__none" ? "" : openaiFallbackChannelId })} options={[{ value: "__none", label: "不使用 Fallback" }, ...channels.map(channel => ({ value: channel.id, label: `${channel.name} (${channel.type})`, hint: `${channel.enabled ? "启用" : "停用"} / ${channel.status}` }))]} />
+          </div>
+          <div className="field">
+            <label>Fallback 模型</label>
+            <Select className="fill-select" editable value={settings.openaiFallbackModel} onChange={openaiFallbackModel => setSettings({ ...settings, openaiFallbackModel })} options={openaiFallbackModelOptions} placeholder="选择或输入模型" />
+            <div className="hint">两个入站协议分别保存设置，渠道可跨服务商选择。</div>
           </div>
           {renderSaveButton()}
         </div>
