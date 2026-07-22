@@ -1,6 +1,6 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, test } from "bun:test";
-import { normalizeSub2ApiBaseUrl, parseSub2ApiPage, safeAccount, Sub2ApiError } from "./sub2api";
+import { normalizeSub2ApiBaseUrl, parseSub2ApiAccountPage, parseSub2ApiPage, safeAccount, safeAccountDetail, Sub2ApiError } from "./sub2api";
 
 describe("Sub2API boundary", () => {
   test("normalizes safe base URLs", () => {
@@ -15,6 +15,7 @@ describe("Sub2API boundary", () => {
     expect(() => parseSub2ApiPage("0", "20")).toThrow("分页参数无效");
     expect(() => parseSub2ApiPage("1", "25")).toThrow("分页参数无效");
     expect(parseSub2ApiPage("2", "50")).toEqual({ page: 2, pageSize: 50 });
+    expect(parseSub2ApiAccountPage({ items: [], total: 0, page: 0, page_size: 20, pages: 0 })).toEqual({ items: [], total: 0, page: 1, pageSize: 20, pages: 0 });
   });
 
   test("allowlists account fields", () => {
@@ -31,5 +32,14 @@ describe("Sub2API boundary", () => {
       expect(serialized).not.toContain(field);
     }
     expect(serialized).not.toContain("secret");
+  });
+
+  test("parses 5h and 7d usage windows", () => {
+    const detail = safeAccountDetail({ id: 1, groups: [] }, {
+      five_hour: { utilization: 12.5, resets_at: "2026-07-22T18:00:00Z" },
+      seven_day: { utilization: 34, resets_at: "2026-07-29T00:00:00Z" },
+    });
+    expect(detail.fiveHour).toEqual({ utilization: 12.5, resetsAt: "2026-07-22T18:00:00Z" });
+    expect(detail.sevenDay).toEqual({ utilization: 34, resetsAt: "2026-07-29T00:00:00Z" });
   });
 });

@@ -22,12 +22,18 @@ export type Sub2ApiAccount = {
   lastUsedAt: number | string | null;
   updatedAt: number | string | null;
 };
+export type Sub2ApiUsageWindow = {
+  utilization: number;
+  resetsAt: number | string | null;
+};
 export type Sub2ApiAccountDetail = Sub2ApiAccount & {
   errorMessage: string;
   quotaDimension: string;
   sessionWindowStatus: string;
   sessionWindowStart: number | string | null;
   sessionWindowEnd: number | string | null;
+  fiveHour: Sub2ApiUsageWindow | null;
+  sevenDay: Sub2ApiUsageWindow | null;
 };
 
 type RecordValue = Record<string, unknown>;
@@ -67,12 +73,17 @@ export async function listSub2ApiAccounts(
   if (input.status) query.set("status", input.status);
   if (input.search) query.set("search", input.search);
   const data = await request(config, `/admin/accounts?${query}`);
-  const page = parsePage(data);
+  const page = parseSub2ApiAccountPage(data);
   return { ...page, items: page.items.map(safeAccount) };
 }
 
 export async function getSub2ApiAccount(config: Sub2ApiConfig, id: number): Promise<Sub2ApiAccountDetail> {
-  return safeAccountDetail(await request(config, `/admin/accounts/${id}`));
+  const account = await request(config, `/admin/accounts/${id}`);
+  const safe = safeAccount(account);
+  const usage = safe.platform === "anthropic" && (safe.type === "oauth" || safe.type === "setup-token")
+    ? await request(config, `/admin/accounts/${id}/usage?source=passive`)
+    : {};
+  return safeAccountDetail(account, usage);
 }
 
 export type Sub2ApiStatus = Awaited<ReturnType<typeof getSub2ApiStatus>>;
@@ -165,15 +176,15 @@ async function request(config: Sub2ApiConfig, path: string) {
   }
 }
 
-function parsePage(value: unknown) {
+export function parseSub2ApiAccountPage(value: unknown) {
   const data = object(value);
   const items = asArray(data.items);
   const total = number(data.total);
   const page = number(data.page);
   const pageSize = number(data.page_size);
   const pages = number(data.pages);
-  if (page < 1 || pageSize < 1 || total < 0 || pages < 0) throw new Sub2ApiError("Sub2API 返回格式无效");
-  return { items, total, page, pageSize, pages };
+  if (pageSize < 1 || total < 0 || pages < 0 || (total > 0 && page < 1)) throw new Sub2ApiError("Sub2API 返回格式无效");
+  return { items, total, page: total === 0 ? 1 : page, pageSize, pages };
 }
 
 export function safeAccount(value: unknown): Sub2ApiAccount {
@@ -190,13 +201,21 @@ export function safeAccount(value: unknown): Sub2ApiAccount {
   };
 }
 
-function safeAccountDetail(value: unknown): Sub2ApiAccountDetail {
+export function safeAccountDetail(value: unknown, usageValue: unknown): Sub2ApiAccountDetail {
   const row = object(value);
+  const usage = object(usageValue);
   return {
     ...safeAccount(row),
     errorMessage: text(row.error_message), quotaDimension: text(row.quota_dimension), sessionWindowStatus: text(row.session_window_status),
     sessionWindowStart: scalar(row.session_window_start), sessionWindowEnd: scalar(row.session_window_end),
+    fiveHour: usageWindow(usage.five_hour), sevenDay: usageWindow(usage.seven_day),
   };
+}
+
+function usageWindow(value: unknown): Sub2ApiUsageWindow | null {
+  if (value === null || value === undefined) return null;
+  const row = object(value);
+  return { utilization: number(row.utilization), resetsAt: scalar(row.resets_at) };
 }
 
 function isObject(value: unknown): value is RecordValue { return !!value && typeof value === "object" && !Array.isArray(value); }
