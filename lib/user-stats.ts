@@ -94,16 +94,16 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const prices = await pgDb.select().from(pgSchema.modelPrices);
   const priceMap = new Map(prices.map(p => [p.channelId ? `${p.channelId}:${p.model}` : `${p.provider}:${p.model}`, p]));
   const settings = await getSettingsAsync();
-  const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn} + ${pgSchema.requestStats.tokensOut} + ${pgSchema.requestStats.cacheReadTokens} + ${pgSchema.requestStats.cacheCreationTokens}), 0)::int`;
+  const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}::double precision + ${pgSchema.requestStats.tokensOut}::double precision + ${pgSchema.requestStats.cacheReadTokens}::double precision + ${pgSchema.requestStats.cacheCreationTokens}::double precision), 0)`;
 
   const [summary] = await pgDb
     .select({
       requests: sql<number>`count(*)::int`,
       successes: sql<number>`sum(case when ${pgSchema.requestStats.status} >= 200 and ${pgSchema.requestStats.status} < 300 then 1 else 0 end)::int`,
-      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::int`,
-      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::int`,
-      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::int`,
-      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
     })
     .from(pgSchema.requestStats)
     .where(logWhere);
@@ -112,10 +112,10 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
       provider: pgSchema.requestStats.channelType,
       channelId: pgSchema.requestStats.channelId,
       model: pgSchema.requestStats.model,
-      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::int`,
-      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::int`,
-      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::int`,
-      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
     })
     .from(pgSchema.requestStats)
     .where(logWhere)
@@ -129,10 +129,10 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
       channelId: pgSchema.requestStats.channelId,
       model: pgSchema.requestStats.model,
       requests: sql<number>`count(*)::int`,
-      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::int`,
-      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::int`,
-      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::int`,
-      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
       tokens: totalTokensSql,
     })
     .from(pgSchema.requestStats)
@@ -153,10 +153,10 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
       provider: pgSchema.requestStats.channelType,
       channelId: pgSchema.requestStats.channelId,
       requests: sql<number>`count(*)::int`,
-      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::int`,
-      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::int`,
-      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::int`,
-      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::int`,
+      tokensIn: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}), 0)::double precision`,
+      tokensOut: sql<number>`coalesce(sum(${pgSchema.requestStats.tokensOut}), 0)::double precision`,
+      cacheReadTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheReadTokens}), 0)::double precision`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`,
       tokens: totalTokensSql,
     })
     .from(pgSchema.requestStats)
@@ -191,10 +191,10 @@ export async function getUserDetailAsync(userId: string, period?: { since: numbe
   const bucketRows = await pgDb
     .select({
       bucket: bucketedRows.bucket,
-      input: sql<number>`coalesce(sum(${bucketedRows.tokensIn}), 0)::int`,
-      output: sql<number>`coalesce(sum(${bucketedRows.tokensOut}), 0)::int`,
-      cacheRead: sql<number>`coalesce(sum(${bucketedRows.cacheReadTokens}), 0)::int`,
-      cacheCreation: sql<number>`coalesce(sum(${bucketedRows.cacheCreationTokens}), 0)::int`,
+      input: sql<number>`coalesce(sum(${bucketedRows.tokensIn}), 0)::double precision`,
+      output: sql<number>`coalesce(sum(${bucketedRows.tokensOut}), 0)::double precision`,
+      cacheRead: sql<number>`coalesce(sum(${bucketedRows.cacheReadTokens}), 0)::double precision`,
+      cacheCreation: sql<number>`coalesce(sum(${bucketedRows.cacheCreationTokens}), 0)::double precision`,
     })
     .from(bucketedRows)
     .groupBy(bucketedRows.bucket);

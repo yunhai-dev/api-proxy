@@ -472,7 +472,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
   const rangeWhere = ownerWhere ? and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until), ownerWhere) : and(gte(pgSchema.requestStats.ts, since), lt(pgSchema.requestStats.ts, until));
   const prevWhere = ownerWhere ? and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since), ownerWhere) : and(gte(pgSchema.requestStats.ts, prevSince), lt(pgSchema.requestStats.ts, since));
 
-  const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn} + ${pgSchema.requestStats.tokensOut} + ${pgSchema.requestStats.cacheReadTokens} + ${pgSchema.requestStats.cacheCreationTokens}), 0)::double precision`;
+  const totalTokensSql = sql<number>`coalesce(sum(${pgSchema.requestStats.tokensIn}::double precision + ${pgSchema.requestStats.tokensOut}::double precision + ${pgSchema.requestStats.cacheReadTokens}::double precision + ${pgSchema.requestStats.cacheCreationTokens}::double precision), 0)`;
   const successFilter = sql`${pgSchema.requestStats.status} >= 200 and ${pgSchema.requestStats.status} < 300`;
   const [summary] = await pgDb
     .select({
@@ -554,7 +554,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
     .select({
       bucket: bucketedRows.bucket,
       requests: sql<number>`count(*)::int`,
-      tokens: sql<number>`coalesce(sum(${bucketedRows.tokensIn} + ${bucketedRows.tokensOut} + ${bucketedRows.cacheReadTokens} + ${bucketedRows.cacheCreationTokens}), 0)::double precision`,
+      tokens: sql<number>`coalesce(sum(${bucketedRows.tokensIn}::double precision + ${bucketedRows.tokensOut}::double precision + ${bucketedRows.cacheReadTokens}::double precision + ${bucketedRows.cacheCreationTokens}::double precision), 0)`,
     })
     .from(bucketedRows)
     .groupBy(bucketedRows.bucket);
@@ -701,7 +701,7 @@ export async function getDashboardStatsAsync(period: DashboardPeriod = "24h", op
       .select({
         userId: userBucketedRows.userId,
         bucket: userBucketedRows.bucket,
-        tokens: sql<number>`coalesce(sum(${userBucketedRows.tokensIn} + ${userBucketedRows.tokensOut} + ${userBucketedRows.cacheReadTokens} + ${userBucketedRows.cacheCreationTokens}), 0)::double precision`,
+        tokens: sql<number>`coalesce(sum(${userBucketedRows.tokensIn}::double precision + ${userBucketedRows.tokensOut}::double precision + ${userBucketedRows.cacheReadTokens}::double precision + ${userBucketedRows.cacheCreationTokens}::double precision), 0)`,
       })
       .from(userBucketedRows)
       .groupBy(userBucketedRows.userId, userBucketedRows.bucket);
