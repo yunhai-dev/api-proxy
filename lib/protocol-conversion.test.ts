@@ -92,6 +92,42 @@ describe("Claude to OpenAI conversion", () => {
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "visible" }] },
     ]);
   });
+
+  test("defaults missing Claude tool schemas for OpenAI channels", () => {
+    const converted = convertRequestBody({
+      sourceType: "claude",
+      targetType: "openai",
+      openAiEndpoint: "chat_completions",
+      body: {
+        model: "claude-opus-4-8",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ name: "lookup", description: "find" }],
+      },
+      model: "gpt-5",
+      stream: false,
+    });
+
+    expect(converted.tools).toEqual([{ type: "function", function: {
+      name: "lookup",
+      description: "find",
+      parameters: { type: "object", properties: {} },
+    } }]);
+  });
+
+  test("rejects Anthropic built-in tools on OpenAI channels", () => {
+    expect(() => convertRequestBody({
+      sourceType: "claude",
+      targetType: "openai",
+      openAiEndpoint: "chat_completions",
+      body: {
+        model: "claude-opus-4-8",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      },
+      model: "gpt-5",
+      stream: false,
+    })).toThrow("built-in tool 'web_search_20250305'");
+  });
 });
 
 describe("strict OpenAI to Claude conversion", () => {
