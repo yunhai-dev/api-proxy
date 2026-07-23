@@ -48,7 +48,7 @@ export type UpstreamErr = {
 
 export type UpstreamResult = UpstreamOk | UpstreamErr;
 
-const DEFAULT_TIMEOUT = 60_000;
+export const UPSTREAM_TIMEOUT_MS = 60_000;
 
 export function validateUpstreamBaseUrl(baseUrl: unknown): string | null {
   if (typeof baseUrl !== "string" || !baseUrl.trim()) return "请输入基础地址";
@@ -113,7 +113,7 @@ export async function callUpstream(opts: UpstreamOptions): Promise<UpstreamResul
   const timeout = setTimeout(() => {
     timedOut = true;
     abortUpstream();
-  }, opts.timeoutMs ?? DEFAULT_TIMEOUT);
+  }, opts.timeoutMs ?? UPSTREAM_TIMEOUT_MS);
   if (opts.signal) {
     opts.signal.addEventListener("abort", abortUpstream, { once: true });
   }

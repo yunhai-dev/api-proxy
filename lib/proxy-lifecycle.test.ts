@@ -90,6 +90,7 @@ mock.module("./user-quota", () => ({
   effectiveUserLimitsAsync: async () => ({ rateLimitTpm: 0, rateLimitRpm: 0, maxConcurrency: 0 }),
 }));
 mock.module("./upstream", () => ({
+  UPSTREAM_TIMEOUT_MS: 60_000,
   resolveOpenAiEndpoint: (provider: string, protocol = "auto", inbound?: string) => provider === "claude" ? undefined : inbound === "embeddings" ? "embeddings" : protocol === "auto" ? inbound ?? "chat_completions" : protocol,
   callUpstream: async (input: { baseUrl: string; body: string; openAiEndpoint?: unknown }) => {
     upstreamCalls.push(input.baseUrl);
@@ -227,18 +228,26 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(text).toContain("event: response.completed");
   });
 
-  test("does not stop an OpenAI Responses native stream after the first delta", async () => {
-    upstreamResponses = [streamResponse(
-      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}\n\n'
-      + 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ok"}\n\n'
-      + 'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3}}}\n\n',
-    )];
+  test("commits an OpenAI Responses stream on its lifecycle event", async () => {
+    const enc = new TextEncoder();
+    let push!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = controller;
+        controller.enqueue(enc.encode('event: response.created\ndata: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}\n\n'));
+      },
+    });
+    upstreamResponses = [{ ok: true, status: 200, headers: new Headers({ "content-type": "text/event-stream" }), contentType: "text/event-stream", body }];
 
     const result = await proxyOnce(responsesRequest(true));
 
     expect(result.kind).toBe("success");
     if (result.kind !== "success") throw new Error("expected stream success");
+    push.enqueue(enc.encode('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ok"}\n\n'));
+    push.enqueue(enc.encode('event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3}}}\n\n'));
+    push.close();
     const text = await result.response.text();
+    expect(text).toContain("event: response.created");
     expect(text).toContain("event: response.output_text.delta");
     expect(text).toContain("event: response.completed");
   });
@@ -512,6 +521,20 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(channelObservations).toEqual([{ ok: false, failureStatus: "err" }]);
     expect(channelReleases).toBe(1);
     expect(keyReleases).toBe(2);
+  });
+
+  test("does not retry or fall back after the client aborts", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    channels = [{ ...primary }, { ...fallback, weight: 1 }];
+    settings = { ...settings, openaiFallbackEnabled: true, openaiFallbackChannelId: "fallback", openaiFallbackModel: "gpt-test", proxyMaxRetries: 1 };
+    upstreamResponses = [{ ok: false, status: 0, errorMsg: "client aborted" }];
+
+    const result = await proxyOnce({ ...request(), signal: controller.signal });
+
+    expect(result).toMatchObject({ kind: "client_error", status: 499 });
+    expect(upstreamCalls).toEqual(["https://primary.test"]);
+    expect(settlements).toEqual([0]);
   });
 
   test("shares one reservation across a retry and switches channels", async () => {

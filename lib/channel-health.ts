@@ -1,10 +1,9 @@
 import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
-import { endpointFor, headersFor, resolveOpenAiEndpoint, type OpenAiEndpoint } from "./upstream";
+import { endpointFor, headersFor, resolveOpenAiEndpoint, UPSTREAM_TIMEOUT_MS, type OpenAiEndpoint } from "./upstream";
 import { usePostgres } from "./db/runtime";
 import { kickNotificationDrain, setPlatformIncident } from "./notifications";
 
-const TIMEOUT_MS = 15_000;
 const CIRCUIT_COOLDOWN_MS = 10_000;
 const CIRCUIT_OPEN_ERR_RATE = 50;
 
@@ -80,7 +79,7 @@ export async function pingChannel(channel: typeof schema.channels.$inferSelect):
   if (!model) return { ok: false, latencyMs: 0, error: "未配置测试模型" };
   const openAiEndpoint = resolveOpenAiEndpoint(channel.type, channel.openAiProtocol);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
     const res = await fetch(endpointFor(channel.type, channel.baseUrl, openAiEndpoint), {
       method: "POST",

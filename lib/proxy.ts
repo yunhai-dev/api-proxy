@@ -4,7 +4,7 @@
 
 import { db, schema } from "./db";
 import { and, eq, gte } from "drizzle-orm";
-import { callUpstream, resolveOpenAiEndpoint, type OpenAiEndpoint, type Provider, type UpstreamOk } from "./upstream";
+import { callUpstream, resolveOpenAiEndpoint, UPSTREAM_TIMEOUT_MS, type OpenAiEndpoint, type Provider, type UpstreamOk } from "./upstream";
 import { logHub } from "./log-generator";
 import { acquireChannelSlot, isChannelSaturated } from "./channel-queue";
 import { acquireKeySlot } from "./key-queue";
@@ -19,7 +19,6 @@ import { convertRequestBody, convertResponseBody, createSseResponseConverter } f
 import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
 import { kickNotificationDrain, setPlatformIncident } from "./notifications";
 
-const MAX_LATENCY_MS = 60_000;
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
 const USER_UPSTREAM_ERROR = "平台暂时无法处理请求，请稍后重试";
 const ZERO_OUTPUT_TOKEN_ERROR = "上游返回 200 但输出 Token 为 0";
@@ -289,7 +288,7 @@ export type ProxyRequest = {
 
 export type ProxyResult =
   | { kind: "success"; requestId: string; response: Response; logged: { status: number; latencyMs: number; tokensIn: number; tokensOut: number; cacheTokens: number; cacheReadTokens: number; cacheCreationTokens: number; channelId: string; channelName: string } }
-  | { kind: "client_error"; requestId: string; status: 400 | 401 | 402 | 403 | 404 | 429; error: string }
+  | { kind: "client_error"; requestId: string; status: 400 | 401 | 402 | 403 | 404 | 429 | 499; error: string }
   | { kind: "upstream_error"; requestId: string; status: number; error: string; attempts: { channel: string; error: string; status: number }[] };
 
 export function proxyErrorSource(result: Exclude<ProxyResult, { kind: "success" }>) {
@@ -769,6 +768,11 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     : { enabled: settings.openaiFallbackEnabled, channelId: settings.openaiFallbackChannelId, model: settings.openaiFallbackModel };
 
   async function tryFallbackOnce(reason: "no_regular_channel" | "regular_attempts_failed", previousAttempts: { channel: string; error: string; status: number }[] = []): Promise<ProxyResult | null> {
+    if (req.signal?.aborted) {
+      await settleTpm(0);
+      releaseAllKeySlots();
+      return { kind: "client_error", requestId, status: 499, error: "客户端取消/连接中断" };
+    }
     if (!fallback.enabled || !fallback.channelId || !fallback.model) return null;
     const fallbackChannel = await channelByIdAsync(fallback.channelId);
     if (!fallbackChannel?.enabled || (openAiOnly && fallbackChannel.type !== "openai")) return null;
@@ -825,8 +829,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       stream: req.stream,
       signal: req.signal,
       incomingHeaders: req.incomingHeaders,
-      timeoutMs: MAX_LATENCY_MS,
+      timeoutMs: UPSTREAM_TIMEOUT_MS,
     });
+
+    if (!result.ok && (req.signal?.aborted || result.errorMsg === "client aborted")) {
+      releaseSlot();
+      await settleTpm(0);
+      releaseAllKeySlots();
+      return { kind: "client_error", requestId, status: 499, error: "客户端取消/连接中断" };
+    }
 
     if (result.ok) {
       if (req.stream) {
@@ -835,6 +846,12 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
+        if (!prepared.ok && req.signal?.aborted) {
+          releaseSlot();
+          await settleTpm(0);
+          releaseAllKeySlots();
+          return { kind: "client_error", requestId, status: 499, error: "客户端取消/连接中断" };
+        }
         if (!prepared.ok && prepared.reason === "empty") {
           releaseSlot();
           releaseAllKeySlots();
@@ -1004,8 +1021,15 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       stream: req.stream,
       signal: req.signal,
       incomingHeaders: req.incomingHeaders,
-      timeoutMs: MAX_LATENCY_MS,
+      timeoutMs: UPSTREAM_TIMEOUT_MS,
     });
+
+    if (!result.ok && (req.signal?.aborted || result.errorMsg === "client aborted")) {
+      releaseSlot();
+      await settleTpm(0);
+      releaseAllKeySlots();
+      return { kind: "client_error", requestId, status: 499, error: "客户端取消/连接中断" };
+    }
 
     if (result.ok) {
       if (req.stream) {
@@ -1014,6 +1038,12 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
         }, canRetryEmpty);
 
+        if (!prepared.ok && req.signal?.aborted) {
+          releaseSlot();
+          await settleTpm(0);
+          releaseAllKeySlots();
+          return { kind: "client_error", requestId, status: 499, error: "客户端取消/连接中断" };
+        }
         if (!prepared.ok) {
           releaseSlot();
           await recordChannelObservation(route.channel, { ok: false, latencyMs: Date.now() - attemptStart, error: prepared.message }, { failureStatus: prepared.reason === "empty" ? "warn" : "err" });
@@ -1174,8 +1204,8 @@ type StreamPrelude = {
 };
 
 /**
- * 在响应承诺给客户端前，只预读到"首次可见输出"或上游关闭。
- * 有可见输出后立即交给 commit 继续从同一个 reader 流式透传。
+ * 在响应承诺给客户端前，只预读到首个合法 SSE 事件或上游关闭。
+ * 收到事件后立即交给 commit 继续从同一个 reader 流式透传。
  */
 async function prepareStreamResponse(
   upstream: UpstreamOk,
@@ -1196,11 +1226,11 @@ async function prepareStreamResponse(
   let cacheTokens = 0;
   let ttftMs = 0;
   let usageSeen = false;
-  let visibleSeen = false;
+  let committableSeen = false;
   let doneSeen = false;
 
   try {
-    while (!visibleSeen) {
+    while (!committableSeen) {
       const { value, done } = await reader.read();
       if (done) {
         doneSeen = true;
@@ -1208,7 +1238,7 @@ async function prepareStreamResponse(
           const finalText = streamConverter(dec.decode(), true);
           if (finalText) {
             initialChunks.push(enc.encode(finalText));
-            visibleSeen = hasVisibleStreamChunk(finalText, ctx.type);
+            committableSeen = hasCommittableStreamChunk(finalText);
           }
         }
         break;
@@ -1230,11 +1260,11 @@ async function prepareStreamResponse(
         const converted = streamConverter(text);
         if (converted) {
           initialChunks.push(enc.encode(converted));
-          visibleSeen = hasVisibleStreamChunk(converted, ctx.type);
+          committableSeen = hasCommittableStreamChunk(converted);
         }
       } else {
         initialChunks.push(value);
-        visibleSeen = hasVisibleStreamChunk(text, ctx.type);
+        committableSeen = hasCommittableStreamChunk(text);
       }
     }
   } catch (e: unknown) {
@@ -1250,7 +1280,7 @@ async function prepareStreamResponse(
   }
 
   const usage = usageSeen ? { in: tokensIn, out: tokensOut, cacheRead: cacheReadTokens, cacheCreation: cacheCreationTokens } : null;
-  const empty = doneSeen && !visibleSeen && usage && usage.out === 0;
+  const empty = doneSeen && !committableSeen && usage && usage.out === 0;
   const info: ProxyResponseInfo = {
     status: upstream.status,
     latencyMs: Date.now() - ctx.t0,
@@ -1270,42 +1300,15 @@ async function prepareStreamResponse(
   return { ok: true, response: makeStreamResponseFromPrelude(prelude, ctx), info };
 }
 
-function hasVisibleStreamChunk(text: string, provider: Provider) {
+function hasCommittableStreamChunk(text: string) {
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
     const data = trimmed.slice(5).trim();
     if (!data || data === "[DONE]") continue;
     try {
-      const event = JSON.parse(data) as Record<string, unknown>;
-      if (provider === "claude") {
-        if (event.type === "content_block_start" && event.content_block && typeof event.content_block === "object") {
-          const block = event.content_block as Record<string, unknown>;
-          if (block.type === "tool_use") return true;
-        }
-        if (event.type === "content_block_delta" && event.delta && typeof event.delta === "object") {
-          const delta = event.delta as Record<string, unknown>;
-          if (delta.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) return true;
-          if (delta.type === "input_json_delta" && typeof delta.partial_json === "string" && delta.partial_json.length > 0) return true;
-        }
-        continue;
-      }
-      if (event.type === "response.output_text.delta" && typeof event.delta === "string" && event.delta.length > 0) return true;
-      if (event.type === "response.function_call_arguments.delta" && typeof event.delta === "string" && event.delta.length > 0) return true;
-      if (event.type === "response.output_item.added" && event.item && typeof event.item === "object") {
-        const item = event.item as Record<string, unknown>;
-        if (item.type === "function_call") return true;
-      }
-      const choices = Array.isArray(event.choices) ? event.choices : [];
-      for (const choice of choices) {
-        if (!choice || typeof choice !== "object") continue;
-        const delta = (choice as Record<string, unknown>).delta;
-        if (!delta || typeof delta !== "object") continue;
-        const d = delta as Record<string, unknown>;
-        if (typeof d.content === "string" && d.content.length > 0) return true;
-        if (typeof d.refusal === "string" && d.refusal.length > 0) return true;
-        if (Array.isArray(d.tool_calls) && d.tool_calls.length > 0) return true;
-      }
+      JSON.parse(data);
+      return true;
     } catch { /* ignore malformed chunk */ }
   }
   return false;
