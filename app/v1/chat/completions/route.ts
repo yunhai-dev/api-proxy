@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
 
   const result = await proxyOnce({
     type: "openai",
+    openAiEndpoint: "chat_completions",
     body,
     stream,
     rawAuth: authFromHeaders(req.headers),
