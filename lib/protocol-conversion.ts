@@ -967,12 +967,17 @@ function claudeToolsToOpenAi(tools: unknown): unknown[] {
   if (!Array.isArray(tools)) throw new Error("Claude tools must be an array");
   return tools.map(tool => {
     if (!isRecord(tool)) throw new Error("Claude tools must be objects");
+    if (tool.input_schema == null && typeof tool.type === "string") {
+      throw new Error(`Anthropic built-in tool '${tool.type}' is not supported by OpenAI channels`);
+    }
     return {
       type: "function",
       function: {
         name: requiredString(tool.name, "Claude tool name"),
         description: typeof tool.description === "string" ? tool.description : undefined,
-        parameters: requiredJsonObject(tool.input_schema, "Claude tool input_schema"),
+        parameters: tool.input_schema == null
+          ? { type: "object", properties: {} }
+          : requiredJsonObject(tool.input_schema, "Claude tool input_schema"),
       },
     };
   });
