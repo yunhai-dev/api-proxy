@@ -9,6 +9,7 @@ import { upsertRequestStatAsync } from "@/lib/request-stats";
 import type { pgDb } from "./db/pg";
 import { enqueueUserThresholds, kickNotificationDrain } from "@/lib/notifications";
 import { applyBillingMultipliers } from "@/lib/billing";
+import { enqueueRecord, enqueueUpdate, registerDrainFn, placeholderEntry, type LogJob } from "@/lib/async-log-queue";
 
 type PgWriter = Pick<typeof pgDb, "insert" | "select" | "update">;
 type Subscriber = (entry: LogListEntry) => void;
@@ -102,54 +103,38 @@ class LogHub {
 
   async recordAsync(e: LogInput): Promise<LogEntry> {
     if (!usePostgres()) return this.record(e);
-    const { pgDb, pgSchema } = await import("@/lib/db/pg");
     const ts = e.ts || Date.now();
-    const cost = e.keyId ? e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0) : 0;
-    let rawLogId = 0;
-    await pgDb.transaction(async tx => {
-      const inserted = await tx.insert(pgSchema.requestLogs).values({
-        ts,
-        requestId: e.requestId,
-        keyId: e.keyId, channelId: e.channelId, model: e.model,
-        inboundModel: e.inboundModel || e.model,
-        upstreamModel: e.upstreamModel || e.model,
-        mappingId: e.mappingId || "",
-        mappedChannelIds: e.mappedChannelIds ?? [],
-        status: e.status, latencyMs: e.latencyMs,
-        ttftMs: e.ttftMs ?? e.latencyMs,
-        durationMs: e.durationMs ?? e.latencyMs,
-        tokensIn: e.tokensIn, tokensOut: e.tokensOut,
-        cacheTokens: e.cacheTokens ?? 0,
-        cacheReadTokens: e.cacheReadTokens ?? 0,
-        cacheCreationTokens: e.cacheCreationTokens ?? 0,
-        requestDetail: e.requestDetail ?? null,
-        errorMsg: e.errorMsg,
-      }).onConflictDoNothing().returning({ id: pgSchema.requestLogs.id });
-      rawLogId = Number(inserted[0]?.id ?? 0);
-      if (!rawLogId) {
-        const existing = (await tx.select({ id: pgSchema.requestLogs.id }).from(pgSchema.requestLogs)
-          .where(and(eq(pgSchema.requestLogs.keyId, e.keyId), eq(pgSchema.requestLogs.requestId, e.requestId))).limit(1))[0];
-        rawLogId = Number(existing?.id ?? 0);
-        return;
-      }
-      const key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
-      if (e.keyId) {
-        const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
-        await tx.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
-        if (key?.userId) {
-          const user = (await tx.select().from(pgSchema.users).where(eq(pgSchema.users.id, key.userId)).limit(1))[0];
-          const settings = await getSettingsAsync();
-          await enqueueUserThresholds({ kind: "key-quota", ownerId: key.id, ownerName: key.name, email: user?.email ?? "", oldUsed: key.used, newUsed: key.used + addTok, quota: key.quota, settings, writer: tx });
-          await addUserUsageAsync(key.userId, e.tokensIn + e.tokensOut, cost, tx, settings, user);
-        }
-      }
-      await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
-    });
-    kickNotificationDrain();
-    const entry = logEntryFromInput(rawLogId, ts, e);
-    const listEntry = toLogListEntry(entry);
-    this.emit(listEntry);
-    this.publish(listEntry);
+    // 立即广播给 SSE 订阅者，不等 DB 写入
+    const entry = placeholderEntry({ ...e, ts });
+    this.emit(toLogListEntry(entry));
+    this.publish(toLogListEntry(entry));
+    // 入队异步写库，返回 Promise<number>（真实 id）
+    void enqueueRecord({ ...e, ts });
+    return entry;
+  }
+
+  /**
+   * 与 recordAsync 相同，但返回 Promise<number>（drain 后的真实 row id）。
+   * 用于需要在流式结束时执行 updateAsync 的调用路径。
+   */
+  scheduleRecord(e: LogInput): Promise<number> {
+    if (!usePostgres()) {
+      const entry = this.record(e);
+      return Promise.resolve(entry.id);
+    }
+    const ts = e.ts || Date.now();
+    const entry = placeholderEntry({ ...e, ts });
+    this.emit(toLogListEntry(entry));
+    this.publish(toLogListEntry(entry));
+    return enqueueRecord({ ...e, ts });
+  }
+
+  async updateAsync(id: number, e: LogInput): Promise<LogEntry> {
+    if (!usePostgres()) return this.update(id, e);
+    const entry = placeholderEntry({ ...e, id });
+    this.emit(toLogListEntry(entry));
+    this.publish(toLogListEntry(entry));
+    enqueueUpdate(id, e);
     return entry;
   }
 
@@ -222,8 +207,58 @@ class LogHub {
     return entry;
   }
 
-  async updateAsync(id: number, e: LogInput): Promise<LogEntry> {
-    if (!usePostgres()) return this.update(id, e);
+  /** 直接写库，供 drain worker 调用。不做广播（入队时已广播）。*/
+  async _directRecordAsync(e: LogInput): Promise<number> {
+    const { pgDb, pgSchema } = await import("@/lib/db/pg");
+    const ts = e.ts || Date.now();
+    const cost = e.keyId ? e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0) : 0;
+    let rawLogId = 0;
+    await pgDb.transaction(async tx => {
+      const inserted = await tx.insert(pgSchema.requestLogs).values({
+        ts,
+        requestId: e.requestId,
+        keyId: e.keyId, channelId: e.channelId, model: e.model,
+        inboundModel: e.inboundModel || e.model,
+        upstreamModel: e.upstreamModel || e.model,
+        mappingId: e.mappingId || "",
+        mappedChannelIds: e.mappedChannelIds ?? [],
+        status: e.status, latencyMs: e.latencyMs,
+        ttftMs: e.ttftMs ?? e.latencyMs,
+        durationMs: e.durationMs ?? e.latencyMs,
+        tokensIn: e.tokensIn, tokensOut: e.tokensOut,
+        cacheTokens: e.cacheTokens ?? 0,
+        cacheReadTokens: e.cacheReadTokens ?? 0,
+        cacheCreationTokens: e.cacheCreationTokens ?? 0,
+        requestDetail: e.requestDetail ?? null,
+        errorMsg: e.errorMsg,
+      }).onConflictDoNothing().returning({ id: pgSchema.requestLogs.id });
+      rawLogId = Number(inserted[0]?.id ?? 0);
+      if (!rawLogId) {
+        const existing = (await tx.select({ id: pgSchema.requestLogs.id }).from(pgSchema.requestLogs)
+          .where(and(eq(pgSchema.requestLogs.keyId, e.keyId), eq(pgSchema.requestLogs.requestId, e.requestId))).limit(1))[0];
+        rawLogId = Number(existing?.id ?? 0);
+        return;
+      }
+      const key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
+      if (e.keyId) {
+        const addTok = (e.tokensIn + e.tokensOut) / 1_000_000;
+        await tx.update(pgSchema.keys).set({ lastUsedAt: ts, used: sql`${pgSchema.keys.used} + ${addTok}` }).where(eq(pgSchema.keys.id, e.keyId));
+        if (key?.userId) {
+          const user = (await tx.select().from(pgSchema.users).where(eq(pgSchema.users.id, key.userId)).limit(1))[0];
+          const settings = await getSettingsAsync();
+          await enqueueUserThresholds({ kind: "key-quota", ownerId: key.id, ownerName: key.name, email: user?.email ?? "", oldUsed: key.used, newUsed: key.used + addTok, quota: key.quota, settings, writer: tx });
+          await addUserUsageAsync(key.userId, e.tokensIn + e.tokensOut, cost, tx, settings, user);
+        }
+      }
+      await upsertRequestStatAsync(rawLogId, requestStatFromInput(ts, e, key?.userId ?? ""), tx);
+    });
+    kickNotificationDrain();
+    return rawLogId;
+  }
+
+  /** 直接更新已有日志行，供 drain worker 调用。不做广播。*/
+  async _directUpdateAsync(id: number, e: LogInput): Promise<void> {
+    if (id === 0) return; // placeholder id，跳过更新
     const { pgDb, pgSchema } = await import("@/lib/db/pg");
     const prev = (await pgDb.select().from(pgSchema.requestLogs).where(eq(pgSchema.requestLogs.id, id)).limit(1))[0];
     const oldTokens = prev ? prev.tokensIn + prev.tokensOut : 0;
@@ -231,42 +266,26 @@ class LogHub {
     const oldCost = prev ? await logCostAsync(e.channelType, e.channelId, prev.model, prev.tokensIn, prev.tokensOut, prev.cacheReadTokens, prev.cacheCreationTokens) : 0;
     const newCost = e.cost ?? await logCostAsync(e.channelType, e.channelId, e.model, e.tokensIn, e.tokensOut, e.cacheReadTokens ?? 0, e.cacheCreationTokens ?? 0);
     const addTokens = newTokens - oldTokens;
-    let key: typeof pgSchema.keys.$inferSelect | undefined;
     await pgDb.transaction(async tx => {
       await tx.update(pgSchema.requestLogs).set({
-        ts: e.ts,
-        requestId: e.requestId,
-        keyId: e.keyId,
-        channelId: e.channelId,
-        model: e.model,
+        ts: e.ts, requestId: e.requestId, keyId: e.keyId,
+        channelId: e.channelId, model: e.model,
         inboundModel: e.inboundModel || e.model,
         upstreamModel: e.upstreamModel || e.model,
-        mappingId: e.mappingId || "",
-        mappedChannelIds: e.mappedChannelIds ?? [],
-        status: e.status,
-        latencyMs: e.latencyMs,
-        ttftMs: e.ttftMs ?? e.latencyMs,
-        durationMs: e.durationMs ?? e.latencyMs,
-        tokensIn: e.tokensIn,
-        tokensOut: e.tokensOut,
-        cacheTokens: e.cacheTokens ?? 0,
-        cacheReadTokens: e.cacheReadTokens ?? 0,
-        cacheCreationTokens: e.cacheCreationTokens ?? 0,
-        requestDetail: e.requestDetail ?? null,
-        errorMsg: e.errorMsg,
+        mappingId: e.mappingId || "", mappedChannelIds: e.mappedChannelIds ?? [],
+        status: e.status, latencyMs: e.latencyMs,
+        ttftMs: e.ttftMs ?? e.latencyMs, durationMs: e.durationMs ?? e.latencyMs,
+        tokensIn: e.tokensIn, tokensOut: e.tokensOut,
+        cacheTokens: e.cacheTokens ?? 0, cacheReadTokens: e.cacheReadTokens ?? 0, cacheCreationTokens: e.cacheCreationTokens ?? 0,
+        requestDetail: e.requestDetail ?? null, errorMsg: e.errorMsg,
       }).where(eq(pgSchema.requestLogs.id, id));
-      key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
+      const key = e.keyId ? (await tx.select().from(pgSchema.keys).where(eq(pgSchema.keys.id, e.keyId)).limit(1))[0] : undefined;
       if (e.keyId && addTokens !== 0) {
         await tx.update(pgSchema.keys).set({ lastUsedAt: e.ts, used: sql`${pgSchema.keys.used} + ${addTokens / 1_000_000}` }).where(eq(pgSchema.keys.id, e.keyId));
         await addUserUsageAsync(key?.userId, addTokens, newCost - oldCost, tx);
       }
       await upsertRequestStatAsync(id, requestStatFromInput(e.ts, e, key?.userId ?? ""), tx);
     });
-    const entry = logEntryFromInput(id, e.ts, e);
-    const listEntry = toLogListEntry(entry);
-    this.emit(listEntry);
-    this.publish(listEntry);
-    return entry;
   }
 
   private emit(entry: LogListEntry) {
@@ -454,3 +473,15 @@ declare global {
 const existing = globalThis.__logHub as (LogHub & { update?: unknown; version?: number }) | undefined;
 export const logHub = existing && existing.version === 5 && typeof existing.update === "function" ? existing : new LogHub();
 globalThis.__logHub = logHub;
+
+// 向 async-log-queue 注入真实的 drain 实现
+registerDrainFn(async (jobs: LogJob[]) => {
+  for (const job of jobs) {
+    if (job.type === "record") {
+      const id = await logHub._directRecordAsync(job.input as any).catch(() => 0);
+      job.resolve(id);
+    } else {
+      await logHub._directUpdateAsync(job.id, job.input as any).catch(() => null);
+    }
+  }
+});

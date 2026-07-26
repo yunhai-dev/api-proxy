@@ -37,8 +37,11 @@ export function effectiveUserLimits(quota: typeof schema.userQuotas.$inferSelect
   };
 }
 
-export async function effectiveUserLimitsAsync(quota: typeof schema.userQuotas.$inferSelect | undefined | null) {
-  const settings = await getSettingsAsync();
+export async function effectiveUserLimitsAsync(
+  quota: typeof schema.userQuotas.$inferSelect | undefined | null,
+  preloadedSettings?: Awaited<ReturnType<typeof getSettingsAsync>>,
+) {
+  const settings = preloadedSettings ?? await getSettingsAsync();
   return {
     rateLimitRpm: quota?.rateLimitRpm || settings.defaultRateLimitRpm,
     rateLimitTpm: quota?.rateLimitTpm || settings.defaultRateLimitTpm,

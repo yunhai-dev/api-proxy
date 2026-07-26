@@ -2,6 +2,9 @@ import { db, schema } from "./db";
 import { eq } from "drizzle-orm";
 import { decryptSecret, encryptSecret } from "./secret";
 import { usePostgres } from "./db/runtime";
+import { requestCache, SETTINGS_TTL_MS } from "./request-cache";
+
+const SETTINGS_CACHE_KEY = "settings";
 
 export type AppSettings = {
   debugModels: boolean;
@@ -125,9 +128,13 @@ export function getSettings(): AppSettings {
 
 export async function getSettingsAsync(): Promise<AppSettings> {
   if (!usePostgres()) return getSettings();
+  const cached = requestCache.get<AppSettings>(SETTINGS_CACHE_KEY);
+  if (cached) return cached;
   const { pgDb, pgSchema } = await import("./db/pg");
   const rows = await pgDb.select().from(pgSchema.settings);
-  return settingsFromRows(rows.map(row => ({ key: row.key, value: row.value })));
+  const result = settingsFromRows(rows.map(row => ({ key: row.key, value: row.value })));
+  requestCache.set(SETTINGS_CACHE_KEY, result, SETTINGS_TTL_MS);
+  return result;
 }
 
 export function updateSettings(input: Partial<AppSettings>) {
@@ -216,6 +223,8 @@ export async function updateSettingsAsync(input: Partial<AppSettings>) {
       .values({ key, value: encoded, updatedAt: now })
       .onConflictDoUpdate({ target: pgSchema.settings.key, set: { value: encoded, updatedAt: now } });
   }
+  // 写入后失效缓存，让下次请求立即读到最新值
+  requestCache.invalidate(SETTINGS_CACHE_KEY);
   return next;
 }
 

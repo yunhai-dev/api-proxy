@@ -18,6 +18,7 @@ import { appendModelVariant, modelLookupCandidates } from "./model-variants";
 import { convertRequestBody, convertResponseBody, createSseResponseConverter } from "./protocol-conversion";
 import { requiredCapabilities, routeSupportsCapabilities } from "./protocol-capabilities";
 import { kickNotificationDrain, setPlatformIncident } from "./notifications";
+import { requestCache, CHANNEL_TTL_MS } from "./request-cache";
 
 const NO_LIVE_CHANNEL_ERROR = "没有存活的渠道";
 const USER_UPSTREAM_ERROR = "平台暂时无法处理请求，请稍后重试";
@@ -113,20 +114,31 @@ async function checkKeyRateLimit(key: typeof schema.keys.$inferSelect): Promise<
   return null;
 }
 
-async function checkUserQuota(key: typeof schema.keys.$inferSelect): Promise<Extract<ResolveKey, { ok: false }> | null> {
+async function checkUserQuota(
+  key: typeof schema.keys.$inferSelect,
+  preloadedQuota?: typeof schema.userQuotas.$inferSelect | null,
+  preloadedSettings?: Awaited<ReturnType<typeof getSettingsAsync>>,
+): Promise<Extract<ResolveKey, { ok: false }> | null> {
   if (!key.userId) return null;
-  const quota = usePostgres()
-    ? await (async () => {
-      const { pgDb, pgSchema } = await import("./db/pg");
-      return (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, key.userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
-    })()
-    : db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, key.userId)).get();
-  const limits = usePostgres() ? await effectiveUserLimitsAsync(quota) : effectiveUserLimits(quota);
+  const quota = preloadedQuota !== undefined
+    ? preloadedQuota
+    : usePostgres()
+      ? await (async () => {
+        const { pgDb, pgSchema } = await import("./db/pg");
+        return (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, key.userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
+      })()
+      : db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, key.userId)).get();
+  const limits = usePostgres()
+    ? await effectiveUserLimitsAsync(quota, preloadedSettings)
+    : effectiveUserLimits(quota);
   if (!quota || quota.quotaUsd <= 0 || quota.usedUsd >= quota.quotaUsd) return { ok: false, status: 402, error: "用户额度已用完，请续费" };
   if (limits.rateLimitRpm > 0 || limits.rateLimitTpm > 0) {
-    const rpmOk = await consumeRpm("user", key.userId, limits.rateLimitRpm);
+    // 用户 RPM / TPM 检查并行
+    const [rpmOk, tpmOk] = await Promise.all([
+      consumeRpm("user", key.userId, limits.rateLimitRpm),
+      checkTpm("user", key.userId, limits.rateLimitTpm),
+    ]);
     if (rpmOk === false) return { ok: false, status: 429, error: "用户已超出每分钟请求限制" };
-    const tpmOk = await checkTpm("user", key.userId, limits.rateLimitTpm);
     if (tpmOk === false) return { ok: false, status: 429, error: "用户已超出每分钟 Token 限制" };
     if (rpmOk !== null || tpmOk !== null) return null;
     const recent = usePostgres()
@@ -149,12 +161,20 @@ async function checkUserQuota(key: typeof schema.keys.$inferSelect): Promise<Ext
   return null;
 }
 
-async function effectiveUserTpmLimit(userId: string) {
+async function effectiveUserTpmLimit(
+  userId: string,
+  preloadedQuota?: typeof schema.userQuotas.$inferSelect | null,
+  preloadedSettings?: Awaited<ReturnType<typeof getSettingsAsync>>,
+) {
   if (!userId) return 0;
   if (usePostgres()) {
-    const { pgDb, pgSchema } = await import("./db/pg");
-    const quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
-    return (await effectiveUserLimitsAsync(quota)).rateLimitTpm;
+    const quota = preloadedQuota !== undefined
+      ? preloadedQuota
+      : await (async () => {
+        const { pgDb, pgSchema } = await import("./db/pg");
+        return (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
+      })();
+    return (await effectiveUserLimitsAsync(quota, preloadedSettings)).rateLimitTpm;
   }
   return effectiveUserLimits(db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, userId)).get()).rateLimitTpm;
 }
@@ -164,12 +184,20 @@ function numericField(body: Record<string, unknown>, name: string) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-async function userMaxConcurrency(userId: string) {
+async function userMaxConcurrency(
+  userId: string,
+  preloadedQuota?: typeof schema.userQuotas.$inferSelect | null,
+  preloadedSettings?: Awaited<ReturnType<typeof getSettingsAsync>>,
+) {
   if (!userId) return 0;
   if (usePostgres()) {
-    const { pgDb, pgSchema } = await import("./db/pg");
-    const quota = (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
-    return (await effectiveUserLimitsAsync(quota)).maxConcurrency;
+    const quota = preloadedQuota !== undefined
+      ? preloadedQuota
+      : await (async () => {
+        const { pgDb, pgSchema } = await import("./db/pg");
+        return (await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined;
+      })();
+    return (await effectiveUserLimitsAsync(quota, preloadedSettings)).maxConcurrency;
   }
   return effectiveUserLimits(db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, userId)).get()).maxConcurrency;
 }
@@ -595,32 +623,45 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const resolved = await resolveApiKeyAsync(req.rawAuth);
   if (!resolved.ok) {
     if (resolved.status !== 401) {
-      await recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key: resolved.key });
+      void recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key: resolved.key });
     }
     return { kind: "client_error", requestId, status: resolved.status, error: resolved.error };
   }
   const key = resolved.key;
-  const userLimited = await checkUserQuota(key);
+
+  // 预加载 userQuota，后续 checkUserQuota / userMaxConcurrency / effectiveUserTpmLimit 共用
+  let preloadedUserQuota: typeof schema.userQuotas.$inferSelect | null | undefined = undefined;
+  if (key.userId && usePostgres()) {
+    const { pgDb, pgSchema } = await import("./db/pg");
+    preloadedUserQuota = ((await pgDb.select().from(pgSchema.userQuotas).where(eq(pgSchema.userQuotas.userId, key.userId)).limit(1))[0] as typeof schema.userQuotas.$inferSelect | undefined) ?? null;
+  } else if (key.userId) {
+    preloadedUserQuota = db.select().from(schema.userQuotas).where(eq(schema.userQuotas.userId, key.userId)).get() ?? null;
+  }
+
+  // Key RPM/TPM 检查并行
+  const [userLimited, rateLimited] = await Promise.all([
+    checkUserQuota(key, preloadedUserQuota, settings),
+    checkKeyRateLimit(key),
+  ]);
   if (userLimited) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: userLimited.status, error: userLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: userLimited.status, error: userLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
     return { kind: "client_error", requestId, status: userLimited.status, error: userLimited.error };
   }
-  const rateLimited = await checkKeyRateLimit(key);
   if (rateLimited) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: rateLimited.status, error: rateLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: rateLimited.status, error: rateLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
     return { kind: "client_error", requestId, status: rateLimited.status, error: rateLimited.error };
   }
   let releaseUserSlot = () => {};
   let releaseKeySlot = () => {};
   try {
-    releaseUserSlot = await acquireKeySlot(`user:${key.userId}`, await userMaxConcurrency(key.userId), req.signal);
+    releaseUserSlot = await acquireKeySlot(`user:${key.userId}`, await userMaxConcurrency(key.userId, preloadedUserQuota, settings), req.signal);
     releaseKeySlot = await acquireKeySlot(key.id, key.maxConcurrency ?? 0, req.signal);
   } catch (e: unknown) {
     releaseUserSlot();
     const error = e instanceof Error ? e.message : String(e);
     const model = extractModel(req.body) ?? undefined;
     const message = concurrencyWaitError("用户/密钥", error);
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: message, body: req.body, requestHeaders: req.incomingHeaders, model, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: message, body: req.body, requestHeaders: req.incomingHeaders, model, key });
     return { kind: "client_error", requestId, status: 429, error: message };
   }
   const releaseAllKeySlots = () => { releaseKeySlot(); releaseUserSlot(); };
@@ -636,14 +677,14 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(req.body); }
   catch {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error: "body 不是合法 JSON", body: req.body, requestHeaders: req.incomingHeaders, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: 400, error: "body 不是合法 JSON", body: req.body, requestHeaders: req.incomingHeaders, key });
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 400, error: "body 不是合法 JSON" };
   }
 
   const model = typeof parsed.model === "string" ? parsed.model : "";
   if (!model) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 400, error: "缺少 model 字段", body: req.body, requestHeaders: req.incomingHeaders, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: 400, error: "缺少 model 字段", body: req.body, requestHeaders: req.incomingHeaders, key });
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 400, error: "缺少 model 字段" };
   }
@@ -673,11 +714,14 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   }
 
   const modelCandidates = modelLookupCandidates(model);
-  const { mappings, matchedModel: mappingMatchedModel } = await modelMappingCandidateAsync(req.type, modelCandidates);
+  // mapping 查询和入站 catalog 查询并行
+  const [{ mappings, matchedModel: mappingMatchedModel }, { catalog }] = await Promise.all([
+    modelMappingCandidateAsync(req.type, modelCandidates),
+    modelConfigCandidateAsync(req.type, modelCandidates),
+  ]);
   const primaryMapping = mappings[0] ?? null;
-  const { catalog } = await modelConfigCandidateAsync(req.type, modelCandidates);
   if (catalog && !catalog.enabled) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: "模型已停用", body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: primaryMapping?.upstreamModel || model, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: 403, error: "模型已停用", body: req.body, requestHeaders: req.incomingHeaders, model, inboundModel: model, upstreamModel: primaryMapping?.upstreamModel || model, mappingId: primaryMapping?.id, mappedChannelIds: primaryMapping?.channelIds ?? [], key });
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 403, error: "模型已停用" };
   }
@@ -712,30 +756,57 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const routes: RouteCandidate[] = [];
   if (mappings.length) {
     const seen = new Set<string>();
-    for (const mapping of mappings) {
-      const targetProvider = (mapping.targetProvider ?? mapping.provider) as Provider;
-      if (openAiOnly && targetProvider !== "openai") continue;
-      const upstreamModel = appendModelVariant(model, mappingMatchedModel, mapping.upstreamModel);
-      const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
-      const { catalog: upstreamCatalog } = await modelConfigCandidateAsync(targetProvider, upstreamModelCandidates);
-      if (upstreamCatalog && !upstreamCatalog.enabled) continue;
-      const channels = applyMappedChannelScope(
-        applyMappedChannelScope(await selectChannelsAsync(targetProvider, upstreamModelCandidates), mapping.channelIds),
-        key.channelId ? [key.channelId] : undefined,
-      );
-      for (const channel of channels) {
-        if (!supportsRequest(channel, targetProvider, upstreamCatalog)) continue;
-        const key = `${channel.id}:${mapping.id}:${targetProvider}:${upstreamModel}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        routes.push({ channel, targetProvider, upstreamModel, mapping, mappedChannelIds: mapping.channelIds ?? [], capabilityProfile: selectedCapabilityProfile(channel.capabilities, upstreamCatalog?.capabilities), upstreamOpenAiEndpoint: upstreamEndpointFor(channel) });
-      }
+    // 同 provider 的渠道只查一次，用缓存
+    const channelsByProvider = new Map<Provider, ChannelCandidate[]>();
+    async function getChannelsForProvider(provider: Provider) {
+      if (channelsByProvider.has(provider)) return channelsByProvider.get(provider)!;
+      const channels = await selectChannelsAsync(provider, modelCandidates);
+      channelsByProvider.set(provider, channels);
+      return channels;
     }
+
+    // 各 mapping 的 catalog+channel 并行
+    const mappingTasks = mappings
+      .filter(mapping => !(openAiOnly && ((mapping.targetProvider ?? mapping.provider) as Provider) !== "openai"))
+      .map(async mapping => {
+        const targetProvider = (mapping.targetProvider ?? mapping.provider) as Provider;
+        const upstreamModel = appendModelVariant(model, mappingMatchedModel, mapping.upstreamModel);
+        const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
+        const [{ catalog: upstreamCatalog }, allChannels] = await Promise.all([
+          modelConfigCandidateAsync(targetProvider, upstreamModelCandidates),
+          getChannelsForProvider(targetProvider),
+        ]);
+        if (upstreamCatalog && !upstreamCatalog.enabled) return;
+        const models = Array.isArray(upstreamModelCandidates) ? upstreamModelCandidates : [upstreamModelCandidates];
+        const channels = applyMappedChannelScope(
+          applyMappedChannelScope(allChannels.filter(c => {
+            if (c.models.length === 0) return true;
+            if (models.some(item => c.models.includes(item))) return true;
+            if (c.models.includes("*")) return true;
+            return false;
+          }), mapping.channelIds),
+          key.channelId ? [key.channelId] : undefined,
+        );
+        for (const channel of channels) {
+          if (!supportsRequest(channel, targetProvider, upstreamCatalog)) continue;
+          const rk = `${channel.id}:${mapping.id}:${targetProvider}:${upstreamModel}`;
+          if (seen.has(rk)) continue;
+          seen.add(rk);
+          routes.push({ channel, targetProvider, upstreamModel, mapping, mappedChannelIds: mapping.channelIds ?? [], capabilityProfile: selectedCapabilityProfile(channel.capabilities, upstreamCatalog?.capabilities), upstreamOpenAiEndpoint: upstreamEndpointFor(channel) });
+        }
+      });
+    await Promise.all(mappingTasks);
   } else {
     const targetProvider = openAiOnly ? "openai" : req.type;
-    const { catalog: upstreamCatalog } = await modelConfigCandidateAsync(targetProvider, modelCandidates);
-    const channels = applyMappedChannelScope(await selectChannelsAsync(targetProvider, modelCandidates), key.channelId ? [key.channelId] : undefined);
-    routes.push(...channels
+    // 目标 catalog 和 channel 并行
+    const [{ catalog: upstreamCatalog }, channels] = await Promise.all([
+      modelConfigCandidateAsync(targetProvider, modelCandidates),
+      selectChannelsAsync(targetProvider, modelCandidates, key.channelId ? undefined : undefined),
+    ]);
+    const filteredChannels = key.channelId
+      ? channels.filter(c => c.id === key.channelId)
+      : channels;
+    routes.push(...filteredChannels
       .filter(channel => supportsRequest(channel, targetProvider, upstreamCatalog))
       .map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [], capabilityProfile: selectedCapabilityProfile(channel.capabilities, upstreamCatalog?.capabilities), upstreamOpenAiEndpoint: upstreamEndpointFor(channel) })));
   }
@@ -934,7 +1005,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const requestedOutputTokens = numericField(parsed, req.type === "claude" ? "max_tokens" : req.openAiEndpoint === "responses" ? "max_output_tokens" : "max_completion_tokens")
     ?? numericField(parsed, "max_tokens")
     ?? 0;
-  const userTpmLimit = await effectiveUserTpmLimit(key.userId);
+  const userTpmLimit = await effectiveUserTpmLimit(key.userId, preloadedUserQuota, settings);
   const configuredTpmLimits = [key.rateLimitTpm, userTpmLimit].filter(limit => limit > 0);
   const inputTokenUpperBound = new TextEncoder().encode(req.body).byteLength;
   const estimatedTokens = requestedOutputTokens > 0
@@ -949,7 +1020,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     tokens: estimatedTokens,
   });
   if (reservation === false) {
-    await recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: "已超出每分钟 Token 限制", body: req.body, requestHeaders: req.incomingHeaders, model, key });
+    void recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: "已超出每分钟 Token 限制", body: req.body, requestHeaders: req.incomingHeaders, model, key });
     releaseAllKeySlots();
     return { kind: "client_error", requestId, status: 429, error: "已超出每分钟 Token 限制" };
   }
@@ -1089,16 +1160,19 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (!processed.ok) continue;
 
       const response = processed.response;
-      const errorMsg = null;
-      await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
-      await recordSuccessOrAcceptedEmpty(
-        { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm },
-        processed.info,
-        errorMsg,
-      );
-      await settleTpm(processed.info.tokensIn + processed.info.tokensOut);
+      // 并发槽立即释放，不等待日志写入
       releaseAllKeySlots();
       resolveProxyIncidents();
+      // 渠道健康、日志、计费、TPM 结算全部异步，不阻塞响应返回
+      void Promise.all([
+        recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart }),
+        recordSuccessOrAcceptedEmpty(
+          { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm },
+          processed.info,
+          null,
+        ),
+        settleTpm(processed.info.tokensIn + processed.info.tokensOut),
+      ]).catch(() => null);
       return { kind: "success", requestId, response, logged: { ...processed.info, channelId: route.channel.id, channelName: route.channel.name } };
     }
 
@@ -1125,8 +1199,8 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const internalError = lastError
     ? unsupportedModelMessage(lastStatus, lastError, finalModel)
     : NO_LIVE_CHANNEL_ERROR;
-  await recordFailure({ requestId, ts: t0, type: req.type, status: finalStatus, error: internalError, body: req.body, requestHeaders: req.incomingHeaders, model: finalModel, inboundModel: model, upstreamModel: finalModel, mappingId: lastRoute?.mapping?.id ?? primaryMapping?.id, mappedChannelIds: lastRoute?.mappedChannelIds ?? primaryMapping?.channelIds ?? [], key, channel: lastRoute?.channel, attempts });
-  await settleTpm(0);
+  void recordFailure({ requestId, ts: t0, type: req.type, status: finalStatus, error: internalError, body: req.body, requestHeaders: req.incomingHeaders, model: finalModel, inboundModel: model, upstreamModel: finalModel, mappingId: lastRoute?.mapping?.id ?? primaryMapping?.id, mappedChannelIds: lastRoute?.mappedChannelIds ?? primaryMapping?.channelIds ?? [], key, channel: lastRoute?.channel, attempts });
+  void settleTpm(0);
   releaseAllKeySlots();
   if (attempts.length) updateProxyIncident("upstream-exhausted", true, attempts);
   else updateProxyIncident("no-live-channel", true);
@@ -1349,11 +1423,12 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
   let cancelled = false;
   let logged = false;
   let released = false;
-  let logId: number | null = null;
+  // 用 scheduleRecord 获取 Promise<number>，不阻塞首字节
+  let logIdPromise: Promise<number> | null = null;
 
-  async function ensureInitialLog() {
-    if (logId !== null) return logId;
-    const row = await logHub.recordAsync({
+  function scheduleInitialLog() {
+    if (logIdPromise !== null) return;
+    logIdPromise = logHub.scheduleRecord({
       requestId: ctx.requestId,
       ts: ctx.t0, keyId: ctx.key.id, keyName: ctx.key.name, keyPrefix: ctx.key.prefix,
       channelId: ctx.channel.id, channelName: ctx.channel.name, channelType: ctx.channel.type,
@@ -1362,11 +1437,9 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
       ttftMs: prelude.ttftMs, durationMs: 0,
       tokensIn: prelude.tokensIn, tokensOut: prelude.tokensOut,
       cacheTokens: prelude.cacheTokens, cacheReadTokens: prelude.cacheReadTokens, cacheCreationTokens: prelude.cacheCreationTokens,
-      requestDetail: await requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.inboundOpenAiEndpoint, status: prelude.upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, fallbackReason: ctx.fallbackReason, attempts: ctx.attempts, upstreamRequestId: ctx.upstreamRequestId, requiredCapabilities: ctx.requiredCapabilities, capabilityProfile: ctx.capabilityProfile }),
+      requestDetail: requestDetail({ requestId: ctx.requestId, type: ctx.type, targetType: ctx.targetType, openAiEndpoint: ctx.inboundOpenAiEndpoint, status: prelude.upstreamStatus, inboundModel: ctx.inboundModel, upstreamModel: ctx.upstreamModel, channelName: ctx.channel.name, requestHeaders: ctx.requestHeaders, requestBody: ctx.body, fallbackReason: ctx.fallbackReason, attempts: ctx.attempts, upstreamRequestId: ctx.upstreamRequestId, requiredCapabilities: ctx.requiredCapabilities, capabilityProfile: ctx.capabilityProfile }) as unknown as string | null,
       errorMsg: null,
     });
-    logId = row.id;
-    return logId;
   }
 
   function releaseSlot() {
@@ -1380,7 +1453,8 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
     if (logged) return;
     logged = true;
     releaseSlot();
-    const id = await ensureInitialLog();
+    // 等待初始日志 id（drain 后才真正有值）
+    const id = await (logIdPromise ?? Promise.resolve(0));
     await recordStreamFinal(id, ctx, status, Date.now() - ctx.t0, prelude, errorMsg);
     await ctx.settleTpm?.(errorMsg ? null : prelude.tokensIn + prelude.tokensOut);
   }
@@ -1397,7 +1471,8 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        await ensureInitialLog();
+        // 入队初始日志（非阻塞），首字节不再等待 DB 写完
+        scheduleInitialLog();
         const queued = queue.shift();
         if (queued) {
           controller.enqueue(queued);
