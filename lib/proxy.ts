@@ -756,14 +756,6 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const routes: RouteCandidate[] = [];
   if (mappings.length) {
     const seen = new Set<string>();
-    // 同 provider 的渠道只查一次，用缓存
-    const channelsByProvider = new Map<Provider, ChannelCandidate[]>();
-    async function getChannelsForProvider(provider: Provider) {
-      if (channelsByProvider.has(provider)) return channelsByProvider.get(provider)!;
-      const channels = await selectChannelsAsync(provider, modelCandidates);
-      channelsByProvider.set(provider, channels);
-      return channels;
-    }
 
     // 各 mapping 的 catalog+channel 并行
     const mappingTasks = mappings
@@ -774,7 +766,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
         const upstreamModelCandidates = modelLookupCandidates(upstreamModel);
         const [{ catalog: upstreamCatalog }, allChannels] = await Promise.all([
           modelConfigCandidateAsync(targetProvider, upstreamModelCandidates),
-          getChannelsForProvider(targetProvider),
+          selectChannelsAsync(targetProvider, upstreamModelCandidates),
         ]);
         if (upstreamCatalog && !upstreamCatalog.enabled) return;
         const models = Array.isArray(upstreamModelCandidates) ? upstreamModelCandidates : [upstreamModelCandidates];
