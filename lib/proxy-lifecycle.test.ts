@@ -32,6 +32,8 @@ let circuitAllowed = true;
 let channelObservations: { ok: boolean; failureStatus?: string }[] = [];
 let logRecords: Record<string, unknown>[] = [];
 let failLogUpdate = false;
+let channelObservationBlock: Promise<void> | null = null;
+let channelObservationStarted: (() => void) | null = null;
 
 const schema = Object.fromEntries([
   "keys", "channels", "modelMappings", "userQuotas", "requestLogs",
@@ -62,6 +64,8 @@ mock.module("./channel-health", () => ({
   circuitAllows: () => circuitAllowed,
   recordChannelObservation: async (channel: Channel, ping: { ok: boolean }, options?: { failureStatus?: string }) => {
     channelObservations.push({ ok: ping.ok, failureStatus: options?.failureStatus });
+    channelObservationStarted?.();
+    if (channelObservationBlock) await channelObservationBlock;
     return { status: channel.status };
   },
 }));
@@ -82,6 +86,7 @@ mock.module("./rate-limit", () => ({
 mock.module("./log-generator", () => ({
   logHub: {
     recordAsync: async (entry: Record<string, unknown>) => { logRecords.push(entry); return { id: 1 }; },
+    scheduleRecord: async (entry: Record<string, unknown>) => { logRecords.push(entry); return 1; },
     updateAsync: async (_id: number, entry: Record<string, unknown>) => { if (failLogUpdate) throw new Error("log update failed"); logRecords.push(entry); },
   },
 }));
@@ -134,6 +139,8 @@ beforeEach(() => {
   channelObservations = [];
   logRecords = [];
   failLogUpdate = false;
+  channelObservationBlock = null;
+  channelObservationStarted = null;
   upstreamResponses = [];
   key.status = "active";
   key.quota = 0;
@@ -423,6 +430,7 @@ describe("proxy TPM reservation lifecycle", () => {
     const result = await proxyOnce({ ...responsesRequest(), body: JSON.stringify(body) });
 
     expect(result.kind).toBe("success");
+    await flush();
     const detail = JSON.parse(String(logRecords.at(-1)?.requestDetail ?? "{}"));
     expect(detail.reasoning).toEqual({ effort: "high" });
     expect(detail.request_body).toBeNull();
@@ -434,6 +442,7 @@ describe("proxy TPM reservation lifecycle", () => {
     const result = await proxyOnce(request());
 
     expect(result).toMatchObject({ kind: "client_error", status: 403 });
+    await flush();
     expect(logRecords.at(-1)).toMatchObject({ keyId: "key-1", keyName: "test key", keyPrefix: "sk-relay-test" });
   });
 
@@ -602,10 +611,38 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(keyReleases).toBe(2);
   });
 
-  test("retains stream TPM reservation and releases slots on cancellation", async () => {
+  test("returns a committed stream without waiting for channel health persistence", async () => {
+    const observation = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    channelObservationBlock = observation.promise;
+    channelObservationStarted = started.resolve;
     upstreamResponses = [streamResponse(
-      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n' + "data: [DONE]\n\n",
     )];
+
+    let returned = false;
+    const resultPromise = proxyOnce(request(true)).then(result => {
+      returned = true;
+      return result;
+    });
+    await started.promise;
+    await Promise.resolve();
+    const returnedBeforeObservation = returned;
+    observation.resolve();
+    const result = await resultPromise;
+
+    expect(returnedBeforeObservation).toBe(true);
+    expect(result.kind).toBe("success");
+    if (result.kind === "success") await result.response.text();
+  });
+
+  test("retains stream TPM reservation and releases slots on cancellation", async () => {
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
+      },
+    });
+    upstreamResponses = [{ ok: true, status: 200, headers: new Headers({ "content-type": "text/event-stream" }), contentType: "text/event-stream", body: upstream }];
 
     const result = await proxyOnce(request(true));
 

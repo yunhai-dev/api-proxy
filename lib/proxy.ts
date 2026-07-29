@@ -932,7 +932,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           await settleTpm(null);
           return upstreamFailure(502, attempts);
         }
-        await recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart });
+        void recordChannelObservation(fallbackChannel, { ok: true, latencyMs: Date.now() - attemptStart }).catch(() => null);
         resolveProxyIncidents();
         return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: fallbackChannel.id, channelName: fallbackChannel.name } };
       }
@@ -1117,7 +1117,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
           continue;
         }
 
-        await recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart });
+        void recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart }).catch(() => null);
         resolveProxyIncidents();
         return { kind: "success", requestId, response: prepared.response, logged: { ...prepared.info, channelId: route.channel.id, channelName: route.channel.name } };
       }
