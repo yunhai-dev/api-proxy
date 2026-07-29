@@ -235,6 +235,42 @@ describe("proxy TPM reservation lifecycle", () => {
     expect(text).toContain("event: response.completed");
   });
 
+  test("keeps pulling after a converted upstream event produces no output", async () => {
+    mappings = [{ id: "mapping-1", provider: "openai", targetProvider: "claude", inboundModel: "gpt-test", upstreamModel: "claude-test", enabled: true, channelIds: [] }];
+    channels = [{ ...primary, type: "claude", models: ["claude-test"], capabilities: ["messages", "responses", "streaming"] }];
+    const encoder = new TextEncoder();
+    const remaining = [
+      'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"second"}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"output_tokens":3}}\n\n',
+      'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1"}}\n\n'));
+      },
+      pull(controller) {
+        const chunk = remaining.shift();
+        if (chunk) controller.enqueue(encoder.encode(chunk));
+        else controller.close();
+      },
+    });
+    upstreamResponses = [{ ok: true, status: 200, headers: new Headers({ "content-type": "text/event-stream" }), contentType: "text/event-stream", body }];
+
+    const result = await proxyOnce(responsesRequest(true));
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success" || !result.response.body) throw new Error("expected stream success");
+    expect(result.response.headers.get("server-timing")).toContain("first_event");
+    expect(result.response.headers.get("server-timing")).toContain("stream_convert");
+    const reader = result.response.body.getReader();
+    const first = await reader.read();
+    const second = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain("response.created");
+    expect(new TextDecoder().decode(second.value)).toContain('"delta":"second"');
+    while (!(await reader.read()).done) { /* drain final events */ }
+  });
+
   test("commits an OpenAI Responses stream on its lifecycle event", async () => {
     const enc = new TextEncoder();
     let push!: ReadableStreamDefaultController<Uint8Array>;
@@ -603,6 +639,8 @@ describe("proxy TPM reservation lifecycle", () => {
 
     expect(result.kind).toBe("success");
     if (result.kind !== "success") throw new Error("expected stream success");
+    expect(result.response.headers.get("server-timing")).toContain("upstream_headers");
+    expect(result.response.headers.get("server-timing")).toContain("first_event");
     await result.response.text();
     await flush();
     expect(reserveCalls).toBe(1);

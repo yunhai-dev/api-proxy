@@ -410,6 +410,25 @@ const saturationMap = new Map(
 
 ---
 
+### Stage 8：流控、节点计时与增量转换诊断
+
+**Files modified**: `lib/proxy.ts`, `lib/proxy-lifecycle.test.ts`
+
+**具体逻辑**：
+- 流式 `pull()` 持续读取上游，直到产生可下发字节、流结束或报错，避免协议转换遇到心跳/usage/lifecycle 空输出事件后停止拉取。
+- 通过 `Server-Timing` 返回 settings、鉴权、额度/限流、Key 队列、路由、TPM 预留、渠道队列、上游响应头和首个有效事件耗时。
+- SSE usage 改为只解析新到达的完整行，不再每个 chunk 重扫最多 256 KiB 历史数据。
+- 协议输出保持逐事件转换；不缓存带请求状态、工具调用索引和随机响应 ID 的转换结果。
+
+**Validation**：
+- 受控上游在两个文本事件之间插入无输出 usage 事件，客户端仍收到第二个文本事件并正常结束。
+- 原生与跨协议流式响应包含 `Server-Timing`，可直接定位慢节点。
+- 协议转换测试、代理生命周期测试、类型检查和构建通过。
+
+**验证结果（2026-07-29）**：66 项代理/协议转换测试通过，类型检查与生产构建通过；Claude → OpenAI Responses 转换基准为 10,000 个事件约 12.7ms（约 1.27µs/事件），转换计算不是秒级延迟来源。
+
+---
+
 ## Testing Strategy
 
 ### Happy path

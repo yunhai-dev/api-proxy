@@ -348,6 +348,15 @@
 | 2 | Chat 与 Responses 共用映射路径 | [x] | 支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` |
 | 3 | 表驱动转换测试与构建验证 | [x] | `bun test lib/protocol-conversion.test.ts` / `bunx tsc --noEmit` / `bun run build` 通过 |
 
+## 代理流式延迟分段诊断
+
+| # | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | 修复空转换事件后的持续拉流 | [x] | 详见 [`docs/plan/proxy-performance-optimization.md`](./plan/proxy-performance-optimization.md) Stage 8 |
+| 2 | 响应头暴露分节点耗时 | [x] | 使用标准 `Server-Timing` |
+| 3 | SSE usage 改为增量解析 | [x] | 避免随流长度增长的重复扫描 |
+| 4 | 直通、转换、类型与构建验证 | [x] | 66 项聚焦测试、`bunx tsc --noEmit`、`bun run build` 通过 |
+
 ## 企业级原生协议与跨协议桥接
 
 | # | 任务 | 状态 | 备注 |

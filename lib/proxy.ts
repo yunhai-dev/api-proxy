@@ -324,7 +324,22 @@ export function proxyErrorSource(result: Exclude<ProxyResult, { kind: "success" 
 }
 
 const MAX_LOG_BODY_CHARS = 64 * 1024;
-const MAX_SSE_USAGE_BUFFER_CHARS = 256 * 1024;
+
+type ProxyTimings = { entries: { name: string; durationMs: number }[]; lastAt: number };
+
+function createProxyTimings(): ProxyTimings {
+  return { entries: [], lastAt: performance.now() };
+}
+
+function markProxyTiming(timings: ProxyTimings, name: string) {
+  const now = performance.now();
+  timings.entries.push({ name, durationMs: now - timings.lastAt });
+  timings.lastAt = now;
+}
+
+function proxyServerTiming(timings: ProxyTimings) {
+  return timings.entries.map(({ name, durationMs }) => `${name};dur=${durationMs.toFixed(1)}`).join(", ");
+}
 
 function truncateLogText(value: string) {
   if (value.length <= MAX_LOG_BODY_CHARS) return value;
@@ -332,8 +347,8 @@ function truncateLogText(value: string) {
 }
 
 function appendCapped(current: string, chunk: string, maxChars: number) {
-  const next = current + chunk;
-  return next.length > maxChars ? next.slice(next.length - maxChars) : next;
+  if (current.length >= maxChars) return current;
+  return current + chunk.slice(0, maxChars - current.length);
 }
 
 function redactBody(value: string) {
@@ -608,7 +623,9 @@ function bodyWithModel(body: string, model: string) {
  */
 export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   const t0 = Date.now();
+  const timings = createProxyTimings();
   const settings = await getSettingsAsync();
+  markProxyTiming(timings, "settings");
   const requestId = req.incomingHeaders?.get("x-request-id")
     ?? req.incomingHeaders?.get("request-id")
     ?? crypto.randomUUID();
@@ -621,6 +638,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
 
   // 1) 解析 key
   const resolved = await resolveApiKeyAsync(req.rawAuth);
+  markProxyTiming(timings, "auth");
   if (!resolved.ok) {
     if (resolved.status !== 401) {
       void recordFailure({ requestId, ts: t0, type: req.type, status: resolved.status, error: resolved.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key: resolved.key });
@@ -643,6 +661,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     checkUserQuota(key, preloadedUserQuota, settings),
     checkKeyRateLimit(key),
   ]);
+  markProxyTiming(timings, "quota_rate_limit");
   if (userLimited) {
     void recordFailure({ requestId, ts: t0, type: req.type, status: userLimited.status, error: userLimited.error, body: req.body, requestHeaders: req.incomingHeaders, model: extractModel(req.body) ?? undefined, key });
     return { kind: "client_error", requestId, status: userLimited.status, error: userLimited.error };
@@ -656,6 +675,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
   try {
     releaseUserSlot = await acquireKeySlot(`user:${key.userId}`, await userMaxConcurrency(key.userId, preloadedUserQuota, settings), req.signal);
     releaseKeySlot = await acquireKeySlot(key.id, key.maxConcurrency ?? 0, req.signal);
+    markProxyTiming(timings, "key_queue");
   } catch (e: unknown) {
     releaseUserSlot();
     const error = e instanceof Error ? e.message : String(e);
@@ -802,6 +822,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       .filter(channel => supportsRequest(channel, targetProvider, upstreamCatalog))
       .map(channel => ({ channel, targetProvider, upstreamModel: model, mapping: null, mappedChannelIds: [], capabilityProfile: selectedCapabilityProfile(channel.capabilities, upstreamCatalog?.capabilities), upstreamOpenAiEndpoint: upstreamEndpointFor(channel) })));
   }
+  markProxyTiming(timings, "routing");
 
   function routeBody(route: RouteCandidate) {
     const converted = JSON.stringify(convertRequestBody({ sourceType: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, body: parsed, model: route.upstreamModel, stream: req.stream }));
@@ -873,6 +894,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     let releaseSlot: () => void;
     try {
       releaseSlot = await acquireChannelSlot(fallbackChannel.id, fallbackChannel.maxConcurrency ?? 0, req.signal);
+      markProxyTiming(timings, "channel_queue");
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       const message = concurrencyWaitError("备用渠道", error);
@@ -894,6 +916,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       incomingHeaders: req.incomingHeaders,
       timeoutMs: UPSTREAM_TIMEOUT_MS,
     });
+    markProxyTiming(timings, "upstream_headers");
 
     if (!result.ok && (req.signal?.aborted || result.errorMsg === "client aborted")) {
       releaseSlot();
@@ -906,7 +929,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); }, timings,
         }, canRetryEmpty);
 
         if (!prepared.ok && req.signal?.aborted) {
@@ -940,7 +963,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm,
+          key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, timings,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
@@ -975,7 +998,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       const errorMsg = processed.ok ? null : (processed.message ?? null);
       await recordChannelObservation(fallbackChannel, { ok: processed.ok, latencyMs: Date.now() - attemptStart, error: errorMsg ?? undefined }, { failureStatus: processed.ok ? undefined : "warn" });
       await recordSuccessOrAcceptedEmpty(
-        { key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm },
+        { key, channel: fallbackChannel, model: fallback.model, inboundModel: model, upstreamModel: fallback.model, mappingId: primaryMapping?.id ?? "", mappedChannelIds: primaryMapping?.channelIds ?? [], t0, type: req.type, targetType: fallbackChannel.type, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: fallbackUpstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, fallbackReason: reason, attempts: previousAttempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: fallbackRequiredCapabilities, capabilityProfile: selectedCapabilityProfile(fallbackChannel.capabilities, fallbackCatalog?.capabilities), settleTpm, timings },
         processed.info,
         errorMsg,
       );
@@ -1011,6 +1034,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     userLimit: userTpmLimit,
     tokens: estimatedTokens,
   });
+  markProxyTiming(timings, "tpm_reserve");
   if (reservation === false) {
     void recordFailure({ requestId, ts: t0, type: req.type, status: 429, error: "已超出每分钟 Token 限制", body: req.body, requestHeaders: req.incomingHeaders, model, key });
     releaseAllKeySlots();
@@ -1058,6 +1082,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
     let releaseSlot: () => void;
     try {
       releaseSlot = await acquireChannelSlot(route.channel.id, route.channel.maxConcurrency ?? 0, req.signal);
+      markProxyTiming(timings, "channel_queue");
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       if (req.signal?.aborted) {
@@ -1086,6 +1111,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       incomingHeaders: req.incomingHeaders,
       timeoutMs: UPSTREAM_TIMEOUT_MS,
     });
+    markProxyTiming(timings, "upstream_headers");
 
     if (!result.ok && (req.signal?.aborted || result.errorMsg === "client aborted")) {
       releaseSlot();
@@ -1098,7 +1124,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       if (req.stream) {
         const canRetryEmpty = settings.proxyTreatEmptyOutputAsFailure && settings.proxyRetryNetwork;
         const prepared: ResponseProcessResult = await prepareStreamResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); },
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, signal: req.signal, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm, releaseSlot: () => { releaseSlot(); releaseAllKeySlots(); }, timings,
         }, canRetryEmpty);
 
         if (!prepared.ok && req.signal?.aborted) {
@@ -1125,7 +1151,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       let processed: ResponseProcessResult;
       try {
         processed = await collectResponse(result, {
-          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm,
+          key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm, timings,
         }, canRetryEmpty);
       } catch (e: unknown) {
         const error = e instanceof Error ? e.message : String(e);
@@ -1159,7 +1185,7 @@ export async function proxyOnce(req: ProxyRequest): Promise<ProxyResult> {
       void Promise.all([
         recordChannelObservation(route.channel, { ok: true, latencyMs: Date.now() - attemptStart }),
         recordSuccessOrAcceptedEmpty(
-          { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm },
+          { key, channel: route.channel, model: route.upstreamModel, inboundModel: model, upstreamModel: route.upstreamModel, mappingId: route.mapping?.id ?? "", mappedChannelIds: route.mappedChannelIds, t0, type: req.type, targetType: route.targetProvider, inboundOpenAiEndpoint, upstreamOpenAiEndpoint: route.upstreamOpenAiEndpoint, requestId, body: req.body, requestHeaders: req.incomingHeaders, attempts, upstreamRequestId: upstreamRequestId(result.headers), requiredCapabilities: routeCapabilities(route.targetProvider, route.upstreamOpenAiEndpoint), capabilityProfile: route.capabilityProfile, settleTpm, timings },
           processed.info,
           null,
         ),
@@ -1233,6 +1259,7 @@ type Ctx = {
   upstreamRequestId?: string | null;
   requiredCapabilities?: string[];
   capabilityProfile?: string[];
+  timings: ProxyTimings;
 };
 
 type ProxyResponseInfo = {
@@ -1251,13 +1278,15 @@ type ResponseProcessResult =
   | { ok: true; response: Response; info: ProxyResponseInfo }
   | { ok: false; reason: "empty" | "upstream_error"; message: string; info: ProxyResponseInfo; fallbackResponse?: Response };
 
+type SseUsageParser = { push: (chunk: string, flush?: boolean) => UsageTokens | null };
+
 type StreamPrelude = {
   reader: ReadableStreamDefaultReader<Uint8Array>;
   enc: TextEncoder;
   dec: TextDecoder;
   streamConverter: ReturnType<typeof createSseResponseConverter>;
   initialChunks: Uint8Array[];
-  usageBuffer: string;
+  usageParser: SseUsageParser;
   detailBuffer: string;
   tokensIn: number;
   tokensOut: number;
@@ -1283,7 +1312,7 @@ async function prepareStreamResponse(
   const reader = upstream.body.getReader();
   const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, inboundOpenAiEndpoint: ctx.inboundOpenAiEndpoint, upstreamOpenAiEndpoint: ctx.upstreamOpenAiEndpoint, model: ctx.inboundModel });
   const initialChunks: Uint8Array[] = [];
-  let usageBuffer = "";
+  const usageParser = createSseUsageParser(ctx.targetType);
   let detailBuffer = "";
   let tokensIn = 0;
   let tokensOut = 0;
@@ -1292,6 +1321,7 @@ async function prepareStreamResponse(
   let cacheTokens = 0;
   let ttftMs = 0;
   let usageSeen = false;
+  let conversionMs = 0;
   let committableSeen = false;
   let doneSeen = false;
 
@@ -1300,8 +1330,21 @@ async function prepareStreamResponse(
       const { value, done } = await reader.read();
       if (done) {
         doneSeen = true;
+        const finalDecoded = dec.decode();
+        const parsed = usageParser.push(finalDecoded, true);
+        if (parsed) {
+          usageSeen = true;
+          tokensIn = parsed.in;
+          tokensOut = parsed.out;
+          cacheReadTokens = parsed.cacheRead;
+          cacheCreationTokens = parsed.cacheCreation;
+          cacheTokens = parsed.cacheRead + parsed.cacheCreation;
+        }
+        detailBuffer = appendCapped(detailBuffer, finalDecoded, MAX_LOG_BODY_CHARS);
         if (streamConverter) {
-          const finalText = streamConverter(dec.decode(), true);
+          const conversionStarted = performance.now();
+          const finalText = streamConverter(finalDecoded, true);
+          conversionMs += performance.now() - conversionStarted;
           if (finalText) {
             initialChunks.push(enc.encode(finalText));
             committableSeen = hasCommittableStreamChunk(finalText);
@@ -1311,9 +1354,7 @@ async function prepareStreamResponse(
       }
       if (!ttftMs) ttftMs = Date.now() - ctx.t0;
       const text = dec.decode(value, { stream: true });
-      usageBuffer = appendCapped(usageBuffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
-      detailBuffer = appendCapped(detailBuffer, text, MAX_LOG_BODY_CHARS);
-      const parsed = parseSseUsage(usageBuffer, ctx.targetType);
+      const parsed = usageParser.push(text);
       if (parsed) {
         usageSeen = true;
         tokensIn = parsed.in;
@@ -1322,8 +1363,11 @@ async function prepareStreamResponse(
         cacheCreationTokens = parsed.cacheCreation;
         cacheTokens = parsed.cacheRead + parsed.cacheCreation;
       }
+      detailBuffer = appendCapped(detailBuffer, text, MAX_LOG_BODY_CHARS);
       if (streamConverter) {
+        const conversionStarted = performance.now();
         const converted = streamConverter(text);
+        conversionMs += performance.now() - conversionStarted;
         if (converted) {
           initialChunks.push(enc.encode(converted));
           committableSeen = hasCommittableStreamChunk(converted);
@@ -1347,6 +1391,8 @@ async function prepareStreamResponse(
 
   const usage = usageSeen ? { in: tokensIn, out: tokensOut, cacheRead: cacheReadTokens, cacheCreation: cacheCreationTokens } : null;
   const empty = doneSeen && !committableSeen && usage && usage.out === 0;
+  markProxyTiming(ctx.timings, "first_event");
+  ctx.timings.entries.push({ name: "stream_convert", durationMs: conversionMs });
   const info: ProxyResponseInfo = {
     status: upstream.status,
     latencyMs: Date.now() - ctx.t0,
@@ -1359,7 +1405,7 @@ async function prepareStreamResponse(
   }
 
   const prelude: StreamPrelude = {
-    reader, enc, dec, streamConverter, initialChunks, usageBuffer, detailBuffer,
+    reader, enc, dec, streamConverter, initialChunks, usageParser, detailBuffer,
     tokensIn, tokensOut, cacheTokens, cacheReadTokens, cacheCreationTokens,
     ttftMs, upstreamStatus: upstream.status, contentType: upstream.contentType,
   };
@@ -1412,6 +1458,7 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
   outHeaders.set("x-request-id", ctx.requestId);
 
   const queue = prelude.initialChunks.slice();
+  outHeaders.set("server-timing", proxyServerTiming(ctx.timings));
   let cancelled = false;
   let logged = false;
   let released = false;
@@ -1465,37 +1512,38 @@ function makeStreamResponseFromPrelude(prelude: StreamPrelude, ctx: Ctx): Respon
       try {
         // 入队初始日志（非阻塞），首字节不再等待 DB 写完
         scheduleInitialLog();
-        const queued = queue.shift();
-        if (queued) {
-          controller.enqueue(queued);
-          return;
-        }
-        const { value, done } = await prelude.reader.read();
-        if (done) {
-          if (prelude.streamConverter) {
-            const finalText = prelude.streamConverter(prelude.dec.decode(), true);
-            if (finalText) controller.enqueue(prelude.enc.encode(finalText));
+        while (true) {
+          const queued = queue.shift();
+          if (queued) {
+            controller.enqueue(queued);
+            return;
           }
-          try { controller.close(); } catch { /* client already closed */ }
-          if (!cancelled) await record(prelude.upstreamStatus, null);
-          return;
-        }
-        const text = prelude.dec.decode(value, { stream: true });
-        prelude.usageBuffer = appendCapped(prelude.usageBuffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
-        prelude.detailBuffer = appendCapped(prelude.detailBuffer, text, MAX_LOG_BODY_CHARS);
-        const parsed = parseSseUsage(prelude.usageBuffer, ctx.targetType);
-        if (parsed) {
-          prelude.tokensIn = parsed.in;
-          prelude.tokensOut = parsed.out;
-          prelude.cacheReadTokens = parsed.cacheRead;
-          prelude.cacheCreationTokens = parsed.cacheCreation;
-          prelude.cacheTokens = parsed.cacheRead + parsed.cacheCreation;
-        }
-        if (prelude.streamConverter) {
-          const converted = prelude.streamConverter(text);
-          if (converted) controller.enqueue(prelude.enc.encode(converted));
-        } else {
+          const { value, done } = await prelude.reader.read();
+          if (done) {
+            const finalDecoded = prelude.dec.decode();
+            const parsed = prelude.usageParser.push(finalDecoded, true);
+            if (parsed) applyStreamUsage(prelude, parsed);
+            prelude.detailBuffer = appendCapped(prelude.detailBuffer, finalDecoded, MAX_LOG_BODY_CHARS);
+            if (prelude.streamConverter) {
+              const finalText = prelude.streamConverter(finalDecoded, true);
+              if (finalText) controller.enqueue(prelude.enc.encode(finalText));
+            }
+            try { controller.close(); } catch { /* client already closed */ }
+            if (!cancelled) void record(prelude.upstreamStatus, null).catch(() => {});
+            return;
+          }
+          const text = prelude.dec.decode(value, { stream: true });
+          prelude.detailBuffer = appendCapped(prelude.detailBuffer, text, MAX_LOG_BODY_CHARS);
+          const parsed = prelude.usageParser.push(text);
+          if (parsed) applyStreamUsage(prelude, parsed);
+          if (prelude.streamConverter) {
+            const converted = prelude.streamConverter(text);
+            if (!converted) continue;
+            controller.enqueue(prelude.enc.encode(converted));
+            return;
+          }
           controller.enqueue(value);
+          return;
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -1532,7 +1580,7 @@ async function pipeStreamResponse(
   const dec = new TextDecoder();
   const reader = upstream.body.getReader();
   const streamConverter = createSseResponseConverter({ sourceType: ctx.type, targetType: ctx.targetType, inboundOpenAiEndpoint: ctx.inboundOpenAiEndpoint, upstreamOpenAiEndpoint: ctx.upstreamOpenAiEndpoint, model: ctx.inboundModel });
-  let buffer = "";
+  const usageParser = createSseUsageParser(ctx.targetType);
   let detailBuffer = "";
   let tokensIn = 0;
   let tokensOut = 0;
@@ -1615,6 +1663,7 @@ async function pipeStreamResponse(
   outHeaders.set("x-proxy-channel-id", ctx.channel.id);
   outHeaders.set("x-proxy-model", ctx.model);
   outHeaders.set("x-request-id", ctx.requestId);
+  outHeaders.set("server-timing", proxyServerTiming(ctx.timings));
 
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -1632,9 +1681,8 @@ async function pipeStreamResponse(
         }
         if (!ttftMs) ttftMs = Date.now() - ctx.t0;
         const text = dec.decode(value, { stream: true });
-        buffer = appendCapped(buffer, text, MAX_SSE_USAGE_BUFFER_CHARS);
         detailBuffer = appendCapped(detailBuffer, text, MAX_LOG_BODY_CHARS);
-        const parsed = parseSseUsage(buffer, ctx.targetType);
+        const parsed = usageParser.push(text);
         if (parsed) {
           tokensIn = parsed.in;
           tokensOut = parsed.out;
@@ -1685,6 +1733,7 @@ async function collectResponse(
   canTreatEmptyAsFailure: boolean,
 ): Promise<ResponseProcessResult> {
   const text = await streamToString(upstream.body);
+  markProxyTiming(ctx.timings, "upstream_body");
   const latency = Date.now() - ctx.t0;
   const usage = extractUsage(text, ctx.targetType);
   let responseText = text;
@@ -1693,6 +1742,7 @@ async function collectResponse(
     responseText = convertResponseBody({ sourceType: ctx.type, targetType: ctx.targetType, inboundOpenAiEndpoint: ctx.inboundOpenAiEndpoint, upstreamOpenAiEndpoint: ctx.upstreamOpenAiEndpoint, body: text, model: ctx.inboundModel });
     responseContentType = "application/json";
   }
+  markProxyTiming(ctx.timings, "response_convert");
   const tokensIn = usage?.in ?? 0;
   const tokensOut = usage?.out ?? 0;
   const cacheRead = usage?.cacheRead ?? 0;
@@ -1718,6 +1768,7 @@ async function collectResponse(
   outHeaders.set("x-proxy-channel-id", ctx.channel.id);
   outHeaders.set("x-proxy-model", ctx.model);
   outHeaders.set("x-request-id", ctx.requestId);
+  outHeaders.set("server-timing", proxyServerTiming(ctx.timings));
 
   return {
     ok: true,
@@ -1762,52 +1813,50 @@ async function recordSuccessOrAcceptedEmpty(ctx: Ctx, info: ProxyResponseInfo, e
 
 type UsageTokens = { in: number; out: number; cacheRead: number; cacheCreation: number };
 
-function parseSseUsage(buffer: string, type: Provider): UsageTokens | null {
-  if (type === "claude") {
-    // 累积所有 event 块中的 usage
-    let input = 0, output = 0, cacheRead = 0, cacheCreation = 0;
-    const eventRe = /^data: (.+)$/gm;
-    let m: RegExpExecArray | null;
-    while ((m = eventRe.exec(buffer)) !== null) {
-      try {
-        const d = JSON.parse(m[1]);
-        if (d.type === "message_start" && d.message?.usage) {
-          const usage = claudeUsageTokens(d.message.usage, { in: input, out: output, cacheRead, cacheCreation });
-          input = usage.in;
-          output = usage.out;
-          cacheRead = usage.cacheRead;
-          cacheCreation = usage.cacheCreation;
-        }
-        if (d.type === "message_delta" && d.usage) {
-          const usage = claudeUsageTokens(d.usage, { in: input, out: output, cacheRead, cacheCreation });
-          input = usage.in;
-          output = usage.out;
-          cacheRead = usage.cacheRead;
-          cacheCreation = usage.cacheCreation;
-        }
-      } catch { /* */ }
-    }
-    return input > 0 || output > 0 || cacheRead > 0 || cacheCreation > 0 ? { in: input, out: output, cacheRead, cacheCreation } : null;
-  }
-  // OpenAI: 最后一块含 usage
-  const lines = buffer.split("\n");
-  let input = 0, output = 0, cacheRead = 0, found = false;
-  for (const line of lines) {
-    if (!line.startsWith("data:")) continue;
-    const data = line.slice(5).trim();
-    if (data === "[DONE]") continue;
-    try {
-      const d = JSON.parse(data);
-      const usage = openAiUsagePayload(d);
-      if (usage) {
-        found = true;
-        input = openAiInputTokens(usage, input);
-        output = openAiOutputTokens(usage, output);
-        cacheRead = openAiCacheReadTokens(usage, cacheRead);
+function applyStreamUsage(prelude: StreamPrelude, usage: UsageTokens) {
+  prelude.tokensIn = usage.in;
+  prelude.tokensOut = usage.out;
+  prelude.cacheReadTokens = usage.cacheRead;
+  prelude.cacheCreationTokens = usage.cacheCreation;
+  prelude.cacheTokens = usage.cacheRead + usage.cacheCreation;
+}
+
+function createSseUsageParser(type: Provider): SseUsageParser {
+  let remainder = "";
+  let current: UsageTokens = { in: 0, out: 0, cacheRead: 0, cacheCreation: 0 };
+  let found = false;
+
+  return {
+    push(chunk: string, flush = false): UsageTokens | null {
+      const lines = (remainder + chunk).replace(/\r\n/g, "\n").split("\n");
+      remainder = flush ? "" : lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        try {
+          const event = JSON.parse(data);
+          if (type === "claude") {
+            const usage = event.type === "message_start" ? event.message?.usage : event.type === "message_delta" ? event.usage : null;
+            if (!usage) continue;
+            current = claudeUsageTokens(usage, current);
+            found = true;
+            continue;
+          }
+          const usage = openAiUsagePayload(event);
+          if (!usage) continue;
+          current = {
+            in: openAiInputTokens(usage, current.in),
+            out: openAiOutputTokens(usage, current.out),
+            cacheRead: openAiCacheReadTokens(usage, current.cacheRead),
+            cacheCreation: 0,
+          };
+          found = true;
+        } catch { /* ignore malformed/incomplete SSE data */ }
       }
-    } catch { /* */ }
-  }
-  return found ? { in: input, out: output, cacheRead, cacheCreation: 0 } : null;
+      return found ? current : null;
+    },
+  };
 }
 
 function extractUsage(body: string, type: Provider): UsageTokens | null {
