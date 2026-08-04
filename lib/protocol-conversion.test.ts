@@ -30,13 +30,22 @@ describe("OpenAI reasoning effort conversion", () => {
     ["medium", "medium"],
     ["high", "high"],
     ["xhigh", "xhigh"],
-    ["max", "max"],
   ] as const)("maps %s to %s for Chat and Responses", (effort: string, expected: string) => {
     for (const body of [chat(effort), responses(effort)]) {
       expect(body.thinking).toEqual({ type: "adaptive" });
       expect(body.output_config).toEqual({ effort: expected });
       expect(body).not.toHaveProperty("budget_tokens");
     }
+  });
+
+  test("maps max to xhigh for Chat (old protocol) and max for Responses (new protocol)", () => {
+    const chatBody = chat("max");
+    expect(chatBody.thinking).toEqual({ type: "adaptive" });
+    expect(chatBody.output_config).toEqual({ effort: "xhigh" });
+
+    const responsesBody = responses("max");
+    expect(responsesBody.thinking).toEqual({ type: "adaptive" });
+    expect(responsesBody.output_config).toEqual({ effort: "max" });
   });
 
   test("uses compatible fallbacks for unknown Claude models", () => {

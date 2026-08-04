@@ -132,7 +132,7 @@ function openAiChatToClaudeMessages(body: Json, model: string, stream: boolean):
   const tools = openAiToolsToClaude(body.tools);
   if (tools.length) out.tools = tools;
   if (body.tool_choice !== undefined) out.tool_choice = openAiToolChoiceToClaude(body.tool_choice);
-  applyOpenAiReasoning(body.reasoning_effort, model, out);
+  applyOpenAiReasoning(body.reasoning_effort, model, out, "chat_completions");
   return out;
 }
 
@@ -152,7 +152,7 @@ function openAiResponsesToClaudeMessages(body: Json, model: string, stream: bool
   if (tools.length) out.tools = tools;
   if (body.tool_choice !== undefined) out.tool_choice = openAiToolChoiceToClaude(body.tool_choice);
   const reasoning = isRecord(body.reasoning) ? body.reasoning.effort : undefined;
-  applyOpenAiReasoning(reasoning, model, out);
+  applyOpenAiReasoning(reasoning, model, out, "responses");
   return out;
 }
 
@@ -241,7 +241,7 @@ function responsesContentToClaude(content: unknown): unknown {
   });
 }
 
-function applyOpenAiReasoning(value: unknown, model: string, out: Json) {
+function applyOpenAiReasoning(value: unknown, model: string, out: Json, inboundEndpoint?: OpenAiEndpoint) {
   if (value === undefined) return;
   if (typeof value !== "string" || !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value)) {
     throw new Error("reasoning effort must be none, minimal, low, medium, high, xhigh, or max");
@@ -251,7 +251,11 @@ function applyOpenAiReasoning(value: unknown, model: string, out: Json) {
     if (capabilities.canDisableThinking) out.thinking = { type: "disabled" };
     return;
   }
-  const effort = value === "minimal" ? "low" : value;
+  let effort = value === "minimal" ? "low" : value;
+  // Old protocol (Chat Completions) doesn't support "max" natively — map to "xhigh"
+  if (effort === "max" && inboundEndpoint === "chat_completions") {
+    effort = "xhigh";
+  }
   out.thinking = { type: "adaptive" };
   const needsCompatibilityFallback = (effort === "xhigh" && !capabilities.supportsXhigh)
     || (effort === "max" && !capabilities.supportsMax);
